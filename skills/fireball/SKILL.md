@@ -11,10 +11,14 @@ como ação.
 
 ## Iniciar uma reunião
 
-1. `fireball start --name "<nome da reunião>"` → retorna `meeting_id`.
-   - O motor real de áudio ainda não existe (ver `fireball/engine.py`), então por enquanto sempre
-     roda em `--fake`, que simula uma transcrição chegando aos poucos — útil para testar o resto
-     do fluxo.
+1. `fireball start --name "<nome da reunião>" --real` → retorna `meeting_id`, grava microfone e
+   áudio do sistema de verdade (`mic.wav` / `system.wav` / `meeting.wav`).
+   - Use `--fake` (padrão) só para testar o resto do fluxo com uma transcrição simulada, sem
+     gravar áudio nenhum.
+   - A transcrição em tempo real a partir do áudio real ainda não está implementada — em uma
+     reunião `--real`, `transcript.ndjson` fica vazio; tome notas manualmente com base no que
+     está ouvindo, e use `fireball finalize` (quando a transcrição via provedor existir) para a
+     transcrição final.
 2. Avise o usuário que a reunião começou e qual é o `meeting_id`.
 
 ## Acompanhar ao vivo
@@ -66,6 +70,7 @@ como ação.
 Cada reunião mora em `~/.fireball/meetings/<meeting_id>/`:
 
 - `meeting.json` — metadados
+- `mic.wav` / `system.wav` / `meeting.wav` — áudio real (só em reuniões `--real`)
 - `transcript.ndjson` — transcrição em tempo real (fonte primária durante a reunião)
 - `transcript_final.ndjson` — transcrição final, após `finalize`
 - `notes.md` — notas ao vivo (a mesma fonte que a GUI reflete)

@@ -14,8 +14,9 @@ from __future__ import annotations
 import signal
 import time
 from pathlib import Path
+from typing import Optional
 
-from fireball import storage
+from fireball import audio, storage
 
 FAKE_SCRIPT = [
     ("Rafael", "Bom dia pessoal, vamos começar a sincronização do projeto Fireball."),
@@ -63,11 +64,83 @@ def run_fake_engine(meeting_dir: Path, interval: float = 3.0) -> None:
         time.sleep(interval)
 
 
-def run_real_engine(meeting_dir: Path) -> None:
-    raise NotImplementedError(
-        "Motor real de transcrição ainda não implementado.\n"
-        "TODO: capturar áudio (ex.: sounddevice) e alimentar um engine de streaming\n"
-        "(ex.: faster-whisper local, ou a API de streaming de um provedor), escrevendo\n"
-        "cada segmento reconhecido via storage.append_ndjson(transcript_path, ...).\n"
-        "Use --fake por enquanto para testar o restante do pipeline."
-    )
+def run_real_engine(
+    meeting_dir: Path,
+    mic_device: Optional[str] = None,
+    system_device: Optional[str] = None,
+) -> None:
+    """Grava microfone + áudio do sistema (mic.pcm / system.pcm, via parecord)
+    até receber SIGTERM/SIGINT, depois empacota tudo em .wav.
+
+    A transcrição em tempo real de verdade (rodar um modelo de streaming sobre
+    esse áudio e escrever segmentos em transcript.ndjson) ainda não está
+    implementada — isso aqui só cuida da captura. `transcript.ndjson` fica
+    vazio no modo --real por enquanto; use `fireball note` manualmente ou
+    `--fake` para exercitar o restante do pipeline (notas, ações, Monitor).
+    """
+    mic_pcm = meeting_dir / "mic.pcm"
+    system_pcm = meeting_dir / "system.pcm"
+    warnings_path = meeting_dir / "audio_warnings.log"
+    rate, channels = audio.DEFAULT_SAMPLERATE, audio.DEFAULT_CHANNELS
+
+    mic_source = mic_device or audio.MIC_DEVICE
+    system_source = system_device or audio.SYSTEM_DEVICE
+
+    # parecord não valida o nome do device — um nome errado cai silenciosamente
+    # para a fonte padrão. Validamos explicitamente contra o pactl antes de
+    # gravar, para não mascarar um dispositivo mal configurado.
+    audio.validate_source(mic_source)
+    has_system = True
+    try:
+        audio.validate_source(system_source)
+    except audio.AudioBackendUnavailable as exc:
+        has_system = False
+        warnings_path.write_text(f"Gravando só o microfone — {exc}\n")
+
+    mic_proc = audio.start_recording(mic_source, mic_pcm, rate, channels, meeting_dir / "mic_parecord.log")
+    system_proc = None
+    if has_system:
+        system_proc = audio.start_recording(
+            system_source, system_pcm, rate, channels, meeting_dir / "system_parecord.log"
+        )
+
+    # dá um instante para o parecord conectar; se a conexão falhar por outro
+    # motivo (permissão, device ocupado), o processo já terá saído sozinho.
+    time.sleep(0.5)
+
+    if has_system and system_proc.poll() is not None:
+        has_system = False
+        err = (meeting_dir / "system_parecord.log").read_text(errors="ignore")
+        warnings_path.write_text(
+            f"Gravando só o microfone — falha ao abrir o áudio do sistema ({system_source}):\n{err}\n"
+        )
+
+    if mic_proc.poll() is not None:
+        err = (meeting_dir / "mic_parecord.log").read_text(errors="ignore")
+        raise RuntimeError(f"Falha ao abrir o microfone ({mic_source}):\n{err}")
+
+    state = {"running": True}
+
+    def _stop(signum, frame):
+        state["running"] = False
+
+    signal.signal(signal.SIGTERM, _stop)
+    signal.signal(signal.SIGINT, _stop)
+
+    while state["running"]:
+        time.sleep(0.5)
+
+    mic_proc.terminate()
+    mic_proc.wait(timeout=5)
+    if has_system:
+        system_proc.terminate()
+        system_proc.wait(timeout=5)
+
+    audio.wrap_pcm_as_wav(mic_pcm, meeting_dir / "mic.wav", rate, channels)
+    tracks = {"mic": {"device": mic_source, "samplerate": rate, "channels": channels}}
+    if has_system:
+        audio.wrap_pcm_as_wav(system_pcm, meeting_dir / "system.wav", rate, channels)
+        tracks["system"] = {"device": system_source, "samplerate": rate, "channels": channels}
+        audio.mix_pcm(mic_pcm, system_pcm, meeting_dir / "meeting.wav", rate, channels)
+
+    storage.write_json(meeting_dir / "audio_tracks.json", tracks)

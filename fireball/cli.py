@@ -18,7 +18,7 @@ from datetime import datetime
 
 import click
 
-from fireball import engine, storage
+from fireball import audio, engine, storage
 
 
 @click.group()
@@ -27,15 +27,37 @@ def cli():
 
 
 @cli.command()
+def devices():
+    """Lista as fontes de áudio disponíveis (mics e monitores de saída), via pactl.
+
+    Use o campo "name" com --mic-device/--system-device em `fireball start`
+    quando o padrão (@DEFAULT_SOURCE@ / @DEFAULT_MONITOR@) não for o que você
+    quer — por exemplo, um headset bluetooth específico.
+    """
+    for source in audio.list_sources():
+        click.echo(json.dumps(source, ensure_ascii=False))
+
+
+@cli.command()
 @click.option("--name", default="Reunião", help="Nome da reunião.")
 @click.option(
     "--fake/--real",
     default=True,
-    help="Usa o motor simulado (sketch, padrão) ou tenta o motor real (ainda não implementado).",
+    help="Usa o motor simulado (transcrição fake) ou grava áudio real (mic + sistema).",
 )
 @click.option("--interval", default=3.0, type=float, help="Intervalo em segundos entre segmentos (modo --fake).")
-def start(name, fake, interval):
-    """Inicia uma nova reunião: cria a pasta e sobe o motor de transcrição em background."""
+@click.option(
+    "--mic-device",
+    default=None,
+    help="Nome da fonte de microfone (ver `fireball devices`). Padrão: @DEFAULT_SOURCE@ (entrada padrão do sistema).",
+)
+@click.option(
+    "--system-device",
+    default=None,
+    help="Nome da fonte de monitor do sistema (ver `fireball devices`). Padrão: @DEFAULT_MONITOR@ (monitor da saída padrão).",
+)
+def start(name, fake, interval, mic_device, system_device):
+    """Inicia uma nova reunião: cria a pasta e sobe o motor de gravação/transcrição em background."""
     meeting_dir = storage.new_meeting_dir(name)
     meeting_id = meeting_dir.name
 
@@ -44,19 +66,25 @@ def start(name, fake, interval):
     )
     (meeting_dir / "transcript.ndjson").touch()
 
+    cmd = [
+        sys.executable,
+        "-m",
+        "fireball.cli",
+        "_engine",
+        meeting_id,
+        "--fake" if fake else "--real",
+        "--interval",
+        str(interval),
+    ]
+    if mic_device is not None:
+        cmd += ["--mic-device", mic_device]
+    if system_device is not None:
+        cmd += ["--system-device", system_device]
+
     log_path = meeting_dir / "engine.log"
     with open(log_path, "w") as log_file:
         proc = subprocess.Popen(
-            [
-                sys.executable,
-                "-m",
-                "fireball.cli",
-                "_engine",
-                meeting_id,
-                "--fake" if fake else "--real",
-                "--interval",
-                str(interval),
-            ],
+            cmd,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
@@ -70,6 +98,8 @@ def start(name, fake, interval):
         "status": "recording",
         "fake": fake,
         "engine_pid": proc.pid,
+        "mic_device": mic_device,
+        "system_device": system_device,
     }
     storage.write_json(meeting_dir / "meeting.json", meeting)
     storage.write_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
@@ -82,12 +112,14 @@ def start(name, fake, interval):
 @click.argument("meeting_id")
 @click.option("--fake/--real", default=True)
 @click.option("--interval", default=3.0, type=float)
-def _engine_cmd(meeting_id, fake, interval):
+@click.option("--mic-device", default=None)
+@click.option("--system-device", default=None)
+def _engine_cmd(meeting_id, fake, interval, mic_device, system_device):
     meeting_dir = storage.meeting_path(meeting_id)
     if fake:
         engine.run_fake_engine(meeting_dir, interval=interval)
     else:
-        engine.run_real_engine(meeting_dir)
+        engine.run_real_engine(meeting_dir, mic_device=mic_device, system_device=system_device)
 
 
 @cli.command()
