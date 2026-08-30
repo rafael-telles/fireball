@@ -399,13 +399,22 @@ def finalize(meeting_id, backend):
         if key not in tracks or not wav_path.exists():
             continue
         for seg in batch_backend.transcribe_file(wav_path, language):
-            entries.append({"start": seg["start"] or 0.0, "speaker": speaker, "text": seg["text"]})
-    entries.sort(key=lambda e: e["start"])
+            entries.append({"start": seg["start"], "end": seg["end"], "speaker": speaker, "text": seg["text"]})
+    # sem timestamp (parakeet hoje), assume início da reunião — não deixa
+    # sem posição pra ordenar, só perde a intercalação fina com a outra track
+    entries.sort(key=lambda e: e["start"] if e["start"] is not None else 0.0)
 
     for i, entry in enumerate(entries, start=1):
         storage.append_ndjson(
             final_path,
-            {"seq": i, "ts": None, "speaker": entry["speaker"], "text": entry["text"], "source": "final"},
+            {
+                "seq": i,
+                "start": entry["start"],
+                "end": entry["end"],
+                "speaker": entry["speaker"],
+                "text": entry["text"],
+                "source": "final",
+            },
         )
 
     meeting["status"] = "finalized"
