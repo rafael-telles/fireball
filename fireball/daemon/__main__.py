@@ -16,7 +16,7 @@ load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
 from fireball.daemon import server
 
 try:
-    sys.exit(server.run())
+    sys.exit(server.run(tray="--no-tray" not in sys.argv))
 except server.AlreadyRunning as exc:
     print(exc, file=sys.stderr)
     sys.exit(0)

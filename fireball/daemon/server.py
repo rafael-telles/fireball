@@ -69,6 +69,7 @@ class _Handler(socketserver.StreamRequestHandler):
             "action_list": core.action_list,
             "action_set": core.action_set,
             "finalize": core.finalize,
+            "show_window": core.show_window,
             "shutdown": self._shutdown,
         }
         handler = handlers.get(op)
@@ -140,7 +141,25 @@ def _bind(core: DaemonCore, stop_event: threading.Event) -> DaemonServer:
     return server
 
 
-def run() -> int:
+def _run_shell(core: DaemonCore, stop_event: threading.Event) -> bool:
+    """Roda a bandeja + janela no thread principal, se der. Devolve se rodou.
+
+    A casca é atrelada ao daemon: enquanto o Fireball está ligado, o ícone
+    está na bandeja. Quando não há onde desenhar (servidor, ssh, extra [gui]
+    não instalado), o daemon segue ligado sem casca em vez de recusar a subir
+    — a CLI continua funcionando igual.
+    """
+    from fireball.gui import shell
+
+    can_draw, reason = shell.available()
+    if not can_draw:
+        print(f"[daemon] sem bandeja: {reason}", flush=True)
+        return False
+    shell.run(core, stop_event)
+    return True
+
+
+def run(tray: bool = True) -> int:
     """Sobe o daemon em foreground. Devolve o código de saída."""
     lock_fd = _acquire_lock()
     stop_event = threading.Event()
@@ -158,7 +177,11 @@ def run() -> int:
 
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        stop_event.wait()
+        # O loop do Qt precisa ser o do thread principal, então é ele que
+        # segura o daemon de pé quando há casca gráfica. Sem casca, o thread
+        # principal só espera o sinal de parada.
+        if not (tray and _run_shell(core, stop_event)):
+            stop_event.wait()
     finally:
         print("[daemon] desligando…", flush=True)
         core.shutdown()

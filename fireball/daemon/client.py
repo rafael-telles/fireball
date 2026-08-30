@@ -43,12 +43,19 @@ def is_running() -> bool:
         return False
 
 
-def spawn_daemon() -> subprocess.Popen:
-    """Sobe o daemon destacado, com log em `$FIREBALL_HOME/daemon.log`."""
+def spawn_daemon(tray: bool = True) -> subprocess.Popen:
+    """Sobe o daemon destacado, com log em `$FIREBALL_HOME/daemon.log`.
+
+    Com sessão gráfica, isso é também o que faz o ícone aparecer na bandeja:
+    a casca gráfica mora no processo do daemon.
+    """
+    cmd = [sys.executable, "-m", "fireball.daemon"]
+    if not tray:
+        cmd.append("--no-tray")
     log_file = open(protocol.log_path(), "a")
     try:
         return subprocess.Popen(
-            [sys.executable, "-m", "fireball.daemon"],
+            cmd,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
@@ -57,7 +64,7 @@ def spawn_daemon() -> subprocess.Popen:
         log_file.close()
 
 
-def ensure_daemon(timeout: float = SPAWN_TIMEOUT) -> None:
+def ensure_daemon(timeout: float = SPAWN_TIMEOUT, tray: bool = True) -> None:
     """Garante que há um daemon atendendo, subindo um se preciso.
 
     Se dois clientes fizerem isso ao mesmo tempo, um perde o flock e sai
@@ -65,7 +72,7 @@ def ensure_daemon(timeout: float = SPAWN_TIMEOUT) -> None:
     """
     if is_running():
         return
-    spawn_daemon()
+    spawn_daemon(tray=tray)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if is_running():

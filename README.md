@@ -20,10 +20,11 @@ Sketch inicial. O que funciona:
   inteiro (mais preciso que o tempo real) e mescla mic/system por ordem de início — local
   (whisper/parakeet) ou via API da Groq (`--backend groq`, só pra transcrição final).
 - Skill (`skills/fireball/SKILL.md`) com as instruções de como o Claude deve agir como escrivão.
-- **Daemon** (`fireball.daemon`) — o processo dono do estado, que supervisiona as gravações e
-  garante uma reunião por vez. CLI e GUI são clientes dele. Ver seção própria abaixo.
-- GUI + bandeja (`fireball-gui`) — Fase 1: iniciar/parar reunião e ver status, minimizado pra
-  bandeja. Ver seção própria abaixo.
+- **Daemon** (`fireball.daemon`) — o processo dono do estado, que supervisiona as gravações,
+  garante uma reunião por vez e **mostra o ícone na bandeja**: enquanto o Fireball está ligado,
+  ele aparece lá. Ver seção própria abaixo.
+- GUI + bandeja — Fase 1: iniciar/parar reunião e ver status, minimizado pra bandeja.
+  `fireball-gui` abre a janela do daemon. Ver seção própria abaixo.
 
 O que **não** está implementado ainda:
 
@@ -34,24 +35,44 @@ O que **não** está implementado ainda:
 
 ## Daemon
 
-O Fireball tem **um processo dono do estado**. CLI e GUI não leem nem escrevem `meeting.json`,
-não sobem processo de gravação e não guardam estado próprio: os dois falam com o daemon por
-socket Unix e ele responde de memória.
+O Fireball tem **um processo dono do estado**, e ele é o mesmo processo que mostra o ícone na
+bandeja. **Enquanto o Fireball está ligado, ele aparece na bandeja** — não existe daemon rodando
+sem ícone nem ícone sem daemon. O ícone é a resposta visual à pergunta "isso está ligado?".
 
 ```
-fireball (CLI) ─┐
-                ├─ socket Unix ─→ daemon ─→ engine (gravação/transcrição)
-fireball-gui ───┘                   │     └─ finalize (transcrição final)
-   (bandeja + janela)               └─ meeting.json, notes.md, actions.json
+                          ┌───────────── daemon ─────────────┐
+fireball (CLI) ─ socket ─→│  estado (reunião ativa, lock)     │─→ engine (gravação/transcrição)
+                          │  bandeja + janela (Qt)            │─→ finalize (transcrição final)
+fireball-gui  ─ socket ─→ │  meeting.json, notes.md, actions  │
+   ("abre a janela")      └──────────────────────────────────┘
 ```
+
+A CLI não lê nem escreve `meeting.json`, não sobe processo de gravação e não guarda estado
+próprio: fala com o daemon por socket Unix, e ele responde de memória. A janela é desenhada pelo
+próprio daemon, então chama o núcleo direto, em processo — continua havendo **uma autoridade
+só**, sob o mesmo lock (ver `fireball/gui/api.py`).
 
 O daemon **sobe sozinho** no primeiro comando que precisar dele; não é preciso iniciá-lo à mão.
+Num ambiente gráfico, isso significa que rodar `fireball start` no terminal já acende o ícone.
 
 ```bash
-fireball daemon status     # está de pé? onde escuta? o que está rodando?
-fireball daemon start      # sobe em background (idempotente)
-fireball daemon stop       # desliga — e para a reunião ativa junto, fechando os arquivos
+fireball daemon status     # está de pé? tem bandeja? o que está rodando?
+fireball daemon start      # sobe em background (idempotente) — e acende a bandeja
+fireball daemon stop       # desliga — apaga a bandeja e para a reunião ativa, fechando os arquivos
 fireball daemon run        # foreground, com log no terminal (pra depurar)
+fireball daemon run --no-tray   # sem casca gráfica, mesmo tendo display
+```
+
+### Sem sessão gráfica
+
+O daemon continua subindo normalmente onde não há onde desenhar (servidor, ssh, extra `[gui]`
+não instalado): ele registra o motivo no log, roda sem casca e a CLI funciona igual. `fireball
+daemon status` mostra isso no campo `shell`, e `fireball-gui` avisa que não há janela em vez de
+falhar de forma obscura.
+
+```
+$ fireball daemon status
+{"running": true, ..., "shell": false, "active": null}
 ```
 
 ### Por que um daemon, e o que ele garante
@@ -204,24 +225,31 @@ validamos o nome contra `pactl` antes de gravar.
 
 ## GUI + bandeja (`fireball-gui`)
 
-Cliente do daemon, igual à CLI: a GUI não toca em arquivo de reunião nem sobe processo de
-gravação — cada ação da janela e da bandeja é uma chamada ao daemon. É por isso que abrir a
-janela no meio de uma reunião iniciada pela CLI mostra o estado certo, e vice-versa.
+Bandeja e janela moram **dentro do processo do daemon** (`fireball/gui/shell.py`): quando há
+sessão gráfica, o loop principal do daemon *é* o loop do Qt. É isso que amarra uma coisa à
+outra — ligar o Fireball acende o ícone, desligar apaga.
 
 ```bash
 pip install -e '.[gui]'
-fireball-gui
+fireball-gui              # garante o daemon de pé e traz a janela pra frente
 ```
 
-Fase 1 (atual): bandeja com status em três estados (gravando, ocioso, daemon fora do ar) e menu
-(abrir janela, parar reunião atual, sair); janela mínima pra iniciar uma reunião (nome, backend,
-real/fake) ou ver o status/parar a que estiver rodando. Fechar a janela só esconde — o app
-continua na bandeja.
+`fireball-gui` não desenha nada: ele sobe o daemon (o que já faz o ícone aparecer) e pede a
+janela pelo socket. Rodar duas vezes não abre duas janelas nem dois ícones — só traz a existente
+pra frente, como se espera de um app de bandeja.
 
-A bandeja é a *cara* do daemon, não o daemon: **"Sair" desliga o daemon**, que por sua vez para
-a reunião ativa e fecha os arquivos direito — nada continua gravando sem ninguém olhando. O
-daemon em si não tem Qt e roda separado, então quem só usa a CLI não paga PyQt6, e ele funciona
-igual numa máquina sem sessão gráfica.
+Fase 1 (atual): bandeja com status em três estados (ocioso, gravando, parando) e menu (abrir
+janela, parar reunião atual, sair); janela mínima pra iniciar uma reunião (nome, backend,
+real/fake) ou ver o status/parar a que estiver rodando. Fechar a janela só esconde — o Fireball
+continua ligado, e continua na bandeja.
+
+**"Sair" desliga o Fireball inteiro**: para a reunião ativa, fecha os arquivos direito e encerra
+o daemon — nada continua gravando sem ninguém olhando, e nenhum ícone fica para trás. Parar a
+reunião pela bandeja não trava a interface: o engine ainda leva um instante fechando os `.wav`,
+e o ícone mostra "parando" nesse meio-tempo.
+
+O extra `[gui]` continua opcional: sem ele (ou sem display) o daemon roda sem casca e só a CLI
+opera — quem usa o Fireball num servidor não precisa instalar PyQt6.
 
 **Um toolkit só: Qt.** Janela via `pywebview` (backend Qt/PyQt6) e bandeja via
 `QSystemTrayIcon` (parte do PyQt6, sem lib extra) — de propósito, não GTK/`pystray`. Em teste
@@ -234,7 +262,13 @@ impede o app de fechar quando a janela fecha — o próprio pywebview chama `_ap
 explicitamente dentro do `closeEvent` quando a última janela dele fecha
 (`webview/platforms/qt.py`), ignorando esse ajuste do Qt. A forma que funciona é interceptar
 `window.events.closing` e cancelar o close de verdade (retornar `False`), escondendo a janela
-no lugar — ver `fireball/gui/app.py:_on_closing`.
+no lugar — ver `fireball/gui/shell.py:on_closing`.
+
+**Ruído conhecido no desligamento**: o Qt imprime `Release of profile requested but
+WebEnginePage still not deleted. Expect troubles!` toda vez que o daemon com casca desliga. É a
+ordem de destruição interna do QtWebEngine com o pywebview, no fim do processo; destruir a
+janela antes de encerrar o loop (na mesma volta e na seguinte) não muda nada. O desligamento em
+si é limpo — reunião parada, `.wav` fechados, socket removido, nenhum processo vazando.
 
 No Linux, `pywebview` com Qt precisa do `qtpy`+`PyQt6`+`PyQt6-WebEngine` (tudo isolado no
 venv, sem pacote de sistema); a alternativa seria GTK+`webkit2gtk`, que normalmente exige

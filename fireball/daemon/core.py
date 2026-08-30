@@ -23,7 +23,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 
 from fireball import control, realtime, storage
 from fireball.daemon import protocol
@@ -98,6 +98,9 @@ class DaemonCore:
         self._finalizing: dict[str, Job] = {}
         self._started_at = storage.now_iso()
         self._shutting_down = False
+        # preenchido pela casca gráfica (fireball.gui.shell) quando ela sobe;
+        # continua None num daemon sem sessão gráfica
+        self._window_opener: Optional[Callable[[], None]] = None
 
     # ---------------------------------------------------------------- boot
 
@@ -163,6 +166,30 @@ class DaemonCore:
 
     # ---------------------------------------------------------------- ops
 
+    def set_window_opener(self, opener: Optional[Callable[[], None]]) -> None:
+        """A casca gráfica registra aqui como trazer a janela à frente.
+
+        Pode ser chamado de qualquer thread do servidor, então a casca é quem
+        se vira pra cruzar a fronteira até o thread do Qt com segurança (ver
+        `fireball.gui.shell.Bridge`)."""
+        with self._lock:
+            self._window_opener = opener
+
+    def has_shell(self) -> bool:
+        with self._lock:
+            return self._window_opener is not None
+
+    def show_window(self) -> dict:
+        with self._lock:
+            opener = self._window_opener
+        if opener is None:
+            raise RuntimeError(
+                "Este daemon está rodando sem casca gráfica (sem sessão gráfica ou sem o extra [gui]); "
+                "não há janela nem ícone de bandeja pra mostrar."
+            )
+        opener()
+        return {"ok": True}
+
     def ping(self) -> dict:
         return {"pong": True, "pid": os.getpid(), "protocol": protocol.PROTOCOL_VERSION}
 
@@ -173,6 +200,7 @@ class DaemonCore:
                 "socket": str(protocol.socket_path()),
                 "started_at": self._started_at,
                 "protocol": protocol.PROTOCOL_VERSION,
+                "shell": self._window_opener is not None,
                 "active": control.read_meeting(self._recording.meeting_id) if self._recording else None,
                 "finalizing": sorted(self._finalizing),
             }

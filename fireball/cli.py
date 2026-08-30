@@ -69,22 +69,32 @@ def daemon():
 
 
 @daemon.command(name="run")
-def daemon_run():
+@click.option(
+    "--tray/--no-tray",
+    default=True,
+    help="Mostra o ícone na bandeja (padrão). Com --no-tray o daemon roda sem interface.",
+)
+def daemon_run(tray):
     """Sobe o daemon em foreground (útil pra depurar; o log vai pro terminal)."""
     try:
-        sys.exit(daemon_server.run())
+        sys.exit(daemon_server.run(tray=tray))
     except daemon_server.AlreadyRunning as exc:
         raise click.ClickException(str(exc))
 
 
 @daemon.command(name="start")
-def daemon_start():
-    """Sobe o daemon em background, se já não estiver rodando."""
+@click.option("--tray/--no-tray", default=True, help="Mostra o ícone na bandeja (padrão).")
+def daemon_start(tray):
+    """Sobe o daemon em background, se já não estiver rodando.
+
+    Com sessão gráfica, subir o daemon faz o ícone aparecer na bandeja — é o
+    mesmo processo.
+    """
     try:
-        client.ensure_daemon()
+        client.ensure_daemon(tray=tray)
     except protocol.DaemonUnavailable as exc:
         raise click.ClickException(str(exc))
-    _echo(_call("daemon_status"))
+    _echo(_call("daemon_status", autostart=False))
 
 
 @daemon.command(name="stop")
