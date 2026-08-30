@@ -54,7 +54,7 @@ class TrayIcon(QSystemTrayIcon):
         menu.addSeparator()
 
         quit_action = QAction("Sair", menu)
-        quit_action.triggered.connect(QApplication.quit)
+        quit_action.triggered.connect(self._quit)
         menu.addAction(quit_action)
 
         self.setContextMenu(menu)
@@ -73,6 +73,15 @@ class TrayIcon(QSystemTrayIcon):
         active = control.active_meeting()
         if active:
             control.stop_meeting(active["id"])
+
+    def _quit(self) -> None:
+        # Comportamento de daemon: enquanto o Fireball está "ligado" (ícone
+        # na bandeja), pode haver no máximo uma reunião gravando; ao
+        # desligar o daemon, essa reunião também para — nada fica orfão.
+        active = control.active_meeting()
+        if active:
+            control.stop_meeting(active["id"])
+        QApplication.quit()
 
     def _refresh_status(self) -> None:
         try:

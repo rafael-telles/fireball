@@ -77,16 +77,19 @@ def devices():
 )
 def start(name, fake, interval, mic_device, system_device, transcribe, backend, language):
     """Inicia uma nova reunião: cria a pasta e sobe o motor de gravação/transcrição em background."""
-    meeting = control.start_meeting(
-        name=name,
-        fake=fake,
-        interval=interval,
-        mic_device=mic_device,
-        system_device=system_device,
-        transcribe=transcribe,
-        backend=backend,
-        language=language,
-    )
+    try:
+        meeting = control.start_meeting(
+            name=name,
+            fake=fake,
+            interval=interval,
+            mic_device=mic_device,
+            system_device=system_device,
+            transcribe=transcribe,
+            backend=backend,
+            language=language,
+        )
+    except control.MeetingAlreadyActive as exc:
+        raise click.ClickException(str(exc))
     meeting_dir = storage.meeting_path(meeting["id"])
     click.echo(json.dumps({"meeting_id": meeting["id"], "path": str(meeting_dir)}, ensure_ascii=False))
 

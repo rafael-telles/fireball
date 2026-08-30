@@ -15,6 +15,10 @@ from typing import Optional
 from fireball import realtime, storage
 
 
+class MeetingAlreadyActive(RuntimeError):
+    """Já existe uma reunião sendo gravada/transcrita — só uma por vez."""
+
+
 def start_meeting(
     name: str = "Reunião",
     fake: bool = True,
@@ -26,7 +30,19 @@ def start_meeting(
     language: str = realtime.DEFAULT_LANGUAGE,
 ) -> dict:
     """Cria a pasta da reunião e sobe o motor de gravação/transcrição em
-    background (processo `_engine` separado). Devolve o dict de meeting.json."""
+    background (processo `_engine` separado). Devolve o dict de meeting.json.
+
+    Só uma reunião pode gravar/transcrever por vez (mic e monitor do sistema
+    são recursos exclusivos — duas gravações ao mesmo tempo disputariam o
+    mesmo device). Levanta MeetingAlreadyActive se já houver uma rodando.
+    """
+    existing = active_meeting()
+    if existing is not None:
+        raise MeetingAlreadyActive(
+            f"Já tem uma reunião em andamento: '{existing['name']}' ({existing['id']}). "
+            "Pare ela antes de iniciar outra."
+        )
+
     meeting_dir = storage.new_meeting_dir(name)
     meeting_id = meeting_dir.name
 
