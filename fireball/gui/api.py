@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from pathlib import Path
 
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS
 from fireball.summarizers import SUMMARY_PROVIDERS
@@ -20,8 +21,11 @@ from fireball.daemon.core import DaemonCore
 
 
 class Api:
-    def __init__(self, core: DaemonCore):
+    def __init__(self, core: DaemonCore, audio_base_url: str = ""):
         self._core = core
+        # de onde a janela puxa o áudio das reuniões (ver gui/audio_server.py);
+        # vazio quando não há servidor, e aí o player some em vez de quebrar
+        self._audio_base_url = audio_base_url
 
     def _call(self, fn, **args) -> dict:
         try:
@@ -104,7 +108,24 @@ class Api:
         return self._call(self._core.warnings, meeting_id=meeting_id)
 
     def audio_info(self, meeting_id: str) -> dict:
-        return self._call(self._core.audio_info, meeting_id=meeting_id)
+        """Onde a janela busca o áudio desta reunião.
+
+        Devolve uma **URL http**, não o caminho no disco: o pywebview serve a
+        página por http, e de uma página http o Chromium recusa mídia em
+        `file://`. Ver `fireball/gui/audio_server.py`.
+        """
+        result = self._call(self._core.audio_info, meeting_id=meeting_id)
+        if not result["ok"]:
+            return result
+        info = result["result"]
+        name = Path(info["path"]).name if info.get("path") else None
+        info["url"] = (
+            f"{self._audio_base_url}/{meeting_id}/{name}"
+            if name and self._audio_base_url
+            else None
+        )
+        info["exists"] = bool(info["url"])
+        return result
 
     def edit_segment(self, meeting_id: str, seq: int, text: str, source: str) -> dict:
         return self._call(

@@ -63,6 +63,7 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
     from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 
     from fireball.gui.api import Api
+    from fireball.gui.audio_server import AudioServer
     from fireball.gui.tray import TrayIcon
 
     class Bridge(QObject):
@@ -74,6 +75,12 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
 
         show_requested = pyqtSignal()
 
+    # o áudio das reuniões precisa sair por http para o <audio> da página
+    # conseguir tocar (ver gui/audio_server.py) — e vive só enquanto a janela
+    # existe, então sobe e desce junto com ela.
+    audio_server = AudioServer()
+    audio_base_url = audio_server.start()
+
     app = QApplication.instance() or QApplication(sys.argv)
     # a janela some pra bandeja em vez de fechar; sem isso o Qt encerraria o
     # daemon junto com ela
@@ -82,7 +89,7 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
     window = webview.create_window(
         "Fireball",
         url=str(WEB_DIR / "index.html"),
-        js_api=Api(core),
+        js_api=Api(core, audio_base_url=audio_base_url),
         width=1140,
         height=720,
         # abaixo disso a barra lateral e o painel da reunião começam a brigar
@@ -151,5 +158,6 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
         webview.start(gui="qt")
     finally:
         core.set_window_opener(None)
+        audio_server.stop()
         tray.hide()
         stop_event.set()  # janela fechada de vez == daemon desligando

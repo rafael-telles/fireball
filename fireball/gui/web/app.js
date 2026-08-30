@@ -1018,7 +1018,9 @@ function renderPlayer() {
     ? ""
     : "Esta transcrição não guarda posição no áudio, então não há o que acompanhar.";
 
-  const src = "file://" + encodeURI(o.audio.path);
+  // URL http servida pelo daemon, não file:// — a página é servida por http
+  // pelo pywebview, e o Chromium recusa mídia file:// vinda dela.
+  const src = o.audio.url;
   if (audio.dataset.src !== src) {
     audio.dataset.src = src;
     audio.src = src;
