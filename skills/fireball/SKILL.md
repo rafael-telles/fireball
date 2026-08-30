@@ -58,7 +58,9 @@ como ação.
 
 1. `fireball stop <meeting_id>`
 2. `fireball finalize <meeting_id>` — roda a transcrição final (mais precisa, sobre o áudio
-   inteiro de cada track, não em pedaços) com o mesmo backend usado ao vivo.
+   inteiro de cada track, não em pedaços) com o mesmo backend usado ao vivo. Também aceita
+   `--backend groq` (API paga, `whisper-large-v3-turbo`, requer `GROQ_API_KEY`) se o usuário
+   preferir não depender do modelo local para a passada final.
 3. Compare a transcrição final (`fireball transcript show <meeting_id> --source final`) com as
    notas ao vivo (arquivo `notes.md`, dentro da pasta da reunião). Corrija imprecisões
    diretamente no arquivo de notas e resuma para o usuário o que mudou. Isso é automático, não

@@ -17,13 +17,12 @@ Sketch inicial. O que funciona:
     `mic.wav`, `system.wav` e uma mixagem `meeting.wav` por reunião — **e transcreve em
     tempo real de verdade**, local, sem chave de API (ver Backends de transcrição abaixo).
 - Transcrição final (`fireball finalize`) roda o backend escolhido sobre cada `.wav`
-  inteiro (mais preciso que o tempo real) e mescla mic/system por ordem de início.
+  inteiro (mais preciso que o tempo real) e mescla mic/system por ordem de início — local
+  (whisper/parakeet) ou via API da Groq (`--backend groq`, só pra transcrição final).
 - Skill (`skills/fireball/SKILL.md`) com as instruções de como o Claude deve agir como escrivão.
 
 O que **não** está implementado ainda:
 
-- Transcrição final via provedor em nuvem (Groq/OpenAI) — hoje "final" também é local,
-  pelo mesmo backend (whisper/parakeet) usado ao vivo, só que sobre o áudio inteiro.
 - Diarização de verdade para "Outros participantes" (hoje é só *um* falante genérico —
   o monitor do sistema não distingue quem está falando do outro lado).
 - GUI.
@@ -74,6 +73,23 @@ fireball start --name "Reunião" --real --backend whisper    # padrão
 fireball start --name "Reunião" --real --backend parakeet
 fireball start --name "Reunião" --real --no-transcribe      # só grava, sem transcrever ao vivo
 ```
+
+### `groq` — transcrição final via API (só para `finalize`)
+
+Terceiro backend, **só para lote** (`BatchBackend`, não implementa tempo real — é uma API
+paga por requisição, chamar por "fala" no loop ao vivo geraria uma requisição a cada poucos
+segundos). Usa `whisper-large-v3-turbo` hospedado pela Groq.
+
+```bash
+pip install -e '.[groq]'
+export GROQ_API_KEY=...   # https://console.groq.com/keys
+fireball finalize <meeting_id> --backend groq
+```
+
+`fireball start --backend groq` é rejeitado na CLI (não está na lista de backends ao vivo).
+**Não testado com uma chamada de API real** (sem chave neste ambiente) — a integração foi
+verificada contra a assinatura real do SDK `groq` instalado, mas vale confirmar com uma
+reunião de verdade antes de confiar cegamente.
 
 ## Captura de áudio real (`--real`)
 

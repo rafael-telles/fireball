@@ -13,6 +13,7 @@ dependencies = [
 # parakeet, até isso ser desacoplado (ver README).
 whisper = ["faster-whisper>=1.0", "numpy>=1.24"]
 parakeet = ["onnx-asr[cpu,hub]>=0.7", "faster-whisper>=1.0", "numpy>=1.24"]
+groq = ["groq>=1.0"]
 
 [project.scripts]
 fireball = "fireball.cli:cli"

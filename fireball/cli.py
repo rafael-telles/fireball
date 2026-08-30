@@ -19,7 +19,7 @@ from datetime import datetime
 import click
 
 from fireball import audio, engine, realtime, storage
-from fireball.backends import BackendUnavailable, get_batch_backend
+from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS, BackendUnavailable, get_batch_backend
 
 
 @click.group()
@@ -64,9 +64,9 @@ def devices():
 )
 @click.option(
     "--backend",
-    type=click.Choice(["whisper", "parakeet"]),
+    type=click.Choice(list(REALTIME_BACKENDS)),
     default="whisper",
-    help="Motor de transcrição: 'whisper' (faster-whisper, multi-idioma) ou 'parakeet' (NeMo Parakeet TDT via ONNX).",
+    help="Motor de transcrição ao vivo: 'whisper' (faster-whisper, multi-idioma) ou 'parakeet' (NeMo Parakeet TDT via ONNX).",
 )
 @click.option(
     "--language", default=realtime.DEFAULT_LANGUAGE, help="Idioma esperado da fala (código curto, ex: pt, en)."
@@ -135,7 +135,7 @@ def start(name, fake, interval, mic_device, system_device, transcribe, backend, 
 @click.option("--mic-device", default=None)
 @click.option("--system-device", default=None)
 @click.option("--transcribe/--no-transcribe", default=True)
-@click.option("--backend", type=click.Choice(["whisper", "parakeet"]), default="whisper")
+@click.option("--backend", type=click.Choice(list(REALTIME_BACKENDS)), default="whisper")
 @click.option("--language", default=realtime.DEFAULT_LANGUAGE)
 def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcribe, backend, language):
     meeting_dir = storage.meeting_path(meeting_id)
@@ -358,7 +358,7 @@ def action_done(meeting_id, action_id):
 @click.argument("meeting_id")
 @click.option(
     "--backend",
-    type=click.Choice(["whisper", "parakeet"]),
+    type=click.Choice(list(BATCH_BACKENDS)),
     default=None,
     help="Backend pra transcrição final. Padrão: o mesmo escolhido em `fireball start` (ou whisper).",
 )

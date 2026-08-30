@@ -36,6 +36,10 @@ class BatchBackend(Protocol):
     def transcribe_file(self, wav_path, language: str) -> list[dict]: ...
 
 
+REALTIME_BACKENDS = ("whisper", "parakeet")
+BATCH_BACKENDS = ("whisper", "parakeet", "groq")
+
+
 def get_realtime_backend(name: str) -> RealtimeBackend:
     if name == "whisper":
         from fireball.backends.whisper_backend import WhisperBackend
@@ -45,7 +49,13 @@ def get_realtime_backend(name: str) -> RealtimeBackend:
         from fireball.backends.parakeet_backend import ParakeetBackend
 
         return ParakeetBackend()
-    raise BackendUnavailable(f"Backend de transcrição desconhecido: '{name}'. Use 'whisper' ou 'parakeet'.")
+    if name == "groq":
+        raise BackendUnavailable(
+            "'groq' é um backend de lote (API paga por requisição) — não dá pra usar em tempo\n"
+            "real, isso geraria uma chamada de API a cada poucos segundos. Use --backend groq\n"
+            "só em `fireball finalize`; para transcrição ao vivo use 'whisper' ou 'parakeet'."
+        )
+    raise BackendUnavailable(f"Backend de transcrição desconhecido: '{name}'. Use {REALTIME_BACKENDS}.")
 
 
 def get_batch_backend(name: str) -> BatchBackend:
@@ -57,4 +67,8 @@ def get_batch_backend(name: str) -> BatchBackend:
         from fireball.backends.parakeet_backend import ParakeetBackend
 
         return ParakeetBackend()
-    raise BackendUnavailable(f"Backend de transcrição desconhecido: '{name}'. Use 'whisper' ou 'parakeet'.")
+    if name == "groq":
+        from fireball.backends.groq_backend import GroqBackend
+
+        return GroqBackend()
+    raise BackendUnavailable(f"Backend de transcrição desconhecido: '{name}'. Use {BATCH_BACKENDS}.")
