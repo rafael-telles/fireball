@@ -82,6 +82,16 @@ class Job:
             time.sleep(0.5)
         return None
 
+    def signal(self, sig: int) -> None:
+        """Manda um sinal ao filho, com o mesmo cuidado do terminate(): um PID
+        adotado só é sinalizado depois de confirmado que ainda é o engine
+        desta reunião, e não um PID reciclado pelo sistema."""
+        if self.proc is not None:
+            if self.proc.poll() is None:
+                self.proc.send_signal(sig)
+        elif _is_engine_of(self.pid, self.meeting_id):
+            os.kill(self.pid, sig)
+
     def terminate(self) -> None:
         if self.proc is not None:
             # Popen.terminate() já é no-op se o filho foi colhido, o que evita
@@ -123,7 +133,11 @@ class DaemonCore:
                     job = Job(meeting_id=meeting_id, kind="engine", pid=pid)
                     self._recording = job
                     self._supervise(job)
-                    recovered.append(control.update_meeting(meeting_id, status="recording"))
+                    # o engine adotado guarda a própria pausa (os parecord
+                    # seguem parados); dar 'recording' aqui mostraria uma
+                    # reunião gravando que não está capturando nada.
+                    status = "paused" if meeting.get("status") == "paused" else "recording"
+                    recovered.append(control.update_meeting(meeting_id, status=status))
                 else:
                     recovered.append(control.update_meeting(meeting_id, status="crashed"))
         return recovered
@@ -304,6 +318,52 @@ class DaemonCore:
         if wait_timeout:
             job.done.wait(timeout=wait_timeout)
         return control.read_meeting(job.meeting_id)
+
+    def pause_meeting(self, meeting_id: Optional[str] = None) -> dict:
+        """Congela a captura sem encerrar a reunião."""
+        return self._set_paused(meeting_id, True)
+
+    def resume_meeting(self, meeting_id: Optional[str] = None) -> dict:
+        return self._set_paused(meeting_id, False)
+
+    def _set_paused(self, meeting_id: Optional[str], paused: bool) -> dict:
+        with self._lock:
+            job = self._recording
+            if job is None:
+                raise control.NoActiveMeeting("Não há reunião gravando agora.")
+            if meeting_id and meeting_id != job.meeting_id:
+                raise control.MeetingBusy(
+                    f"A reunião gravando agora é '{job.meeting_id}', não '{meeting_id}'."
+                )
+
+            current = control.read_meeting(job.meeting_id)
+            if current.get("status") == "stopping":
+                raise control.MeetingBusy("A reunião já está parando.")
+            if (current.get("status") == "paused") == paused:
+                return current  # já está como se pediu; repetir não é erro
+
+            job.signal(signal.SIGUSR1 if paused else signal.SIGUSR2)
+            return control.update_meeting(job.meeting_id, status="paused" if paused else "recording")
+
+    def delete_meeting(self, meeting_id: str) -> dict:
+        """Apaga a reunião e tudo que ela gravou.
+
+        Recusa enquanto há processo mexendo nela — gravando, finalizando ou
+        resumindo. Apagar a pasta debaixo de um processo que está escrevendo
+        nela deixaria arquivo órfão e o job falharia sem explicação.
+        """
+        with self._lock:
+            meeting = control.read_meeting(meeting_id)
+            status = meeting.get("status")
+            if status in control.LIVE_STATUSES:
+                raise control.MeetingBusy(
+                    f"A reunião '{meeting_id}' está {status}; pare ela antes de excluir."
+                )
+            if meeting_id in self._finalizing:
+                raise control.MeetingBusy(f"A reunião '{meeting_id}' está sendo finalizada.")
+            if meeting_id in self._summarizing:
+                raise control.MeetingBusy(f"O resumo da reunião '{meeting_id}' está sendo gerado.")
+            return control.delete_meeting(meeting_id)
 
     def transcript_ack(self, meeting_id: str, seq: int) -> dict:
         with self._lock:

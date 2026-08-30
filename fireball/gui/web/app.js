@@ -19,15 +19,19 @@ const el = (id) => document.getElementById(id);
 const STATUS_LABEL = {
   starting: "INICIANDO",
   recording: "GRAVANDO",
+  paused: "PAUSADA",
   stopping: "PARANDO…",
 };
 
-const LIVE_STATUSES = new Set(["starting", "recording", "stopping"]);
+// 'paused' é vivo: o engine continua de pé e o microfone segue tomado por esta
+// reunião — ela só parou de capturar.
+const LIVE_STATUSES = new Set(["starting", "recording", "paused", "stopping"]);
 
 // Texto curto por status, para a linha de baixo de cada item da lista.
 const STATUS_SHORT = {
   starting: "iniciando",
   recording: "gravando",
+  paused: "pausada",
   stopping: "parando",
   stopped: "parada",
   finalizing: "finalizando",
@@ -65,6 +69,7 @@ const state = {
   tab: "transcricao",
   notes: { loadedFor: null, saved: null, timer: null },
   playing: null, // seq do segmento destacado agora, pra não repintar a cada tique
+  deleteTimer: null, // confirmação de exclusão pendente, que expira sozinha
 };
 
 const RATES = [1, 1.25, 1.5, 2];
@@ -245,7 +250,7 @@ function segmentActions(seg) {
   const o = state.open;
   if (!o || o.live) return box;
 
-  if (playerReady() && typeof seg.start === "number") {
+  if (playerReady() && typeof seg.start === "number") {  // eslint-disable-line
     const listen = document.createElement("button");
     listen.className = "seg-action";
     listen.textContent = "▶ ouvir";
@@ -341,6 +346,13 @@ function renderLiveBar() {
     el("live-bar-detail").textContent = "transcrição ao vivo desligada — a final roda no fim.";
     return;
   }
+  el("live-bar").classList.toggle("paused", o.meeting.status === "paused");
+  if (o.meeting.status === "paused") {
+    el("live-bar-title").textContent = "Pausada";
+    el("live-bar-detail").textContent =
+      "nada está sendo capturado — o que passar agora não entra na gravação.";
+    return;
+  }
   el("live-bar-title").textContent = "Transcrevendo ao vivo";
   const bits = [];
   if (o.lastSegmentAt) {
@@ -378,11 +390,18 @@ function renderMeetingHeader() {
 
   el("mv-elapsed").classList.toggle("hidden", !o.live);
   if (o.live) el("mv-elapsed").textContent = elapsedSince(m.started_at);
+  el("mv-elapsed").classList.toggle("dim", m.status === "paused");
 
   const stop = el("stop-btn");
   stop.classList.toggle("hidden", !o.live);
   stop.disabled = m.status === "stopping";
   stop.textContent = m.status === "stopping" ? "Parando…" : "Parar";
+
+  const pause = el("pause-btn");
+  const pausable = o.live && (m.status === "recording" || m.status === "paused");
+  pause.classList.toggle("hidden", !pausable);
+  pause.disabled = false;
+  pause.textContent = m.status === "paused" ? "Retomar" : "Pausar";
 
   // Finalizar é a transcrição final sobre o áudio inteiro. Só faz sentido
   // depois que a gravação fechou os .wav — antes disso não há áudio completo.
@@ -536,6 +555,7 @@ async function openMeeting(id, row) {
   state.notes.loadedFor = null;
   state.playing = null;
 
+  resetDelete(); // confirmação pendente não atravessa para outra reunião
   renderMeetingHeader();
   renderSourceSwitch();
   renderFicha();
@@ -722,17 +742,23 @@ function renderLiveCard() {
   const active = state.active;
   card.classList.toggle("hidden", !active);
   if (!active) return;
+  const paused = active.status === "paused";
+  card.classList.toggle("paused", paused);
   el("live-card-label").textContent = STATUS_LABEL[active.status] || String(active.status).toUpperCase();
   el("live-card-time").textContent = elapsedSince(active.started_at);
   el("live-card-name").textContent = active.name || active.id;
   el("live-card-stop").disabled = active.status === "stopping";
   el("live-card-stop").textContent = active.status === "stopping" ? "Parando…" : "Parar";
+
+  const pause = el("live-card-pause");
+  pause.classList.toggle("hidden", !(active.status === "recording" || paused));
+  pause.textContent = paused ? "Retomar" : "Pausar";
 }
 
 function renderHome() {
   const active = state.active;
   el("home-kicker").textContent = active
-    ? `Gravando agora · ${active.name || active.id}`
+    ? `${active.status === "paused" ? "Pausada" : "Gravando agora"} · ${active.name || active.id}`
     : "Ocioso · nada gravando";
   el("agenda-date").textContent = new Date().toLocaleDateString("pt-BR", {
     weekday: "short",
@@ -925,9 +951,21 @@ function renderWarnings() {
     Precisa das duas pontas: o `meeting.wav` (produzido pela transcrição
     final) e uma transcrição com deslocamento em segundos — só a final tem. A
     do tempo real carimba hora de relógio, que não diz posição no arquivo. */
+/** Tem áudio gravado pra tocar? (independe de haver posição nos segmentos) */
 function playerReady() {
   const o = state.open;
-  return !!(o && !o.live && o.audio && o.audio.exists && o.source === "final");
+  return !!(o && !o.live && o.audio && o.audio.exists);
+}
+
+/** E dá pra acompanhar a transcrição dentro dele?
+
+    São coisas separadas: o áudio toca de qualquer jeito, mas seguir a
+    transcrição exige deslocamento em segundos nos segmentos. As duas
+    transcrições guardam isso agora — reuniões gravadas antes só têm na final.
+    Por isso a pergunta é sobre os dados que chegaram, não sobre qual fonte é. */
+function canFollow() {
+  const o = state.open;
+  return !!(playerReady() && o.timeline.length);
 }
 
 async function loadAudio() {
@@ -962,15 +1000,23 @@ function renderPlayer() {
     bar.classList.add("hidden");
     none.classList.remove("hidden");
     audio.pause();
+    // o .wav sai quando a gravação termina (mistura de mic + sistema, ou só
+    // mic quando o monitor do sistema não abriu); não havendo nenhum dos
+    // dois, não há o que tocar.
     el("player-none-note").textContent =
-      o.audio && o.audio.exists
-        ? "A transcrição do tempo real não guarda posição no áudio — troque para a final para ouvir junto."
-        : "Esta reunião não tem meeting.wav; ele é produzido pela transcrição final.";
+      "Esta reunião não deixou áudio gravado — não há mic.wav nem meeting.wav na pasta dela.";
     return;
   }
 
   none.classList.add("hidden");
   bar.classList.remove("hidden");
+
+  // sem posição nos segmentos o áudio toca, mas nada tem o que seguir
+  const follow = el("follow-chk");
+  follow.disabled = !canFollow();
+  follow.parentElement.title = canFollow()
+    ? ""
+    : "Esta transcrição não guarda posição no áudio, então não há o que acompanhar.";
 
   const src = "file://" + encodeURI(o.audio.path);
   if (audio.dataset.src !== src) {
@@ -1013,6 +1059,7 @@ function onTimeUpdate() {
   const o = state.open;
   if (!o || !playerReady()) return;
   renderPlayerTime();
+  if (!canFollow()) return;
 
   const current = segmentAt(o.timeline, el("audio").currentTime);
   const seq = current ? current.seq : null;
@@ -1027,7 +1074,8 @@ function onTimeUpdate() {
   const node = chat.querySelector(`.msg[data-seq="${seq}"]`);
   if (!node) return;
   node.classList.add("playing");
-  if (el("follow-chk").checked) node.scrollIntoView({ block: "center", behavior: "smooth" });
+  const follow = el("follow-chk");
+  if (follow.checked && !follow.disabled) node.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 function playFrom(seconds) {
@@ -1401,6 +1449,61 @@ async function onStop() {
   await stopMeeting(o.id, el("stop-btn"));
 }
 
+async function togglePause(id, paused, button) {
+  if (button) button.disabled = true;
+  setAlert("meeting-error", "");
+  try {
+    await api(paused ? "resume_meeting" : "pause_meeting", id);
+    await refreshStatus();
+  } catch (err) {
+    setBanner(errText(err));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+/** Excluir é em dois toques, no mesmo botão.
+
+    Um diálogo do sistema aqui seria um modal que a janela do pywebview não
+    desenha bem, e um "tem certeza?" solto é fácil demais de confirmar no
+    automático. Pedindo o segundo clique no mesmo lugar, o botão muda de cor e
+    de texto antes de apagar — e desiste sozinho se ninguém confirmar. */
+function resetDelete() {
+  const button = el("delete-btn");
+  button.classList.remove("confirming");
+  button.textContent = "Excluir reunião";
+  el("delete-note").textContent = "";
+  clearTimeout(state.deleteTimer);
+  state.deleteTimer = null;
+}
+
+async function onDelete() {
+  const o = state.open;
+  if (!o) return;
+  const button = el("delete-btn");
+
+  if (!button.classList.contains("confirming")) {
+    button.classList.add("confirming");
+    button.textContent = "Confirmar exclusão";
+    el("delete-note").textContent = "Apaga o áudio, a transcrição e as notas. Não tem desfazer.";
+    state.deleteTimer = setTimeout(resetDelete, 6000);
+    return;
+  }
+
+  clearTimeout(state.deleteTimer);
+  button.disabled = true;
+  try {
+    await api("delete_meeting", o.id);
+    resetDelete();
+    button.disabled = false;
+    goHome();
+  } catch (err) {
+    button.disabled = false;
+    resetDelete();
+    setAlert("meeting-error", "Não foi possível excluir", errText(err));
+  }
+}
+
 async function onFinalize() {
   const o = state.open;
   if (!o) return;
@@ -1475,6 +1578,15 @@ async function boot() {
   el("stop-btn").addEventListener("click", onStop);
   el("finalize-btn").addEventListener("click", onFinalize);
   el("open-folder").addEventListener("click", onOpenFolder);
+  el("delete-btn").addEventListener("click", onDelete);
+  el("pause-btn").addEventListener("click", (event) => {
+    const o = state.open;
+    if (o) togglePause(o.id, o.meeting.status === "paused", event.currentTarget);
+  });
+  el("live-card-pause").addEventListener("click", (event) => {
+    const active = state.active;
+    if (active) togglePause(active.id, active.status === "paused", event.currentTarget);
+  });
 
   el("new-meeting-btn").addEventListener("click", goHome);
   el("live-card-name").addEventListener("click", () => {

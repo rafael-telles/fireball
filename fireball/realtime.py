@@ -65,21 +65,34 @@ def run_realtime_transcription(
     readers = {key: TrackReader(meeting_dir / f"{key}.pcm") for key in SPEAKER_LABELS}
     endpointers = {key: Endpointer(samplerate=samplerate) for key in SPEAKER_LABELS}
 
-    def _emit(speaker: str, text: str) -> None:
+    def _emit(speaker: str, text: str, start: float, end: float) -> None:
         nonlocal seq
         seq += 1
         storage.append_ndjson(
             transcript_path,
-            {"seq": seq, "ts": storage.now_iso(), "speaker": speaker, "text": text, "source": "realtime"},
+            {
+                "seq": seq,
+                "ts": storage.now_iso(),
+                # posição da fala dentro da gravação, em segundos. O `ts` diz
+                # quando aconteceu no relógio; só isto diz *onde está no
+                # áudio*, que é o que o player precisa para acompanhar a
+                # transcrição. As duas tracks começam juntas em 0, então o
+                # deslocamento vale igual no meeting.wav (a mistura das duas).
+                "start": round(start, 2),
+                "end": round(end, 2),
+                "speaker": speaker,
+                "text": text,
+                "source": "realtime",
+            },
         )
         seq_path.write_text(str(seq))
 
     def _process(key: str, utterances: list) -> bool:
         progressed = False
         for utterance in utterances:
-            text = backend.transcribe_chunk(utterance, samplerate, language)
+            text = backend.transcribe_chunk(utterance.audio, samplerate, language)
             if text:
-                _emit(SPEAKER_LABELS[key], text)
+                _emit(SPEAKER_LABELS[key], text, utterance.start, utterance.end)
             progressed = True
         return progressed
 

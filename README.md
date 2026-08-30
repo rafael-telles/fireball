@@ -23,7 +23,8 @@ Sketch inicial. O que funciona:
 - **Daemon** (`fireball.daemon`) — o processo dono do estado, que supervisiona as gravações,
   garante uma reunião por vez e **mostra o ícone na bandeja**: enquanto o Fireball está ligado,
   ele aparece lá. Ver seção própria abaixo.
-- GUI + bandeja — barra lateral com o histórico e a reunião em andamento, e a reunião aberta
+- GUI + bandeja — barra lateral com o histórico e a reunião em andamento (pausar/retomar,
+  parar), e a reunião aberta
   em três abas (Resumo · Transcrição · Notas): transcrição ao vivo em formato de chat, editor
   do `notes.md`, ficha com renomear/finalizar/abrir a pasta. `fireball-gui` abre a janela do
   daemon. Ver seção própria abaixo.
@@ -110,9 +111,44 @@ resolvem aí, sem janela de corrida; quem perde sai quieto e usa o socket de que
 
 `starting` → `recording` → `stopping` → `stopped` → `finalizing` → `finalized`
 
+`recording` ↔ `paused` enquanto a reunião estiver de pé (ver *Pausar* abaixo).
+
 Fora do caminho feliz: `crashed` (o engine morreu sozinho), `failed` (o engine nem subiu),
-`finalize_failed`. Os três primeiros mais `stopping` contam como "viva" — é o que `transcript
-follow` usa pra saber quando parar.
+`finalize_failed`. `starting`, `recording`, `paused` e `stopping` contam como "viva" — é o que
+`transcript follow` usa pra saber quando parar, e o que impede começar uma segunda reunião.
+`paused` está nessa lista de propósito: o engine continua de pé e o microfone continua tomado,
+ela só parou de capturar.
+
+### Pausar e retomar
+
+```bash
+fireball pause     # a reunião que estiver gravando
+fireball resume
+```
+
+Pausar **derruba os `parecord`** e retomar sobe outros dando append no mesmo PCM. A primeira
+implementação usava `SIGSTOP`/`SIGCONT`, que é mais simples e está errada: com o cliente
+parado o PulseAudio *enfileira* em vez de descartar, e no `SIGCONT` o `parecord` despeja tudo
+— medido, 3,7s de pausa devolveram ~3,7s de áudio na retomada. A pausa só atrasava o áudio em
+vez de descartá-lo, que é o oposto do que se espera ao pausar.
+
+Como o PCM continua sendo um arquivo contínuo, "segundo tal da gravação" segue valendo do
+começo ao fim: nada precisa compensar a pausa para a transcrição continuar alinhada ao áudio.
+O que se perde é o buffer em voo de cada `parecord` encerrado — por isso a captura roda com
+`--latency-msec=200` em vez do padrão (~2s), o que derruba a perda por pausa para o
+imperceptível e, de quebra, faz a fala chegar à transcrição ao vivo quase na hora.
+
+### Excluir
+
+```bash
+fireball delete <meeting_id>          # pergunta antes
+fireball delete <meeting_id> --yes
+```
+
+Apaga a pasta inteira — áudio, transcrições, notas. Não há lixeira, e o daemon recusa
+enquanto houver processo mexendo na reunião (gravando, finalizando ou resumindo): apagar
+debaixo de um job que está escrevendo ali deixaria arquivo órfão e o job falharia sem
+explicação. Na janela, o botão fica no pé da ficha e pede um segundo clique para confirmar.
 
 ### Protocolo
 
@@ -282,10 +318,18 @@ tocar/pausar, arrastar a linha do tempo, velocidade, e *Seguir a transcrição*,
 bolha correspondente ao instante que está tocando e a traz para a tela. Cada bolha ganha,
 no hover, **▶ ouvir** (pula o áudio para aquele ponto) e **✎ editar**.
 
-O player só existe sobre a transcrição **final**: ela é a única que guarda deslocamento em
-segundos (`start`/`end`); a do tempo real carimba hora de relógio, que não diz posição
-dentro do arquivo. Sem `meeting.wav` — ele é produzido pela finalização — o rodapé explica
-isso em vez de oferecer um controle morto.
+As **duas** transcrições guardam deslocamento em segundos (`start`/`end`), então o player
+acompanha qualquer uma. No tempo real a posição vem do VAD: o `Endpointer` conta quantas
+amostras da track já saíram do buffer, e a posição de cada fala é essa contagem — ou seja, a
+posição real dentro do PCM, não uma estimativa de relógio. (Conferido contra o whisper na
+mesma gravação: a primeira fala dá `1.17` nos dois.) Reuniões gravadas antes disso só têm
+posição na transcrição final; a janela decide pelo que os segmentos trazem, não pelo nome da
+fonte, então elas continuam funcionando.
+
+O áudio é o `meeting.wav`, escrito pelo **engine ao terminar de gravar** (mistura de mic +
+sistema). Quando o monitor do sistema não abriu, ele não é produzido e a janela cai no
+`mic.wav` — ouvir só o seu lado é melhor que não ouvir nada. Sem nenhum dos dois, o rodapé
+diz isso em vez de oferecer um controle morto.
 
 Editar corrige **só a transcrição**: o áudio não muda, e o segmento fica marcado com
 `edited` no ndjson (e "editado" na bolha). Sem essa marca, uma linha revisada seria

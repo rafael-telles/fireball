@@ -417,6 +417,41 @@ def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcrib
 
 
 @cli.command()
+@click.option("--meeting-id", default=None, help="Por padrão, a reunião que estiver gravando.")
+def pause(meeting_id):
+    """Pausa a captura sem encerrar a reunião.
+
+    O engine continua de pé e o microfone continua tomado por ela — o que não
+    for capturado simplesmente não entra na gravação, então a transcrição
+    continua alinhada com o áudio.
+    """
+    _echo(_call("pause", meeting_id=meeting_id))
+
+
+@cli.command()
+@click.option("--meeting-id", default=None, help="Por padrão, a reunião que estiver pausada.")
+def resume(meeting_id):
+    """Retoma uma reunião pausada."""
+    _echo(_call("resume", meeting_id=meeting_id))
+
+
+@cli.command()
+@click.argument("meeting_id")
+@click.option("--yes", is_flag=True, help="Não perguntar.")
+def delete(meeting_id, yes):
+    """Apaga a reunião e tudo que ela gravou — áudio, transcrições e notas.
+
+    Não tem desfazer: não existe lixeira.
+    """
+    if not yes:
+        click.confirm(
+            f"Apagar '{meeting_id}' e todo o áudio, transcrição e notas dela? Isso não tem volta.",
+            abort=True,
+        )
+    _echo(_call("delete", meeting_id=meeting_id))
+
+
+@cli.command()
 @click.argument("meeting_id")
 @click.option(
     "--provider",

@@ -14,6 +14,7 @@ efetivamente transcreve cada fala.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
@@ -42,6 +43,21 @@ def _require_vad() -> None:
         )
 
 
+@dataclass
+class Utterance:
+    """Uma fala fechada, com onde ela está dentro da track.
+
+    O `audio` vai para o backend; `start`/`end` (segundos desde o começo da
+    gravação daquela track) vão para o ndjson, e são o que permite ao player
+    acompanhar a transcrição em tempo real dentro do .wav depois. Sem isso o
+    segmento só teria hora de relógio, que não diz posição em arquivo nenhum.
+    """
+
+    audio: "np.ndarray"
+    start: float
+    end: float
+
+
 class Endpointer:
     """Acumula áudio de uma track e devolve "falas" fechadas (com silêncio
     suficiente depois) assim que ficam prontas, sem esperar o fim da
@@ -66,10 +82,30 @@ class Endpointer:
         self._min_silence_samples = int(min_silence_duration_ms * samplerate / 1000)
         self._max_buffer_samples = int(max_buffer_seconds * samplerate)
         self._buffer = np.array([], dtype=np.float32)
+        # quantas amostras da track já saíram do buffer. Somado ao índice
+        # dentro do buffer, dá a posição absoluta da fala na gravação — que é
+        # o que a torna localizável no .wav.
+        self._consumed = 0
 
-    def push(self, audio_chunk: np.ndarray) -> list[np.ndarray]:
-        """Adiciona samples novos ao buffer e devolve uma lista de arrays
-        numpy prontos pra transcrever (falas já fechadas). Pode devolver []."""
+    def _drop(self, samples: int) -> None:
+        """Descarta o começo do buffer mantendo a conta da posição absoluta."""
+        samples = min(samples, len(self._buffer))
+        self._buffer = self._buffer[samples:]
+        self._consumed += samples
+
+    def _utterances(self, ranges: list) -> list[Utterance]:
+        return [
+            Utterance(
+                audio=self._buffer[r["start"] : r["end"]].copy(),
+                start=(self._consumed + r["start"]) / self.samplerate,
+                end=(self._consumed + r["end"]) / self.samplerate,
+            )
+            for r in ranges
+        ]
+
+    def push(self, audio_chunk: np.ndarray) -> list[Utterance]:
+        """Adiciona samples novos ao buffer e devolve as falas já fechadas,
+        cada uma com sua posição na track. Pode devolver []."""
         self._buffer = np.concatenate([self._buffer, audio_chunk])
 
         speech_ranges = get_speech_timestamps(self._buffer, self.vad_options, sampling_rate=self.samplerate)
@@ -78,7 +114,7 @@ class Endpointer:
             # mantendo só uma cauda curta (uma fala pode estar começando).
             tail = self.samplerate
             if len(self._buffer) > tail:
-                self._buffer = self._buffer[-tail:]
+                self._drop(len(self._buffer) - tail)
             return []
 
         last = speech_ranges[-1]
@@ -92,15 +128,15 @@ class Endpointer:
             # fala mais antiga a sair mesmo assim, pra não crescer sem limite.
             closed_ranges = speech_ranges[:1]
 
-        ready = [self._buffer[r["start"] : r["end"]].copy() for r in closed_ranges]
-        self._buffer = self._buffer[closed_ranges[-1]["end"] :]
+        ready = self._utterances(closed_ranges)
+        self._drop(closed_ranges[-1]["end"])
         return ready
 
-    def flush(self) -> list[np.ndarray]:
+    def flush(self) -> list[Utterance]:
         """Força a saída do que sobrar no buffer (usado ao encerrar a track)."""
         if len(self._buffer) == 0:
             return []
         speech_ranges = get_speech_timestamps(self._buffer, self.vad_options, sampling_rate=self.samplerate)
-        ready = [self._buffer[r["start"] : r["end"]].copy() for r in speech_ranges]
-        self._buffer = np.array([], dtype=np.float32)
+        ready = self._utterances(speech_ranges)
+        self._drop(len(self._buffer))
         return ready

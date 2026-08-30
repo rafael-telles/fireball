@@ -70,6 +70,16 @@ class Api:
         # o status vira 'stopping' e o polling da tela mostra o resto.
         return self._call(self._core.stop_meeting, meeting_id=meeting_id, wait_timeout=0.0)
 
+    def pause_meeting(self, meeting_id: str) -> dict:
+        return self._call(self._core.pause_meeting, meeting_id=meeting_id)
+
+    def resume_meeting(self, meeting_id: str) -> dict:
+        return self._call(self._core.resume_meeting, meeting_id=meeting_id)
+
+    def delete_meeting(self, meeting_id: str) -> dict:
+        """Apaga a reunião inteira. A janela confirma antes — aqui não há volta."""
+        return self._call(self._core.delete_meeting, meeting_id=meeting_id)
+
     def list_meetings(self) -> dict:
         """Histórico da tela inicial: uma linha por reunião, mais recentes
         primeiro, já com contagem de segmentos e se existe transcrição final."""

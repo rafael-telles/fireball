@@ -12,6 +12,7 @@ sem depender de microfone, VAD ou chave de API.
 from __future__ import annotations
 
 import signal
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -59,7 +60,14 @@ def run_fake_engine(meeting_dir: Path, interval: float = 3.0) -> None:
     signal.signal(signal.SIGTERM, lambda *_: stop.set())
     signal.signal(signal.SIGINT, lambda *_: stop.set())
 
+    # pausado = o roteiro para de andar, como a gravação real para de capturar
+    paused = threading.Event()
+    signal.signal(signal.SIGUSR1, lambda *_: paused.set())
+    signal.signal(signal.SIGUSR2, lambda *_: paused.clear())
+
     for seq, (speaker, text) in enumerate(FAKE_SCRIPT, start=1):
+        while paused.is_set() and not stop.is_set():
+            stop.wait(timeout=0.2)
         if stop.is_set():
             break
         _emit(transcript_path, seq, speaker, text)
@@ -104,35 +112,74 @@ def run_real_engine(
         has_system = False
         warnings_path.write_text(f"Gravando só o microfone — {exc}\n")
 
-    mic_proc = audio.start_recording(mic_source, mic_pcm, rate, channels, meeting_dir / "mic_parecord.log")
-    system_proc = None
-    if has_system:
-        system_proc = audio.start_recording(
-            system_source, system_pcm, rate, channels, meeting_dir / "system_parecord.log"
-        )
+    tracks = {
+        "mic": (mic_source, mic_pcm, meeting_dir / "mic_parecord.log"),
+        "system": (system_source, system_pcm, meeting_dir / "system_parecord.log"),
+    }
+
+    def _start(key: str, append: bool):
+        source, pcm, log = tracks[key]
+        return audio.start_recording(source, pcm, rate, channels, log, append=append)
+
+    procs = {"mic": _start("mic", False), "system": _start("system", False) if has_system else None}
 
     # dá um instante para o parecord conectar; se a conexão falhar por outro
     # motivo (permissão, device ocupado), o processo já terá saído sozinho.
     time.sleep(0.5)
 
-    if has_system and system_proc.poll() is not None:
+    if has_system and procs["system"].poll() is not None:
         has_system = False
         err = (meeting_dir / "system_parecord.log").read_text(errors="ignore")
         warnings_path.write_text(
             f"Gravando só o microfone — falha ao abrir o áudio do sistema ({system_source}):\n{err}\n"
         )
 
-    if mic_proc.poll() is not None:
+    if procs["mic"].poll() is not None:
         err = (meeting_dir / "mic_parecord.log").read_text(errors="ignore")
         raise RuntimeError(f"Falha ao abrir o microfone ({mic_source}):\n{err}")
 
-    state = {"running": True}
+    state = {"running": True, "want_paused": False, "paused": False}
 
     def _stop(signum, frame):
         state["running"] = False
 
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
+    # Pausar/retomar chegam por sinal porque o engine é outro processo — mesma
+    # via do stop, sem precisar de canal novo. O handler só marca a vontade; a
+    # troca acontece no laço, que é onde dá pra fazer isso com calma.
+    signal.signal(signal.SIGUSR1, lambda *_: state.__setitem__("want_paused", True))
+    signal.signal(signal.SIGUSR2, lambda *_: state.__setitem__("want_paused", False))
+
+    def _apply_pause(paused: bool) -> None:
+        """Pausar derruba os parecord; retomar sobe outros, dando append no
+        mesmo PCM.
+
+        A primeira tentativa foi SIGSTOP/SIGCONT, que é mais simples — e está
+        errada: com o cliente parado o PulseAudio **enfileira** em vez de
+        descartar, e no SIGCONT o parecord despeja o acumulado. Medido: 3,7s
+        de pausa devolveram ~3,7s de áudio na retomada, ou seja, a pausa só
+        atrasava o áudio em vez de descartá-lo — exatamente o oposto do que
+        alguém espera ao pausar uma reunião.
+
+        Matando o processo, o que passa durante a pausa não existe em lugar
+        nenhum. E como o PCM segue sendo um arquivo contínuo, a posição em
+        segundos dentro dele continua válida: a transcrição não precisa
+        compensar pausa nenhuma para continuar alinhada com o áudio.
+        """
+        if paused:
+            for proc in procs.values():
+                if proc is not None and proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+        else:
+            procs["mic"] = _start("mic", append=True)
+            if has_system:
+                procs["system"] = _start("system", append=True)
+        state["paused"] = paused
 
     transcribe_thread = None
     if transcribe_live:
@@ -149,13 +196,19 @@ def run_real_engine(
             (meeting_dir / "transcribe_warnings.log").write_text(str(exc) + "\n")
 
     while state["running"]:
-        time.sleep(0.5)
+        if state["want_paused"] != state["paused"]:
+            _apply_pause(state["want_paused"])
+        time.sleep(0.2)
 
-    mic_proc.terminate()
-    mic_proc.wait(timeout=5)
-    if has_system:
-        system_proc.terminate()
-        system_proc.wait(timeout=5)
+    # pausado, os parecord já foram encerrados na pausa — só resta fechar o
+    # que ainda estiver de pé.
+    for proc in procs.values():
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
 
     if transcribe_thread is not None:
         # a gravação já parou (sem mais bytes chegando); dá tempo da thread

@@ -101,31 +101,53 @@ class TrackConfig:
     channels: int
 
 
+# quanto áudio o parecord segura antes de escrever (ver start_recording)
+LATENCY_MS = 200
+
+
 def start_recording(
     device: str,
     pcm_path: Path,
     samplerate: int = DEFAULT_SAMPLERATE,
     channels: int = DEFAULT_CHANNELS,
     stderr_path: Optional[Path] = None,
+    append: bool = False,
 ) -> subprocess.Popen:
     """Sobe um `parecord` gravando PCM cru contínuo em pcm_path até ser
     terminado (SIGTERM). Não bloqueia — devolve o Popen para o chamador
-    gerenciar o ciclo de vida."""
+    gerenciar o ciclo de vida.
+
+    O parecord escreve no **stdout** (que redirecionamos para o arquivo) em vez
+    de receber o caminho como argumento, para que `append=True` seja possível:
+    é assim que retomar uma gravação pausada continua o mesmo PCM, em vez de
+    truncá-lo. Um PCM contínuo é o que mantém a conta de "segundo tal da
+    gravação" válida do começo ao fim.
+    """
     _require_parecord()
-    stderr = open(stderr_path, "wb") if stderr_path else subprocess.DEVNULL
-    return subprocess.Popen(
-        [
-            "parecord",
-            f"--device={device}",
-            f"--rate={samplerate}",
-            f"--channels={channels}",
-            "--format=s16le",
-            "--raw",
-            str(pcm_path),
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=stderr,
-    )
+    stderr = open(stderr_path, "ab" if append else "wb") if stderr_path else subprocess.DEVNULL
+    out = open(pcm_path, "ab" if append else "wb")
+    try:
+        return subprocess.Popen(
+            [
+                "parecord",
+                f"--device={device}",
+                f"--rate={samplerate}",
+                f"--channels={channels}",
+                "--format=s16le",
+                "--raw",
+                # Sem isto o parecord escreve em blocos de ~2s. Dois problemas:
+                # o que estiver no bloco em voo se perde quando o processo é
+                # encerrado (na pausa, media-se ~2s de áudio sumindo por
+                # ciclo), e a transcrição ao vivo só vê o áudio 2s depois de
+                # falado. Com 200ms, a perda por pausa cai para o
+                # imperceptível e a fala chega ao VAD quase na hora.
+                f"--latency-msec={LATENCY_MS}",
+            ],
+            stdout=out,
+            stderr=stderr,
+        )
+    finally:
+        out.close()  # o filho herdou o fd; o nosso não serve pra mais nada
 
 
 def wrap_pcm_as_wav(pcm_path: Path, wav_path: Path, samplerate: int, channels: int, sampwidth: int = 2) -> None:

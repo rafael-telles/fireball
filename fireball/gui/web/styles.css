@@ -1648,3 +1648,76 @@ audio {
 .sec-head .btn.small {
   margin-left: 10px;
 }
+
+/* --------------------------------------------------------- pausa/exclusão */
+
+.btn.soft {
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  color: var(--text-3);
+}
+
+.btn.soft:not(:disabled):hover {
+  border-color: #4d4956;
+}
+
+/* Pausado não é gravando: o ponto para de pulsar e as barrinhas congelam, que
+   é o que a pessoa olha pra saber se ainda está entrando áudio. */
+.live-card.paused {
+  background: var(--surface);
+  border-color: var(--border-2);
+}
+
+.live-card.paused .pulse-dot,
+.live-card.paused .bars i {
+  animation: none;
+}
+
+.live-card.paused .pulse-dot,
+.live-card.paused .bars i {
+  background: var(--faint);
+}
+
+.live-card.paused .live-card-label {
+  color: var(--dim);
+}
+
+.live-bar.paused .pulse-dot,
+.live-bar.paused .bars i {
+  animation: none;
+  background: var(--faint);
+}
+
+.danger-zone {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+/* Excluir não ganha o vermelho cheio de "iniciar/parar": não é a ação que se
+   quer fazer, é a que precisa estar disponível. Só quando já está confirmando
+   é que ela vira sólida — aí o botão realmente apaga tudo no próximo clique. */
+.btn.danger-outline {
+  background: transparent;
+  border: 1px solid var(--accent-border);
+  color: var(--accent-text-2);
+}
+
+.btn.danger-outline:hover {
+  background: var(--accent-bg-2);
+}
+
+.btn.danger-outline.confirming {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.danger-note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--faint);
+}

@@ -9,6 +9,7 @@ acesso é o daemon, que roda tudo isso sob um lock só.
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -17,7 +18,9 @@ from fireball import realtime, storage
 
 # Status em que a reunião ainda está "viva" (o daemon tem — ou deveria ter —
 # um processo cuidando dela). Fora daí, é estado terminal.
-LIVE_STATUSES = {"starting", "recording", "stopping"}
+# 'paused' é vivo: o engine continua de pé e o microfone continua tomado por
+# esta reunião, então ela ainda bloqueia começar outra.
+LIVE_STATUSES = {"starting", "recording", "paused", "stopping"}
 
 
 class MeetingAlreadyActive(RuntimeError):
@@ -138,6 +141,28 @@ def update_meeting(meeting_id: str, **fields) -> dict:
         meeting["ended_at"] = storage.now_iso()
     storage.write_json(meeting_dir / "meeting.json", meeting)
     return meeting
+
+
+def delete_meeting(meeting_id: str) -> dict:
+    """Apaga a pasta da reunião inteira — áudio, transcrições, notas, tudo.
+
+    Não há lixeira: o Fireball não tem para onde mover, e fingir que tem seria
+    pior que dizer a verdade na hora de confirmar. Quem chama é o daemon, que
+    já recusou o caso de reunião viva.
+    """
+    meeting_dir = storage.meeting_path(meeting_id)
+    if not meeting_dir.is_dir():
+        raise FileNotFoundError(f"Reunião '{meeting_id}' não existe.")
+    # confere que é mesmo uma pasta de reunião antes de apagar recursivamente:
+    # um id inventado não pode virar rmtree em qualquer caminho.
+    if not (meeting_dir / "meeting.json").exists():
+        raise ValueError(f"'{meeting_id}' não parece uma reunião (sem meeting.json); nada foi apagado.")
+    if meeting_dir.parent != storage.meetings_root():
+        raise ValueError(f"'{meeting_id}' está fora da pasta de reuniões; nada foi apagado.")
+
+    meeting = storage.read_json(meeting_dir / "meeting.json", {})
+    shutil.rmtree(meeting_dir)
+    return {"id": meeting_id, "name": meeting.get("name"), "deleted": True}
 
 
 def get_meeting_status(meeting_id: str) -> dict:
@@ -292,13 +317,15 @@ def audio_info(meeting_id: str) -> dict:
     arquivo. Por isso o player só sincroniza na final, e a janela precisa saber
     disso daqui em vez de adivinhar.
     """
-    path = storage.meeting_path(meeting_id) / "meeting.wav"
-    exists = path.exists()
-    return {
-        "path": str(path) if exists else None,
-        "exists": exists,
-        "size": path.stat().st_size if exists else 0,
-    }
+    meeting_dir = storage.meeting_path(meeting_id)
+    # meeting.wav é a mistura mic+sistema, escrita pelo engine ao terminar de
+    # gravar. Quando o monitor do sistema não abriu, ela não existe — mas
+    # mic.wav existe, e ouvir só o seu lado é melhor que não ouvir nada.
+    for name, mixed in (("meeting.wav", True), ("mic.wav", False)):
+        path = meeting_dir / name
+        if path.exists():
+            return {"path": str(path), "exists": True, "size": path.stat().st_size, "mixed": mixed}
+    return {"path": None, "exists": False, "size": 0, "mixed": False}
 
 
 def meeting_summaries() -> list[dict]:

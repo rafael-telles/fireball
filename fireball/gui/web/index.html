@@ -42,6 +42,7 @@
           <div class="bars" aria-hidden="true">
             <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
           </div>
+          <button class="btn soft small" id="live-card-pause">Pausar</button>
           <button class="btn soft-danger small" id="live-card-stop">Parar</button>
         </div>
       </div>
@@ -119,6 +120,7 @@
             <div class="mv-meta" id="mv-meta"></div>
           </div>
           <div class="mv-elapsed hidden" id="mv-elapsed"></div>
+          <button class="btn outline hidden" id="pause-btn">Pausar</button>
           <button class="btn primary hidden" id="stop-btn">Parar</button>
           <button class="btn outline hidden" id="finalize-btn">Finalizar</button>
           <button class="btn outline icon" id="mv-settings" title="Configurações">⚙</button>
@@ -184,6 +186,10 @@
                 <span class="ico">🗀</span><span class="grow">Abrir arquivos da reunião</span><span class="ico dim">↗</span>
               </button>
               <div class="path" id="mv-path"></div>
+              <div class="danger-zone">
+                <button class="btn danger-outline small" id="delete-btn">Excluir reunião</button>
+                <span class="danger-note" id="delete-note"></span>
+              </div>
             </div>
           </div>
 
