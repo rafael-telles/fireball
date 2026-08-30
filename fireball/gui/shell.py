@@ -83,11 +83,13 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
         "Fireball",
         url=str(WEB_DIR / "index.html"),
         js_api=Api(core),
-        width=820,
-        height=640,
-        min_size=(560, 460),
+        width=1140,
+        height=720,
+        # abaixo disso a barra lateral e o painel da reunião começam a brigar
+        # pela mesma tela — o CSS ainda reflui, mas não vale abrir menor
+        min_size=(760, 520),
         resizable=True,  # o chat da transcrição ganha (ou perde) tela junto
-        background_color="#0b0b0f",
+        background_color="#0c0b0d",
         hidden=True,  # o daemon sobe mostrando só a bandeja
     )
 

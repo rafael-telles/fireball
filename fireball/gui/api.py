@@ -11,6 +11,9 @@ o front-end (`web/app.js`) não precisar saber por onde a chamada veio.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS
 from fireball.daemon.core import DaemonCore
 
@@ -75,3 +78,45 @@ class Api:
         desenhou, então o polling ao vivo transporta só o que chegou desde a
         volta anterior — a tela nunca é reconstruída do zero."""
         return self._call(self._core.transcript, meeting_id=meeting_id, since_seq=since_seq, source=source)
+
+    def notes(self, meeting_id: str) -> dict:
+        return self._call(self._core.notes, meeting_id=meeting_id)
+
+    def save_notes(self, meeting_id: str, text: str) -> dict:
+        """A aba Notas salvando o notes.md inteiro (o editor é a versão boa)."""
+        return self._call(self._core.save_notes, meeting_id=meeting_id, text=text)
+
+    def actions(self, meeting_id: str) -> dict:
+        return self._call(self._core.action_list, meeting_id=meeting_id, status_filter="all")
+
+    def rename_meeting(self, meeting_id: str, name: str) -> dict:
+        return self._call(self._core.rename_meeting, meeting_id=meeting_id, name=name)
+
+    def finalize(self, meeting_id: str) -> dict:
+        """Transcrição final pela janela.
+
+        `wait_timeout=0` pelo mesmo motivo do stop: finalizar roda o motor
+        sobre o áudio inteiro e pode levar minutos — a janela mostra o status
+        'finalizando' pelo polling em vez de congelar. Backend sai da
+        configuração, resolvido no daemon.
+        """
+        return self._call(self._core.finalize, meeting_id=meeting_id, wait_timeout=0.0)
+
+    def open_folder(self, meeting_id: str) -> dict:
+        """Abre a pasta da reunião no gerenciador de arquivos do sistema.
+
+        Não passa pelo core: não é estado do Fireball, é um pedido ao desktop
+        de quem está com a janela aberta. `Popen` sem esperar — o navegador de
+        arquivos vive a vida dele, e travar a janela até ele fechar seria
+        errado.
+        """
+
+        def _open() -> dict:
+            detail = self._core.meeting_status(meeting_id)
+            opener = shutil.which("xdg-open") or shutil.which("open")
+            if not opener:
+                raise RuntimeError("Nenhum xdg-open/open disponível para abrir a pasta.")
+            subprocess.Popen([opener, detail["path"]], start_new_session=True)
+            return {"path": detail["path"]}
+
+        return self._call(_open)

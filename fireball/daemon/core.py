@@ -319,6 +319,18 @@ class DaemonCore:
     def transcript(self, meeting_id: str, since_seq: int = 0, source: str = "realtime") -> list[dict]:
         return control.read_transcript(meeting_id, since_seq=since_seq, source=source)
 
+    def notes(self, meeting_id: str) -> str:
+        return control.read_notes(meeting_id)
+
+    def save_notes(self, meeting_id: str, text: str) -> dict:
+        with self._lock:
+            control.write_notes(meeting_id, text)
+        return {"saved": True}
+
+    def rename_meeting(self, meeting_id: str, name: str) -> dict:
+        with self._lock:
+            return control.rename_meeting(meeting_id, name)
+
     def note(self, meeting_id: str, text: str, author: str = "claude") -> dict:
         with self._lock:
             control.append_note(meeting_id, text, author, datetime.now().strftime("%H:%M"))

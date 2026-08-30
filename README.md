@@ -23,17 +23,19 @@ Sketch inicial. O que funciona:
 - **Daemon** (`fireball.daemon`) — o processo dono do estado, que supervisiona as gravações,
   garante uma reunião por vez e **mostra o ícone na bandeja**: enquanto o Fireball está ligado,
   ele aparece lá. Ver seção própria abaixo.
-- GUI + bandeja — iniciar/parar reunião, transcrição ao vivo em formato de chat e histórico
-  de reuniões passadas, minimizado pra bandeja. `fireball-gui` abre a janela do daemon. Ver
-  seção própria abaixo.
+- GUI + bandeja — barra lateral com o histórico e a reunião em andamento, e a reunião aberta
+  em três abas (Resumo · Transcrição · Notas): transcrição ao vivo em formato de chat, editor
+  do `notes.md`, ficha com renomear/finalizar/abrir a pasta. `fireball-gui` abre a janela do
+  daemon. Ver seção própria abaixo.
 
 O que **não** está implementado ainda:
 
 - Diarização de verdade para "Outros participantes" (hoje é só *um* falante genérico —
   o monitor do sistema não distingue quem está falando do outro lado).
-- Na GUI: notas e ações na tela da reunião (hoje só a transcrição aparece), overlay de
-  áudio, finalizar uma reunião pela janela (ver plano em `.claude/plans/` da sessão que
-  criou isso).
+- Na GUI, os lugares que o desenho reserva e o daemon ainda não alimenta — eles aparecem na
+  tela como estado vazio, dizendo o que falta em vez de mostrar dado inventado: agenda
+  (não lemos calendário), reprodução do áudio junto à transcrição, edição de um segmento
+  transcrito, resumo gerado por modelo, e local/descrição/tags da reunião.
 
 ## Daemon
 
@@ -244,17 +246,31 @@ A bandeja tem status em três estados (ocioso, gravando, parando) e menu (abrir 
 reunião atual, sair). Fechar a janela só esconde — o Fireball continua ligado, e continua na
 bandeja.
 
-A janela tem duas telas:
+### A janela
 
-- **Início** — formulário de nova reunião (só o nome; backend e idioma ficam na *Configuração*,
-  abaixo) e o **histórico**: uma linha por reunião, mais recentes primeiro, com data, duração,
-  quantos segmentos, se já tem transcrição final e o status. Clicar abre a reunião.
-- **Configuração** (⚙ no topo) — backend da transcrição ao vivo, backend da transcrição final
-  e idioma.
-- **Reunião** — a transcrição em **formato de chat**: uma bolha por segmento, agrupadas por
-  falante, com hora. "Você" (o microfone daqui) fica à direita; o áudio do sistema, à esquerda.
-  Ao vivo, o cabeçalho mostra o cronômetro e o botão de parar; numa reunião já encerrada que
-  tenha sido finalizada, um seletor troca entre a transcrição final e a do tempo real.
+A **barra lateral** é a navegação, e está em toda tela. Ela tem, de cima pra baixo: o botão de
+nova reunião, o cartão da reunião **em andamento** (cronômetro e "parar"), a busca, o histórico
+agrupado por Hoje / Ontem / Esta semana / Este mês / Mais antigas, e a configuração no pé. A
+reunião gravando fica sempre à vista, inclusive enquanto se mexe na configuração: é a única
+coisa na tela que exige ação, e escondê-la atrás de um "voltar" seria esconder justamente ela.
+
+Abrir uma reunião dá três abas:
+
+- **Transcrição** — o chat: uma bolha por segmento, agrupadas por falante, com hora. "Você" (o
+  microfone daqui) fica à direita, no vermelho da marca; "Outros participantes" (o monitor do
+  sistema) à esquerda, no azul. Ao vivo, o rodapé conta o que o pipeline está fazendo (há
+  quanto tempo veio a última fala, quantos segmentos). Numa reunião encerrada que tenha sido
+  finalizada, um seletor troca entre a transcrição final e a do tempo real.
+- **Notas** — o `notes.md` num editor de markdown, salvo sozinho depois que você para de
+  digitar (e na hora de sair da aba, que o debounce sozinho perderia as últimas teclas). A
+  barra de cima insere markdown de verdade no texto; o arquivo é markdown, e é o mesmo que a
+  CLI e o Claude leem e escrevem.
+- **Resumo** — a ficha: renomear (clicando no título), dia e horário, participantes, as ações
+  registradas, e abrir a pasta da reunião no gerenciador de arquivos.
+
+No cabeçalho ficam o cronômetro e **Parar** enquanto grava; depois, **Finalizar** (ou
+**Retranscrever**, se já houver transcrição final), que roda o motor sobre o áudio inteiro sem
+travar a janela — o status vira "finalizando" e a tela acompanha pelo polling.
 
 O chat é **incremental**: a cada volta do polling a janela pede só os segmentos com `seq` maior
 que o último desenhado (`Api.transcript`) e dá append no DOM, em vez de redesenhar a conversa —
@@ -262,9 +278,18 @@ redesenhar jogaria fora a rolagem a cada segundo. E a rolagem só acompanha o fi
 estiver no fim: quem subiu pra reler não é arrastado de volta quando chega fala nova.
 
 Uma reunião que começa — pela janela, pela CLI ou por outra tela — abre sozinha no chat, uma vez
-só: quem voltou pro histórico de propósito não é jogado de volta pra conversa a cada polling.
+só: quem foi olhar outra coisa de propósito não é jogado de volta pra conversa a cada polling.
 Quando ela termina (pelo botão, pela bandeja ou pela CLI), a mesma tela drena os últimos
-segmentos que o engine escreveu depois do sinal e vira histórico no lugar.
+segmentos que o engine escreveu depois do sinal e vira reunião encerrada no lugar.
+
+### O que a tela ainda não tem
+
+O desenho da interface prevê mais do que o daemon serve hoje: a agenda que preenche a reunião
+antes de começar, o áudio tocando junto da transcrição, editar um segmento transcrito, um
+resumo gerado por modelo, local/descrição/tags. Esses lugares existem na tela **como estado
+vazio**, dizendo o que falta — a moldura tracejada é o sinal. É de propósito: um campo que
+mostra dado inventado, ou um botão que não faz nada, custa mais caro que um espaço que se
+assume incompleto.
 
 ### Configuração
 

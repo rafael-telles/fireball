@@ -148,6 +148,9 @@ def get_meeting_status(meeting_id: str) -> dict:
         "checkpoint": checkpoint,
         "segments_total": segments,
         "actions_pending": len(pending),
+        # a ficha da reunião mostra a pasta e oferece abrir ela; quem sabe onde
+        # os arquivos moram é este módulo, não a janela
+        "path": str(meeting_dir),
     }
 
 
@@ -210,6 +213,48 @@ def meeting_summaries() -> list[dict]:
             }
         )
     return rows
+
+
+# ------------------------------------------------------------------- notas
+
+
+def read_notes(meeting_id: str) -> str:
+    """O notes.md inteiro, como texto — é o que o editor da janela abre."""
+    path = storage.meeting_path(meeting_id) / "notes.md"
+    return path.read_text() if path.exists() else ""
+
+
+def write_notes(meeting_id: str, text: str) -> None:
+    """Substitui o notes.md inteiro pelo que está no editor.
+
+    Diferente de `append_note`, que acrescenta uma linha carimbada vinda do
+    Claude ou da CLI: aqui quem escreve é a pessoa, editando o arquivo na
+    janela, e o que está na tela é a versão boa. As duas escritas convivem
+    porque ambas passam pelo lock do daemon — mas uma nota que chegue enquanto
+    o editor está aberto só aparece no próximo carregamento.
+    """
+    (storage.meeting_path(meeting_id) / "notes.md").write_text(text)
+
+
+def rename_meeting(meeting_id: str, name: str) -> dict:
+    """Troca só o nome de exibição.
+
+    Não passa por `update_meeting` de propósito: aquele carimba `ended_at`
+    quando o status é terminal e o campo está vazio, o que daria a uma reunião
+    quebrada um fim inventado — a hora em que alguém a renomeou. Renomear não
+    é um evento do ciclo de vida da reunião.
+
+    A pasta continua com o slug do nome original: o id é a identidade, e mexer
+    nele quebraria todo caminho já gravado.
+    """
+    name = name.strip()
+    if not name:
+        raise ValueError("O nome da reunião não pode ficar vazio.")
+    meeting_dir = storage.meeting_path(meeting_id)
+    meeting = storage.read_json(meeting_dir / "meeting.json")
+    meeting["name"] = name
+    storage.write_json(meeting_dir / "meeting.json", meeting)
+    return meeting
 
 
 def append_note(meeting_id: str, text: str, author: str, stamp: str) -> None:
