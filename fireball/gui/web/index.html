@@ -6,16 +6,130 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="app">
+  <!-- O esqueleto das três telas vive aqui, estático: o app.js só troca
+       classes e preenche as partes que mudam. Isso é o que permite ao chat
+       receber mensagem nova sem recriar o DOM (e sem perder a rolagem). -->
+  <header class="topbar">
     <div class="brand">
-      <div class="brand-dot"></div>
+      <div class="brand-dot" id="brand-dot"></div>
       <h1>Fireball</h1>
     </div>
-    <div class="card" id="card">
-      <!-- preenchido por app.js -->
+    <div class="topbar-right">
+      <div class="live-chip hidden" id="live-chip">
+        <span class="status-dot"></span>
+        <span id="live-chip-label">GRAVANDO</span>
+        <span class="live-chip-time" id="live-chip-time">00:00</span>
+      </div>
+      <button class="ghost icon" id="settings-btn" title="Configurações">⚙</button>
     </div>
-    <div class="hint">Continua gravando em background mesmo com a janela fechada — use a bandeja.</div>
-  </div>
+  </header>
+
+  <div class="banner hidden" id="banner"></div>
+
+  <main class="view" id="view-home">
+    <section class="card">
+      <div class="card-title">Nova reunião</div>
+      <div class="field">
+        <label for="name">Nome</label>
+        <input type="text" id="name" value="Reunião" />
+      </div>
+      <p class="card-note">Grava o microfone e o áudio do sistema.</p>
+      <button class="primary" id="start-btn">Iniciar reunião</button>
+      <!-- backend não se escolhe aqui: fica na tela de configuração, e esta
+           linha só lembra com o quê a reunião vai rodar -->
+      <div class="config-summary">
+        <span id="config-summary-text"></span>
+        <button class="linkish" id="config-link">Configurações</button>
+      </div>
+      <div class="error" id="start-error"></div>
+    </section>
+
+    <section class="history">
+      <div class="section-title">
+        <span>Reuniões passadas</span>
+        <span class="count" id="past-count"></span>
+      </div>
+      <div class="meeting-list" id="meeting-list"></div>
+    </section>
+  </main>
+
+  <main class="view hidden" id="view-meeting">
+    <div class="meeting-bar">
+      <button class="ghost" id="back-btn" title="Voltar">←</button>
+      <div class="headline">
+        <div class="meeting-name" id="mv-name"></div>
+        <div class="meeting-meta" id="mv-meta"></div>
+      </div>
+      <div class="meeting-actions">
+        <div class="elapsed hidden" id="mv-elapsed"></div>
+        <button class="danger hidden" id="stop-btn">Parar</button>
+      </div>
+    </div>
+
+    <div class="source-switch hidden" id="source-switch">
+      <button class="chip" data-source="final">Transcrição final</button>
+      <button class="chip" data-source="realtime">Ao vivo</button>
+    </div>
+
+    <div class="chat" id="chat"></div>
+    <div class="error" id="meeting-error"></div>
+  </main>
+
+  <main class="view hidden" id="view-settings">
+    <div class="meeting-bar">
+      <button class="ghost" id="settings-back" title="Voltar">←</button>
+      <div class="headline">
+        <div class="meeting-name">Configurações</div>
+        <div class="meeting-meta">Valem para toda reunião nova — e para a CLI, quando ela não passa a flag.</div>
+      </div>
+    </div>
+
+    <div class="settings-body">
+      <section class="card">
+        <div class="card-title">Transcrição ao vivo</div>
+        <p class="card-note">
+          Roda durante a reunião, sobre o áudio que vai chegando — é ela que alimenta o chat.
+        </p>
+        <div class="field checkbox-row">
+          <input type="checkbox" id="set-live-on" />
+          <label for="set-live-on">Transcrever durante a reunião</label>
+        </div>
+        <div class="field">
+          <label for="set-live-backend">Backend</label>
+          <select id="set-live-backend"></select>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">Transcrição final</div>
+        <p class="card-note">
+          Roda depois que a reunião acaba, sobre o áudio inteiro (<code>fireball finalize</code>): mais
+          precisa que a do tempo real. <code>groq</code> é API paga por requisição e só existe aqui.
+        </p>
+        <div class="field">
+          <label for="set-final-backend">Backend</label>
+          <select id="set-final-backend"></select>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-title">Idioma</div>
+        <div class="field">
+          <label for="set-language">Código curto da fala esperada (pt, en, es…)</label>
+          <input type="text" id="set-language" />
+        </div>
+      </section>
+
+      <div class="settings-actions">
+        <button class="primary" id="settings-save">Salvar</button>
+        <span class="saved-note" id="settings-note"></span>
+      </div>
+      <div class="error" id="settings-error"></div>
+    </div>
+  </main>
+
+  <div class="hint">Continua gravando em background mesmo com a janela fechada — use a bandeja.</div>
+
   <script src="app.js"></script>
 </body>
 </html>

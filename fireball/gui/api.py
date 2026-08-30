@@ -11,7 +11,7 @@ o front-end (`web/app.js`) não precisar saber por onde a chamada veio.
 
 from __future__ import annotations
 
-from fireball.backends import REALTIME_BACKENDS
+from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS
 from fireball.daemon.core import DaemonCore
 
 
@@ -35,11 +35,27 @@ class Api:
         detail = self._call(self._core.meeting_status, meeting_id=active["id"])
         return {"ok": True, "result": {"active": detail["result"]}} if detail["ok"] else detail
 
-    def list_backends(self) -> list:
-        return list(REALTIME_BACKENDS)
+    def backend_options(self) -> dict:
+        """O que a tela de configuração pode oferecer em cada modo. 'groq' só
+        aparece no final: é API paga por requisição, e no tempo real viraria
+        uma chamada a cada poucos segundos."""
+        return {"realtime": list(REALTIME_BACKENDS), "final": list(BATCH_BACKENDS)}
 
-    def start_meeting(self, name: str, fake: bool, backend: str) -> dict:
-        return self._call(self._core.start_meeting, name=name, fake=fake, backend=backend)
+    def get_settings(self) -> dict:
+        return self._call(self._core.get_settings)
+
+    def save_settings(self, values: dict) -> dict:
+        return self._call(self._core.update_settings, **values)
+
+    def start_meeting(self, name: str) -> dict:
+        """Começar reunião pela janela é uma decisão só: o nome.
+
+        `fake=False` fixo — o motor simulado existe pra testar o pipeline sem
+        microfone, o que é trabalho de desenvolvimento (`fireball start
+        --fake`), não escolha de quem abriu a janela pra gravar. Backend e
+        idioma saem da configuração, no daemon.
+        """
+        return self._call(self._core.start_meeting, name=name, fake=False)
 
     def stop_meeting(self, meeting_id: str) -> dict:
         # sem espera: a janela não pode congelar até o engine fechar os .wav;
@@ -47,4 +63,15 @@ class Api:
         return self._call(self._core.stop_meeting, meeting_id=meeting_id, wait_timeout=0.0)
 
     def list_meetings(self) -> dict:
-        return self._call(self._core.list_meetings)
+        """Histórico da tela inicial: uma linha por reunião, mais recentes
+        primeiro, já com contagem de segmentos e se existe transcrição final."""
+        return self._call(self._core.meeting_summaries)
+
+    def meeting_status(self, meeting_id: str) -> dict:
+        return self._call(self._core.meeting_status, meeting_id=meeting_id)
+
+    def transcript(self, meeting_id: str, since_seq: int, source: str) -> dict:
+        """Segmentos novos do chat. O front-end manda o último seq que já
+        desenhou, então o polling ao vivo transporta só o que chegou desde a
+        volta anterior — a tela nunca é reconstruída do zero."""
+        return self._call(self._core.transcript, meeting_id=meeting_id, since_seq=since_seq, source=source)

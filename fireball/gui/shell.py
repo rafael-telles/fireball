@@ -83,9 +83,10 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
         "Fireball",
         url=str(WEB_DIR / "index.html"),
         js_api=Api(core),
-        width=460,
-        height=440,
-        resizable=False,
+        width=820,
+        height=640,
+        min_size=(560, 460),
+        resizable=True,  # o chat da transcrição ganha (ou perde) tela junto
         background_color="#0b0b0f",
         hidden=True,  # o daemon sobe mostrando só a bandeja
     )

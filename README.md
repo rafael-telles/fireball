@@ -23,15 +23,17 @@ Sketch inicial. O que funciona:
 - **Daemon** (`fireball.daemon`) — o processo dono do estado, que supervisiona as gravações,
   garante uma reunião por vez e **mostra o ícone na bandeja**: enquanto o Fireball está ligado,
   ele aparece lá. Ver seção própria abaixo.
-- GUI + bandeja — Fase 1: iniciar/parar reunião e ver status, minimizado pra bandeja.
-  `fireball-gui` abre a janela do daemon. Ver seção própria abaixo.
+- GUI + bandeja — iniciar/parar reunião, transcrição ao vivo em formato de chat e histórico
+  de reuniões passadas, minimizado pra bandeja. `fireball-gui` abre a janela do daemon. Ver
+  seção própria abaixo.
 
 O que **não** está implementado ainda:
 
 - Diarização de verdade para "Outros participantes" (hoje é só *um* falante genérico —
   o monitor do sistema não distingue quem está falando do outro lado).
-- Na GUI: lista de reuniões passadas, view ao vivo (transcrição/notas/ações), overlay de
-  áudio, tela de configuração (ver plano em `.claude/plans/` da sessão que criou isso).
+- Na GUI: notas e ações na tela da reunião (hoje só a transcrição aparece), overlay de
+  áudio, finalizar uma reunião pela janela (ver plano em `.claude/plans/` da sessão que
+  criou isso).
 
 ## Daemon
 
@@ -238,10 +240,60 @@ fireball-gui              # garante o daemon de pé e traz a janela pra frente
 janela pelo socket. Rodar duas vezes não abre duas janelas nem dois ícones — só traz a existente
 pra frente, como se espera de um app de bandeja.
 
-Fase 1 (atual): bandeja com status em três estados (ocioso, gravando, parando) e menu (abrir
-janela, parar reunião atual, sair); janela mínima pra iniciar uma reunião (nome, backend,
-real/fake) ou ver o status/parar a que estiver rodando. Fechar a janela só esconde — o Fireball
-continua ligado, e continua na bandeja.
+A bandeja tem status em três estados (ocioso, gravando, parando) e menu (abrir janela, parar
+reunião atual, sair). Fechar a janela só esconde — o Fireball continua ligado, e continua na
+bandeja.
+
+A janela tem duas telas:
+
+- **Início** — formulário de nova reunião (só o nome; backend e idioma ficam na *Configuração*,
+  abaixo) e o **histórico**: uma linha por reunião, mais recentes primeiro, com data, duração,
+  quantos segmentos, se já tem transcrição final e o status. Clicar abre a reunião.
+- **Configuração** (⚙ no topo) — backend da transcrição ao vivo, backend da transcrição final
+  e idioma.
+- **Reunião** — a transcrição em **formato de chat**: uma bolha por segmento, agrupadas por
+  falante, com hora. "Você" (o microfone daqui) fica à direita; o áudio do sistema, à esquerda.
+  Ao vivo, o cabeçalho mostra o cronômetro e o botão de parar; numa reunião já encerrada que
+  tenha sido finalizada, um seletor troca entre a transcrição final e a do tempo real.
+
+O chat é **incremental**: a cada volta do polling a janela pede só os segmentos com `seq` maior
+que o último desenhado (`Api.transcript`) e dá append no DOM, em vez de redesenhar a conversa —
+redesenhar jogaria fora a rolagem a cada segundo. E a rolagem só acompanha o fim se você já
+estiver no fim: quem subiu pra reler não é arrastado de volta quando chega fala nova.
+
+Uma reunião que começa — pela janela, pela CLI ou por outra tela — abre sozinha no chat, uma vez
+só: quem voltou pro histórico de propósito não é jogado de volta pra conversa a cada polling.
+Quando ela termina (pelo botão, pela bandeja ou pela CLI), a mesma tela drena os últimos
+segmentos que o engine escreveu depois do sinal e vira histórico no lugar.
+
+### Configuração
+
+Backend é decisão de configuração, não de cada reunião: quem vai gravar quer clicar em
+"iniciar", não escolher motor de transcrição. Então a janela pergunta só o nome, e
+backend/idioma ficam na tela de configuração (⚙), em `~/.fireball/settings.json`:
+
+| chave | o que é | padrão |
+| --- | --- | --- |
+| `realtime_backend` | motor da transcrição ao vivo (a que alimenta o chat) | `whisper` |
+| `transcribe_live` | transcrever durante a reunião, ou só gravar o áudio | `true` |
+| `final_backend` | motor da transcrição final, sobre o áudio inteiro | `whisper` |
+| `language` | idioma esperado da fala | `pt` |
+
+Os dois modos são configurados separado de propósito: é comum querer um motor local durante a
+reunião e `groq` no final. `groq` só aparece na transcrição final — em tempo real seria uma
+chamada de API paga a cada poucos segundos.
+
+Reunião começada pela janela é sempre gravação real (mic + sistema). O motor simulado existe
+pra testar o pipeline sem microfone — isso é trabalho de desenvolvimento, e mora na CLI
+(`fireball start --fake`), não num campo que quem abriu a janela pra gravar precise entender. A
+reunião fake aparece na janela igual a qualquer outra enquanto roda.
+
+**Quem resolve a configuração é o daemon**, não o cliente: `start` e `finalize` usam o valor
+configurado quando ninguém passa um explícito. Então a mesma configuração vale para a CLI, e as
+flags (`--backend`, `--language`, `--no-transcribe`) viram override pontual dela. Configuração
+estragada não derruba nada — valor inválido cai no padrão na leitura, mas é recusado com erro
+na hora de salvar. Num daemon sem casca gráfica (servidor, ssh), o jeito de mudar é editar o
+JSON na mão.
 
 **"Sair" desliga o Fireball inteiro**: para a reunião ativa, fecha os arquivos direito e encerra
 o daemon — nada continua gravando sem ninguém olhando, e nenhum ícone fica para trás. Parar a

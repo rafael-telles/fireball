@@ -2,13 +2,16 @@
   --bg: #0b0b0f;
   --surface: #16161d;
   --surface-2: #1e1e27;
+  --bubble-mine: #2a1a12;
   --border: #2a2a35;
   --text: #e8e8ec;
   --text-dim: #9a9aa5;
+  --text-faint: #6b6b78;
   --accent: #ff6b35;
   --accent-dim: #ff6b3533;
   --danger: #ff4d4f;
   --ok: #33d17a;
+  --warn: #e5a50a;
   --radius: 14px;
 }
 
@@ -23,25 +26,38 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: -apple-system, "Segoe UI", Roboto, Inter, system-ui, sans-serif;
+  font-size: 14px;
   -webkit-font-smoothing: antialiased;
 }
 
+/* Coluna única de altura fixa: o cabeçalho e o rodapé ficam parados e só o
+   miolo (lista ou chat) rola — sem isso o chat empurraria a barra da reunião
+   pra fora da tela conforme a transcrição cresce. */
 body {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.app {
-  width: 420px;
-  padding: 28px;
+.hidden {
+  display: none !important;
+}
+
+/* ------------------------------------------------------------- cabeçalho */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
 }
 
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 22px;
 }
 
 .brand-dot {
@@ -53,23 +69,96 @@ body {
 }
 
 .brand h1 {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.06em;
   color: var(--text-dim);
   margin: 0;
   text-transform: uppercase;
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.live-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.live-chip-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.banner {
+  background: #2a1416;
+  border-bottom: 1px solid var(--danger);
+  color: var(--danger);
+  font-size: 12px;
+  padding: 8px 20px;
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ views */
+
+.view {
+  flex: 1;
+  min-height: 0; /* deixa o filho rolável encolher em vez de esticar o body */
+  display: flex;
+  flex-direction: column;
+}
+
+#view-home {
+  overflow-y: auto;
+  padding: 20px;
+  gap: 22px;
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 22px;
+  padding: 18px;
+  flex: none;
+}
+
+.card-title, .section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+.section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.count {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-faint);
 }
 
 .field {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 .field label {
@@ -77,6 +166,15 @@ body {
   font-size: 12px;
   color: var(--text-dim);
   margin-bottom: 6px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+}
+
+.grow {
+  flex: 1;
 }
 
 input[type="text"], select {
@@ -99,14 +197,16 @@ input[type="text"]:focus, select:focus {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  color: var(--text-dim);
+}
+
+.checkbox-row label {
+  margin: 0;
 }
 
 button {
-  width: 100%;
   border: none;
   border-radius: 10px;
-  padding: 12px 16px;
+  padding: 11px 16px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -118,6 +218,7 @@ button:active {
 }
 
 button.primary {
+  width: 100%;
   background: var(--accent);
   color: #1a0d05;
 }
@@ -127,21 +228,320 @@ button.danger {
   color: #200;
 }
 
+button.ghost {
+  background: transparent;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+button.ghost:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+}
+
+button.ghost.icon {
+  font-size: 15px;
+  padding: 6px 10px;
+}
+
+/* botão que se comporta como link: usado onde a ação é "ir pra outra tela",
+   não "executar" */
+button.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: underline;
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.status-row {
+.config-summary {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
+/* ------------------------------------------------------- configuração */
+
+.settings-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.card-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin: -6px 0 14px;
+}
+
+.card-note code {
+  background: var(--surface-2);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 11px;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-actions .primary {
+  width: auto;
+  min-width: 140px;
+}
+
+.saved-note {
+  font-size: 12px;
+  color: var(--ok);
+}
+
+/* ----------------------------------------------------- lista de reuniões */
+
+.meeting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.meeting-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.meeting-row:hover {
+  border-color: var(--text-faint);
+  background: var(--surface-2);
+}
+
+.meeting-row.live {
+  border-color: var(--ok);
+}
+
+.meeting-row .info {
+  flex: 1;
+  min-width: 0;
+}
+
+.meeting-row .title {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meeting-row .sub {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+.badge.ok { color: var(--ok); border-color: #33d17a44; }
+.badge.live { color: var(--ok); border-color: var(--ok); }
+.badge.warn { color: var(--warn); border-color: #e5a50a44; }
+.badge.bad { color: var(--danger); border-color: #ff4d4f44; }
+
+.empty {
+  color: var(--text-faint);
+  font-size: 13px;
+  padding: 18px;
+  text-align: center;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+/* ------------------------------------------------------- view da reunião */
+
+.meeting-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.headline {
+  flex: 1;
+  min-width: 0;
+}
+
+.meeting-name {
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meeting-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meeting-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
+.elapsed {
+  font-variant-numeric: tabular-nums;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.source-switch {
+  display: flex;
+  gap: 6px;
+  padding: 10px 20px 0;
+  flex: none;
+}
+
+.chip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.chip.selected {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* ------------------------------------------------------------------ chat */
+
+.chat {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.msg {
+  display: flex;
+  flex-direction: column;
+  max-width: 78%;
+  align-self: flex-start;
+}
+
+/* "Você" é o microfone deste computador — vai pra direita, como a própria
+   fala numa conversa. Todo o resto vem do áudio do sistema (o outro lado da
+   chamada) e fica à esquerda. */
+.msg.mine {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+/* grupo = falas seguidas do mesmo falante: só a primeira leva nome e respiro */
+.msg.group-start {
+  margin-top: 12px;
+}
+
+.msg-speaker {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--speaker-color, var(--text-dim));
+  margin-bottom: 4px;
+  padding: 0 4px;
+}
+
+.bubble {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 9px 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.msg.mine .bubble {
+  background: var(--bubble-mine);
+  border-color: #4a2c1c;
+}
+
+.msg-time {
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  margin: 3px 4px 0;
+}
+
+.chat-empty {
+  margin: auto;
+  color: var(--text-faint);
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- comuns */
+
 .status-dot {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--ok);
   animation: pulse 1.6s ease-in-out infinite;
@@ -152,36 +552,30 @@ button:disabled {
   50% { opacity: 0.35; }
 }
 
-.meeting-name {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 6px 0 2px;
-}
-
-.meeting-meta {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-bottom: 18px;
-}
-
-.elapsed {
-  font-variant-numeric: tabular-nums;
-  font-size: 30px;
-  font-weight: 700;
-  margin: 8px 0 20px;
-  letter-spacing: 0.02em;
-}
-
 .error {
   color: var(--danger);
   font-size: 12px;
-  margin-top: 10px;
-  min-height: 14px;
+  padding: 0 20px;
+  min-height: 0;
+}
+
+.error:not(:empty) {
+  padding: 8px 20px;
+}
+
+#start-error {
+  padding: 0;
+}
+
+#start-error:not(:empty) {
+  padding-top: 10px;
 }
 
 .hint {
-  color: var(--text-dim);
+  color: var(--text-faint);
   font-size: 11px;
-  margin-top: 14px;
+  padding: 8px 20px 10px;
   text-align: center;
+  border-top: 1px solid var(--border);
+  flex: none;
 }

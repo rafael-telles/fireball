@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-from fireball import control, realtime, storage
+from fireball import control, settings, storage
 from fireball.daemon import protocol
 
 
@@ -218,10 +218,19 @@ class DaemonCore:
         interval: float = 3.0,
         mic_device: Optional[str] = None,
         system_device: Optional[str] = None,
-        transcribe: bool = True,
-        backend: str = "whisper",
-        language: str = realtime.DEFAULT_LANGUAGE,
+        transcribe: Optional[bool] = None,
+        backend: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> dict:
+        """Nada de backend/idioma obrigatórios: o que o chamador não disser sai
+        da configuração (ver `fireball.settings`). É o que deixa a janela
+        perguntar só nome e modo — o resto foi decidido uma vez, na tela de
+        configuração, e vale igual pra CLI."""
+        prefs = settings.load()
+        transcribe = prefs["transcribe_live"] if transcribe is None else transcribe
+        backend = backend or prefs["realtime_backend"]
+        language = language or prefs["language"]
+
         with self._lock:
             if self._shutting_down:
                 raise control.MeetingBusy("O daemon está desligando; não dá pra iniciar reunião agora.")
@@ -297,6 +306,19 @@ class DaemonCore:
     def list_meetings(self) -> list[dict]:
         return control.list_meetings()
 
+    def get_settings(self) -> dict:
+        return settings.load()
+
+    def update_settings(self, **fields) -> dict:
+        with self._lock:
+            return settings.save(**fields)
+
+    def meeting_summaries(self) -> list[dict]:
+        return control.meeting_summaries()
+
+    def transcript(self, meeting_id: str, since_seq: int = 0, source: str = "realtime") -> list[dict]:
+        return control.read_transcript(meeting_id, since_seq=since_seq, source=source)
+
     def note(self, meeting_id: str, text: str, author: str = "claude") -> dict:
         with self._lock:
             control.append_note(meeting_id, text, author, datetime.now().strftime("%H:%M"))
@@ -314,6 +336,10 @@ class DaemonCore:
             return control.set_action_status(meeting_id, action_id, status)
 
     def finalize(self, meeting_id: str, backend: Optional[str] = None, wait_timeout: float = 0.0) -> dict:
+        # sem backend explícito vale o configurado para a transcrição final,
+        # que não é necessariamente o do tempo real (é comum querer 'groq'
+        # aqui e um motor local durante a reunião).
+        backend = backend or settings.load()["final_backend"]
         with self._lock:
             meeting = control.read_meeting(meeting_id)
             if meeting.get("status") in control.LIVE_STATUSES:

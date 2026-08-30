@@ -170,6 +170,48 @@ def scan_live_meetings() -> list[dict]:
     return [m for m in list_meetings() if m.get("status") in LIVE_STATUSES]
 
 
+# ------------------------------------------------------------- transcrição
+
+# Duas transcrições convivem por reunião: a do tempo real (escrita pelo engine
+# durante a gravação) e a final (escrita pelo `finalize`, mais precisa). A GUI
+# mostra as duas — ao vivo só existe a primeira; numa reunião passada já
+# finalizada, a final é o padrão.
+TRANSCRIPT_FILES = {"realtime": "transcript.ndjson", "final": "transcript_final.ndjson"}
+
+
+def read_transcript(meeting_id: str, since_seq: int = 0, source: str = "realtime") -> list[dict]:
+    """Segmentos da transcrição com `seq` maior que `since_seq`.
+
+    O corte por seq é o que deixa o chat ao vivo da GUI barato: ela guarda o
+    último seq que já desenhou e a cada polling pede só o que veio depois, em
+    vez de reler a reunião inteira e reconstruir a tela.
+    """
+    filename = TRANSCRIPT_FILES.get(source)
+    if filename is None:
+        raise ValueError(f"Fonte de transcrição desconhecida: {source!r} (use realtime ou final).")
+    return list(storage.read_ndjson(storage.meeting_path(meeting_id) / filename, since_seq=since_seq))
+
+
+def meeting_summaries() -> list[dict]:
+    """`list_meetings()` mais o que cada linha da lista da GUI precisa mostrar.
+
+    Mais recentes primeiro: o id começa com o timestamp, então inverter a
+    ordem alfabética já é ordem cronológica reversa — que é como se olha
+    histórico.
+    """
+    rows = []
+    for meeting in reversed(list_meetings()):
+        meeting_dir = storage.meetings_root() / meeting["id"]
+        rows.append(
+            {
+                **meeting,
+                "segments": sum(1 for _ in storage.read_ndjson(meeting_dir / "transcript.ndjson")),
+                "has_final": (meeting_dir / "transcript_final.ndjson").exists(),
+            }
+        )
+    return rows
+
+
 def append_note(meeting_id: str, text: str, author: str, stamp: str) -> None:
     notes_path = storage.meeting_path(meeting_id) / "notes.md"
     tag = "🤖" if author == "claude" else "🧑"

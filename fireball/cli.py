@@ -153,22 +153,25 @@ def devices():
 )
 @click.option(
     "--transcribe/--no-transcribe",
-    default=True,
-    help="No modo --real, roda transcrição em tempo real local em paralelo à gravação.",
+    default=None,
+    help="No modo --real, roda transcrição em tempo real local em paralelo à gravação. Padrão: o configurado.",
 )
 @click.option(
     "--backend",
     type=click.Choice(list(REALTIME_BACKENDS)),
-    default="whisper",
-    help="Motor de transcrição ao vivo: 'whisper' (faster-whisper, multi-idioma) ou 'parakeet' (NeMo Parakeet TDT via ONNX).",
+    default=None,
+    help="Motor de transcrição ao vivo: 'whisper' (faster-whisper, multi-idioma) ou 'parakeet' (NeMo Parakeet TDT via ONNX). Padrão: o configurado.",
 )
-@click.option(
-    "--language", default=realtime.DEFAULT_LANGUAGE, help="Idioma esperado da fala (código curto, ex: pt, en)."
-)
+@click.option("--language", default=None, help="Idioma esperado da fala (código curto, ex: pt). Padrão: o configurado.")
 def start(name, fake, interval, mic_device, system_device, transcribe, backend, language):
     """Inicia uma nova reunião. O daemon cria a pasta e sobe o engine de
     gravação/transcrição, que ele mesmo supervisiona. Falha se já houver uma
-    reunião gravando — só uma por vez."""
+    reunião gravando — só uma por vez.
+
+    Backend, idioma e transcrever-ao-vivo não passados aqui saem da
+    configuração (`~/.fireball/settings.json`, editável pela tela de
+    configuração da janela) — as flags são o override pontual dela.
+    """
     meeting = _call(
         "start",
         name=name,
@@ -355,7 +358,7 @@ def action_done(meeting_id, action_id):
     "--backend",
     type=click.Choice(list(BATCH_BACKENDS)),
     default=None,
-    help="Backend pra transcrição final. Padrão: o mesmo escolhido em `fireball start` (ou whisper).",
+    help="Backend pra transcrição final. Padrão: o configurado para a transcrição final.",
 )
 @click.option("--wait/--no-wait", default=True, help="Espera a transcrição final terminar.")
 @click.option("--timeout", default=3600.0, type=float, help="Tempo máximo de espera, em segundos.")
