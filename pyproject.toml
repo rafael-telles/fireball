@@ -25,6 +25,10 @@ gui = ["pywebview>=5", "qtpy>=2.4", "PyQt6>=6.6", "PyQt6-WebEngine>=6.6"]
 [project.scripts]
 fireball = "fireball.cli:cli"
 fireball-gui = "fireball.gui.app:main"
+# o daemon também sobe sozinho no primeiro comando da CLI/GUI que precisar
+# dele; este entry point é pra rodar em foreground ou sob um supervisor
+# (systemd --user, por exemplo).
+fireball-daemon = "fireball.daemon.server:run"
 
 [build-system]
 requires = ["setuptools>=68"]

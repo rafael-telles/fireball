@@ -1,8 +1,18 @@
 const card = document.getElementById("card");
 
 let tickTimer = null;
-let activeMeeting = null; // { id, name, started_at, fake, backend, language }
-let renderedMode = null; // "start" | "active" — evita recriar o form enquanto o usuário digita
+let activeMeeting = null; // { id, name, started_at, fake, backend, language, status }
+let renderedMode = null; // "start" | "active" | "offline" — evita recriar o DOM a cada tick
+
+// Rótulo de cada status vivo que o daemon pode reportar. 'stopping' existe
+// porque parar não é instantâneo: o engine ainda empacota os .wav e drena a
+// última transcrição depois do sinal, e a janela mostra isso em vez de
+// mentir que já acabou.
+const STATUS_LABEL = {
+  starting: "INICIANDO",
+  recording: "GRAVANDO",
+  stopping: "PARANDO…",
+};
 
 function formatElapsed(startedAtIso) {
   const started = new Date(startedAtIso).getTime();
@@ -17,6 +27,30 @@ function formatElapsed(startedAtIso) {
 function setError(msg) {
   const el = document.getElementById("error");
   if (el) el.textContent = msg || "";
+}
+
+// Toda chamada ao daemon volta como {ok, result} ou {ok:false, error, kind}.
+function unwrap(res) {
+  if (!res || res.ok !== true) throw new Error((res && res.error) || "falha falando com o daemon");
+  return res.result;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement("div");
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderOffline(message) {
+  card.innerHTML = `
+    <div class="meeting-name">Daemon fora do ar</div>
+    <div class="meeting-meta">${escapeHtml(message)}</div>
+    <button class="primary" id="retry-btn">Tentar de novo</button>
+  `;
+  document.getElementById("retry-btn").addEventListener("click", () => {
+    renderedMode = null;
+    refresh();
+  });
 }
 
 function renderStart(backends) {
@@ -41,60 +75,72 @@ function renderStart(backends) {
   document.getElementById("start-btn").addEventListener("click", onStart);
 }
 
+function metaLine(status) {
+  const m = status.meeting;
+  const modeLabel = m.fake ? "simulado" : `real · ${m.backend || "?"}`;
+  return `${modeLabel} · ${status.segments_total} segmento(s)` +
+    (status.actions_pending ? ` · ${status.actions_pending} ação(ões) pendente(s)` : "");
+}
+
 function renderActive(status) {
   const m = status.meeting;
   activeMeeting = m;
-  const modeLabel = m.fake ? "simulado" : `real · ${m.backend || "?"}`;
   card.innerHTML = `
-    <div class="status-row"><div class="status-dot"></div><span style="font-size:12px;color:var(--text-dim)">GRAVANDO</span></div>
+    <div class="status-row"><div class="status-dot"></div><span style="font-size:12px;color:var(--text-dim)" id="status-label">${STATUS_LABEL[m.status] || m.status.toUpperCase()}</span></div>
     <div class="meeting-name">${escapeHtml(m.name)}</div>
-    <div class="meeting-meta">${modeLabel} · ${status.segments_total} segmento(s)${status.actions_pending ? ` · ${status.actions_pending} ação(ões) pendente(s)` : ""}</div>
+    <div class="meeting-meta">${metaLine(status)}</div>
     <div class="elapsed" id="elapsed">${formatElapsed(m.started_at)}</div>
     <button class="danger" id="stop-btn">Parar reunião</button>
     <div class="error" id="error"></div>
   `;
-  document.getElementById("stop-btn").addEventListener("click", onStop);
-}
-
-function escapeHtml(s) {
-  const d = document.createElement("div");
-  d.textContent = s;
-  return d.innerHTML;
+  const stopBtn = document.getElementById("stop-btn");
+  stopBtn.addEventListener("click", onStop);
+  stopBtn.disabled = m.status === "stopping";
 }
 
 async function refresh() {
+  let status;
   try {
-    const status = await window.pywebview.api.get_status();
-
-    if (status.active) {
-      const sameMeeting = renderedMode === "active" && activeMeeting && activeMeeting.id === status.active.meeting.id;
-      if (!sameMeeting) {
-        if (tickTimer) clearInterval(tickTimer);
-        renderActive(status.active);
-        renderedMode = "active";
-        tickTimer = setInterval(() => {
-          const el = document.getElementById("elapsed");
-          if (el && activeMeeting) el.textContent = formatElapsed(activeMeeting.started_at);
-        }, 1000);
-      } else {
-        // já montado — só atualiza os números, sem recriar o DOM
-        activeMeeting = status.active.meeting;
-        const meta = document.querySelector(".meeting-meta");
-        if (meta) {
-          const modeLabel = activeMeeting.fake ? "simulado" : `real · ${activeMeeting.backend || "?"}`;
-          meta.textContent = `${modeLabel} · ${status.active.segments_total} segmento(s)` +
-            (status.active.actions_pending ? ` · ${status.active.actions_pending} ação(ões) pendente(s)` : "");
-        }
-      }
-    } else if (renderedMode !== "start") {
+    status = unwrap(await window.pywebview.api.get_status());
+  } catch (err) {
+    if (renderedMode !== "offline") {
       if (tickTimer) clearInterval(tickTimer);
       activeMeeting = null;
-      const backends = await window.pywebview.api.list_backends();
-      renderStart(backends);
-      renderedMode = "start";
+      renderOffline(String(err.message || err));
+      renderedMode = "offline";
     }
-  } catch (err) {
-    setError(String(err));
+    return;
+  }
+
+  if (status.active) {
+    const m = status.active.meeting;
+    const sameMeeting = renderedMode === "active" && activeMeeting && activeMeeting.id === m.id;
+    if (!sameMeeting) {
+      if (tickTimer) clearInterval(tickTimer);
+      renderActive(status.active);
+      renderedMode = "active";
+      tickTimer = setInterval(() => {
+        const el = document.getElementById("elapsed");
+        if (el && activeMeeting) el.textContent = formatElapsed(activeMeeting.started_at);
+      }, 1000);
+    } else {
+      // já montado — só atualiza os números e o status, sem recriar o DOM
+      const previousStatus = activeMeeting.status;
+      activeMeeting = m;
+      const meta = document.querySelector(".meeting-meta");
+      if (meta) meta.textContent = metaLine(status.active);
+      if (previousStatus !== m.status) {
+        const label = document.getElementById("status-label");
+        if (label) label.textContent = STATUS_LABEL[m.status] || m.status.toUpperCase();
+        const stopBtn = document.getElementById("stop-btn");
+        if (stopBtn) stopBtn.disabled = m.status === "stopping";
+      }
+    }
+  } else if (renderedMode !== "start") {
+    if (tickTimer) clearInterval(tickTimer);
+    activeMeeting = null;
+    renderStart(await window.pywebview.api.list_backends());
+    renderedMode = "start";
   }
 }
 
@@ -106,10 +152,10 @@ async function onStart() {
   btn.disabled = true;
   setError("");
   try {
-    await window.pywebview.api.start_meeting(name, !real, backend);
+    unwrap(await window.pywebview.api.start_meeting(name, !real, backend));
     await refresh();
   } catch (err) {
-    setError(String(err));
+    setError(String(err.message || err));
     btn.disabled = false;
   }
 }
@@ -120,10 +166,10 @@ async function onStop() {
   btn.disabled = true;
   setError("");
   try {
-    await window.pywebview.api.stop_meeting(activeMeeting.id);
+    unwrap(await window.pywebview.api.stop_meeting(activeMeeting.id));
     await refresh();
   } catch (err) {
-    setError(String(err));
+    setError(String(err.message || err));
     btn.disabled = false;
   }
 }

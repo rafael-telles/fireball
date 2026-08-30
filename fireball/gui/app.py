@@ -1,9 +1,15 @@
 """GUI do Fireball: janela (pywebview) + bandeja (QSystemTrayIcon), um único
 processo, um único toolkit (Qt) e um único event loop.
 
-A GUI é um viewer + controle fino: toda a lógica de verdade já existe em
-`fireball.control`/`fireball.storage`/etc. — os métodos de `Api` só chamam
-essas funções, sem duplicar nada da CLI.
+A GUI é um **cliente do daemon**: ela não lê nem escreve arquivo de reunião
+nenhum, não sobe processo de gravação e não guarda estado próprio — todo
+método de `Api` é uma chamada ao daemon (`fireball.daemon.client`), igual ao
+que a CLI faz. É por isso que abrir a janela no meio de uma reunião iniciada
+pela CLI mostra o estado certo, e vice-versa: existe uma fonte de verdade só.
+
+O daemon sobe sozinho quando a GUI abre (`ensure_daemon`), e continua sendo
+um processo separado, sem Qt — assim ele roda igual em máquina sem sessão
+gráfica, e quem só usa a CLI não paga PyQt6.
 """
 
 from __future__ import annotations
@@ -20,28 +26,47 @@ from PyQt6 import QtWebEngineWidgets  # noqa: F401
 import webview
 from PyQt6.QtWidgets import QApplication
 
-from fireball import control
 from fireball.backends import REALTIME_BACKENDS
+from fireball.daemon import client, protocol
 from fireball.gui.tray import TrayIcon
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 
 
 class Api:
+    """Ponte JS → daemon. Cada método é uma chamada ao daemon; erros do
+    daemon viram `{"error": ...}` para o front-end mostrar, em vez de
+    estourarem dentro do pywebview."""
+
+    def _call(self, op: str, **args):
+        try:
+            return {"ok": True, "result": client.call(op, **args)}
+        except (protocol.DaemonError, protocol.DaemonUnavailable) as exc:
+            return {"ok": False, "error": str(exc), "kind": getattr(exc, "kind", type(exc).__name__)}
+
     def get_status(self) -> dict:
-        active = control.active_meeting()
+        result = self._call("daemon_status")
+        if not result["ok"]:
+            return result
+        active = result["result"]["active"]
         if not active:
-            return {"active": None}
-        return {"active": control.get_meeting_status(active["id"])}
+            return {"ok": True, "result": {"active": None}}
+        detail = self._call("meeting_status", meeting_id=active["id"])
+        return {"ok": True, "result": {"active": detail["result"]}} if detail["ok"] else detail
 
     def list_backends(self) -> list:
         return list(REALTIME_BACKENDS)
 
     def start_meeting(self, name: str, fake: bool, backend: str) -> dict:
-        return control.start_meeting(name=name, fake=fake, backend=backend)
+        return self._call("start", name=name, fake=fake, backend=backend)
 
     def stop_meeting(self, meeting_id: str) -> dict:
-        return control.stop_meeting(meeting_id)
+        # sem espera: a janela não pode congelar até o engine fechar os .wav;
+        # o status vira 'stopping' e o polling da tela mostra o resto.
+        return self._call("stop", meeting_id=meeting_id, wait_timeout=0.0)
+
+    def list_meetings(self) -> dict:
+        return self._call("list")
 
 
 def _on_closing(window) -> bool:
@@ -81,6 +106,13 @@ def open_or_focus_window() -> None:
 
 def main() -> None:
     app = QApplication.instance() or QApplication(sys.argv)
+
+    # sobe o daemon antes de desenhar qualquer coisa; se ele não subir, a
+    # bandeja ainda aparece (em estado "offline") e tenta reconectar sozinha.
+    try:
+        client.ensure_daemon()
+    except protocol.DaemonUnavailable as exc:
+        print(f"[gui] daemon não subiu: {exc}", file=sys.stderr)
 
     tray = TrayIcon(open_window=open_or_focus_window)
     tray.show()

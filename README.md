@@ -20,6 +20,8 @@ Sketch inicial. O que funciona:
   inteiro (mais preciso que o tempo real) e mescla mic/system por ordem de início — local
   (whisper/parakeet) ou via API da Groq (`--backend groq`, só pra transcrição final).
 - Skill (`skills/fireball/SKILL.md`) com as instruções de como o Claude deve agir como escrivão.
+- **Daemon** (`fireball.daemon`) — o processo dono do estado, que supervisiona as gravações e
+  garante uma reunião por vez. CLI e GUI são clientes dele. Ver seção própria abaixo.
 - GUI + bandeja (`fireball-gui`) — Fase 1: iniciar/parar reunião e ver status, minimizado pra
   bandeja. Ver seção própria abaixo.
 
@@ -29,6 +31,80 @@ O que **não** está implementado ainda:
   o monitor do sistema não distingue quem está falando do outro lado).
 - Na GUI: lista de reuniões passadas, view ao vivo (transcrição/notas/ações), overlay de
   áudio, tela de configuração (ver plano em `.claude/plans/` da sessão que criou isso).
+
+## Daemon
+
+O Fireball tem **um processo dono do estado**. CLI e GUI não leem nem escrevem `meeting.json`,
+não sobem processo de gravação e não guardam estado próprio: os dois falam com o daemon por
+socket Unix e ele responde de memória.
+
+```
+fireball (CLI) ─┐
+                ├─ socket Unix ─→ daemon ─→ engine (gravação/transcrição)
+fireball-gui ───┘                   │     └─ finalize (transcrição final)
+   (bandeja + janela)               └─ meeting.json, notes.md, actions.json
+```
+
+O daemon **sobe sozinho** no primeiro comando que precisar dele; não é preciso iniciá-lo à mão.
+
+```bash
+fireball daemon status     # está de pé? onde escuta? o que está rodando?
+fireball daemon start      # sobe em background (idempotente)
+fireball daemon stop       # desliga — e para a reunião ativa junto, fechando os arquivos
+fireball daemon run        # foreground, com log no terminal (pra depurar)
+```
+
+### Por que um daemon, e o que ele garante
+
+**Uma reunião por vez, de verdade.** A reunião ativa é um campo em memória protegido por lock,
+num processo único. Antes isso era *derivado* do filesystem (varrer todo `meeting.json`
+procurando `status: "recording"`), o que é check-then-act: dois `fireball start` simultâneos
+passavam os dois pela verificação e disputavam o microfone. Hoje, cinco `start` ao mesmo tempo
+resultam em uma reunião e quatro recusas.
+
+**Ninguém fica preso em `recording`.** O daemon supervisiona cada processo filho numa thread
+(`proc.wait()`) e escreve o status final quando ele morre — `stopped` se saiu limpo, `crashed`
+com o `exit_code` se não. Sem isso, um engine que terminava sozinho (roteiro `--fake`) ou que
+quebrava (microfone ocupado) deixava `recording` gravado para sempre, e o app inteiro travava:
+nenhuma reunião nova era aceita até editar o JSON na mão.
+
+**`stop` não mente.** O engine ainda empacota os `.wav` e drena a última transcrição *depois*
+do SIGTERM. O status vai para `stopping` e só vira `stopped` quando o processo realmente sai —
+então `fireball finalize` logo em seguida sempre encontra o áudio.
+
+**Nada fica órfão, e nada é morto por engano.** Se o daemon for morto sem cerimônia, o engine
+sobrevive; o próximo daemon a subir **adota** o processo órfão (conferindo o `/proc/<pid>/cmdline`)
+e volta a supervisioná-lo, ou marca a reunião como `crashed` se ele já se foi. Essa mesma
+conferência evita o risco antigo de mandar SIGTERM para um PID reciclado pelo sistema.
+
+**Um daemon só.** `flock` exclusivo em `$FIREBALL_HOME/daemon.lock` — duas subidas simultâneas
+resolvem aí, sem janela de corrida; quem perde sai quieto e usa o socket de quem ganhou.
+
+### Estados de uma reunião
+
+`starting` → `recording` → `stopping` → `stopped` → `finalizing` → `finalized`
+
+Fora do caminho feliz: `crashed` (o engine morreu sozinho), `failed` (o engine nem subiu),
+`finalize_failed`. Os três primeiros mais `stopping` contam como "viva" — é o que `transcript
+follow` usa pra saber quando parar.
+
+### Protocolo
+
+Uma linha JSON por mensagem, sobre um socket Unix em `$FIREBALL_HOME/daemon.sock` (ou, se esse
+caminho estourar o limite de 108 bytes do `AF_UNIX`, um nome derivado por hash em
+`$XDG_RUNTIME_DIR` — `fireball daemon status` mostra qual está em uso). Sem dependência externa
+e sem porta TCP: é local, de um usuário só, e a permissão `0600` do socket já é a autenticação.
+
+```
+pedido    {"op": "start", "args": {"name": "Reunião", "fake": false}}
+resposta  {"ok": true, "result": {...}}
+          {"ok": false, "error": {"kind": "MeetingAlreadyActive", "message": "..."}}
+```
+
+A **única** coisa que não passa pelo daemon é a *leitura* da transcrição
+(`transcript show/follow`), que lê `transcript.ndjson` direto do disco: é um stream contínuo com
+um escritor só (o engine), e passá-lo pelo socket não daria nenhuma garantia a mais. Regra geral:
+**escrita passa pelo daemon; o stream de leitura vai direto no arquivo.**
 
 ## Backends de transcrição (`--backend`)
 
@@ -128,19 +204,24 @@ validamos o nome contra `pactl` antes de gravar.
 
 ## GUI + bandeja (`fireball-gui`)
 
-Viewer + controle fino sobre os mesmos arquivos/funções da CLI (`fireball.control`) — não
-duplica lógica nem fala com a CLI via subprocesso, importa direto.
+Cliente do daemon, igual à CLI: a GUI não toca em arquivo de reunião nem sobe processo de
+gravação — cada ação da janela e da bandeja é uma chamada ao daemon. É por isso que abrir a
+janela no meio de uma reunião iniciada pela CLI mostra o estado certo, e vice-versa.
 
 ```bash
 pip install -e '.[gui]'
 fireball-gui
 ```
 
-Fase 1 (atual): bandeja com status (ícone muda quando está gravando) e menu (abrir janela,
-parar reunião atual, sair); janela mínima pra iniciar uma reunião (nome, backend, real/fake)
-ou ver o status/parar a que estiver rodando. Fechar a janela só esconde — o app continua na
-bandeja; "Sair" pelo menu da bandeja encerra de verdade (a gravação, se houver, continua
-rodando normalmente — é um processo separado e destacado).
+Fase 1 (atual): bandeja com status em três estados (gravando, ocioso, daemon fora do ar) e menu
+(abrir janela, parar reunião atual, sair); janela mínima pra iniciar uma reunião (nome, backend,
+real/fake) ou ver o status/parar a que estiver rodando. Fechar a janela só esconde — o app
+continua na bandeja.
+
+A bandeja é a *cara* do daemon, não o daemon: **"Sair" desliga o daemon**, que por sua vez para
+a reunião ativa e fecha os arquivos direito — nada continua gravando sem ninguém olhando. O
+daemon em si não tem Qt e roda separado, então quem só usa a CLI não paga PyQt6, e ele funciona
+igual numa máquina sem sessão gráfica.
 
 **Um toolkit só: Qt.** Janela via `pywebview` (backend Qt/PyQt6) e bandeja via
 `QSystemTrayIcon` (parte do PyQt6, sem lib extra) — de propósito, não GTK/`pystray`. Em teste
@@ -196,7 +277,7 @@ fireball note <meeting_id> "Decisão: usar Monitor para o loop ao vivo"
 fireball action add <meeting_id> --title "Abrir ticket no Linear" --system linear
 
 fireball status <meeting_id>
-fireball stop <meeting_id>
+fireball stop                                         # sem argumento: para a reunião ativa
 fireball finalize <meeting_id>                        # --backend whisper|parakeet, padrão: o mesmo do start
 fireball transcript show <meeting_id> --source final
 ```

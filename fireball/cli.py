@@ -4,6 +4,16 @@ Este CLI é a tool que o Claude usa para agir como escrivão de uma reunião:
 iniciar/parar gravação, acompanhar a transcrição ao vivo, tomar notas e
 gerenciar ações pendentes de aprovação. Ver skills/fireball/SKILL.md para
 o fluxo completo que o Claude segue.
+
+**A CLI é um cliente do daemon**, não uma implementação paralela: todo
+comando que muda estado vira uma chamada ao daemon (`fireball.daemon`), que é
+o dono único da reunião ativa e dos processos de gravação. O daemon sobe
+sozinho no primeiro comando que precisar dele.
+
+A única exceção é a *leitura* da transcrição (`transcript show/follow`), que
+lê `transcript.ndjson` direto do disco: é um stream contínuo, e passá-lo pelo
+socket não daria nenhuma garantia a mais — o arquivo é append-only e tem um
+escritor só (o engine).
 """
 
 from __future__ import annotations
@@ -11,24 +21,94 @@ from __future__ import annotations
 import json
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 import click
 from dotenv import load_dotenv
 
 # Carrega segredos (ex.: GROQ_API_KEY) do .env na raiz do repo, se existir.
-# Roda pra qualquer subcomando, incluindo o `_engine` em background (que
-# reimporta este módulo via `python -m fireball.cli`).
+# Roda pra qualquer subcomando, incluindo o `_engine`/`_finalize` em background
+# (que reimportam este módulo via `python -m fireball.cli`).
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from fireball import audio, control, engine, realtime, storage
-from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS, BackendUnavailable, get_batch_backend
+from fireball import audio, control, engine, finalize as finalize_mod, realtime, storage
+from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS, BackendUnavailable
+from fireball.daemon import client, protocol, server as daemon_server
+
+
+def _echo(data) -> None:
+    click.echo(json.dumps(data, ensure_ascii=False))
+
+
+def _call(op: str, autostart: bool = True, **args):
+    """Chama o daemon traduzindo as falhas dele em erro de CLI legível.
+
+    `autostart=False` para comandos cujo trabalho é justamente informar se o
+    daemon está de pé — senão consultar o estado subiria um daemon novo logo
+    depois de alguém desligá-lo de propósito.
+    """
+    try:
+        return client.call(op, autostart=autostart, **args)
+    except protocol.DaemonUnavailable as exc:
+        raise click.ClickException(str(exc)) from exc
+    except protocol.DaemonError as exc:
+        raise click.ClickException(str(exc)) from exc
 
 
 @click.group()
 def cli():
     """Fireball — grava e transcreve reuniões, servindo de tools para o Claude atuar como escrivão."""
+
+
+# --------------------------------------------------------------------- daemon
+
+
+@cli.group()
+def daemon():
+    """Controla o daemon — o processo que é dono do estado das reuniões."""
+
+
+@daemon.command(name="run")
+def daemon_run():
+    """Sobe o daemon em foreground (útil pra depurar; o log vai pro terminal)."""
+    try:
+        sys.exit(daemon_server.run())
+    except daemon_server.AlreadyRunning as exc:
+        raise click.ClickException(str(exc))
+
+
+@daemon.command(name="start")
+def daemon_start():
+    """Sobe o daemon em background, se já não estiver rodando."""
+    try:
+        client.ensure_daemon()
+    except protocol.DaemonUnavailable as exc:
+        raise click.ClickException(str(exc))
+    _echo(_call("daemon_status"))
+
+
+@daemon.command(name="stop")
+def daemon_stop():
+    """Desliga o daemon. A reunião ativa, se houver, é parada junto e tem os
+    arquivos fechados direito — nada fica gravando órfão."""
+    result = client.shutdown()
+    _echo(result or {"ok": True, "note": "daemon já não estava rodando"})
+
+
+@daemon.command(name="status")
+def daemon_status():
+    """Mostra se o daemon está de pé, onde ele escuta e o que está rodando."""
+    if not client.is_running():
+        _echo({"running": False, "socket": str(protocol.socket_path()), "log": str(protocol.log_path())})
+        return
+    try:
+        _echo({"running": True, **_call("daemon_status", autostart=False)})
+    except click.ClickException:
+        # desligou entre o is_running() e a chamada — é "parado", não erro
+        _echo({"running": False, "socket": str(protocol.socket_path()), "log": str(protocol.log_path())})
+
+
+# ------------------------------------------------------------------ reuniões
 
 
 @cli.command()
@@ -40,7 +120,7 @@ def devices():
     quer — por exemplo, um headset bluetooth específico.
     """
     for source in audio.list_sources():
-        click.echo(json.dumps(source, ensure_ascii=False))
+        _echo(source)
 
 
 @cli.command()
@@ -76,66 +156,65 @@ def devices():
     "--language", default=realtime.DEFAULT_LANGUAGE, help="Idioma esperado da fala (código curto, ex: pt, en)."
 )
 def start(name, fake, interval, mic_device, system_device, transcribe, backend, language):
-    """Inicia uma nova reunião: cria a pasta e sobe o motor de gravação/transcrição em background."""
-    try:
-        meeting = control.start_meeting(
-            name=name,
-            fake=fake,
-            interval=interval,
-            mic_device=mic_device,
-            system_device=system_device,
-            transcribe=transcribe,
-            backend=backend,
-            language=language,
-        )
-    except control.MeetingAlreadyActive as exc:
-        raise click.ClickException(str(exc))
-    meeting_dir = storage.meeting_path(meeting["id"])
-    click.echo(json.dumps({"meeting_id": meeting["id"], "path": str(meeting_dir)}, ensure_ascii=False))
-
-
-@cli.command(name="_engine", hidden=True)
-@click.argument("meeting_id")
-@click.option("--fake/--real", default=True)
-@click.option("--interval", default=3.0, type=float)
-@click.option("--mic-device", default=None)
-@click.option("--system-device", default=None)
-@click.option("--transcribe/--no-transcribe", default=True)
-@click.option("--backend", type=click.Choice(list(REALTIME_BACKENDS)), default="whisper")
-@click.option("--language", default=realtime.DEFAULT_LANGUAGE)
-def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcribe, backend, language):
-    meeting_dir = storage.meeting_path(meeting_id)
-    if fake:
-        engine.run_fake_engine(meeting_dir, interval=interval)
-    else:
-        engine.run_real_engine(
-            meeting_dir,
-            mic_device=mic_device,
-            system_device=system_device,
-            transcribe_live=transcribe,
-            backend_name=backend,
-            language=language,
-        )
+    """Inicia uma nova reunião. O daemon cria a pasta e sobe o engine de
+    gravação/transcrição, que ele mesmo supervisiona. Falha se já houver uma
+    reunião gravando — só uma por vez."""
+    meeting = _call(
+        "start",
+        name=name,
+        fake=fake,
+        interval=interval,
+        mic_device=mic_device,
+        system_device=system_device,
+        transcribe=transcribe,
+        backend=backend,
+        language=language,
+    )
+    _echo({"meeting_id": meeting["id"], "path": str(storage.meeting_path(meeting["id"]))})
 
 
 @cli.command()
-@click.argument("meeting_id")
-def stop(meeting_id):
-    """Para a gravação/transcrição em tempo real de uma reunião."""
-    click.echo(json.dumps(control.stop_meeting(meeting_id), ensure_ascii=False))
+@click.argument("meeting_id", required=False)
+@click.option(
+    "--wait/--no-wait",
+    default=True,
+    help="Espera o engine terminar de fechar os arquivos (.wav, última transcrição) antes de retornar.",
+)
+def stop(meeting_id, wait):
+    """Para a reunião ativa (ou a indicada por MEETING_ID).
+
+    Com --wait (padrão), só retorna quando o engine realmente saiu: ele ainda
+    empacota os .wav e drena a transcrição depois do sinal, e `finalize` antes
+    disso não encontraria o áudio.
+    """
+    _echo(_call("stop", meeting_id=meeting_id, wait_timeout=90.0 if wait else 0.0, timeout=120.0))
 
 
 @cli.command()
-@click.argument("meeting_id")
+@click.argument("meeting_id", required=False)
 def status(meeting_id):
-    """Mostra o estado atual de uma reunião: metadados, checkpoint, segmentos, ações pendentes."""
-    click.echo(json.dumps(control.get_meeting_status(meeting_id), ensure_ascii=False, indent=2))
+    """Estado de uma reunião (ou da ativa): metadados, checkpoint, segmentos, ações pendentes."""
+    if meeting_id is None:
+        active = _call("active")
+        if active is None:
+            raise click.ClickException("Não há reunião ativa. Passe um MEETING_ID ou rode `fireball list`.")
+        meeting_id = active["id"]
+    click.echo(json.dumps(_call("meeting_status", meeting_id=meeting_id), ensure_ascii=False, indent=2))
 
 
 @cli.command(name="list")
 def list_meetings():
     """Lista todas as reuniões conhecidas."""
-    click.echo(json.dumps(control.list_meetings(), ensure_ascii=False, indent=2))
+    click.echo(json.dumps(_call("list"), ensure_ascii=False, indent=2))
+
+
+@cli.command()
+def active():
+    """Mostra a reunião que está gravando agora, ou null."""
+    _echo(_call("active"))
+
+
+# --------------------------------------------------------------- transcrição
 
 
 @cli.group()
@@ -151,7 +230,7 @@ def transcript_show(meeting_id, since, source):
     meeting_dir = storage.meeting_path(meeting_id)
     filename = "transcript.ndjson" if source == "realtime" else "transcript_final.ndjson"
     for seg in storage.read_ndjson(meeting_dir / filename, since_seq=since):
-        click.echo(json.dumps(seg, ensure_ascii=False))
+        _echo(seg)
 
 
 @transcript.command(name="follow")
@@ -163,7 +242,8 @@ def transcript_follow(meeting_id, since, poll):
 
     Pensado para rodar via Bash em background e ser observado com o Monitor tool:
     cada linha de stdout é um segmento novo da reunião. Termina sozinho quando a
-    reunião não está mais 'recording' e não há mais segmentos novos.
+    reunião sai de um estado vivo (parada, finalizada ou quebrada) e não há mais
+    segmentos novos.
     """
     meeting_dir = storage.meeting_path(meeting_id)
     transcript_path = meeting_dir / "transcript.ndjson"
@@ -175,11 +255,11 @@ def transcript_follow(meeting_id, since, poll):
         meeting = storage.read_json(meeting_dir / "meeting.json", {})
         new_any = False
         for seg in storage.read_ndjson(transcript_path, since_seq=last_seq):
-            click.echo(json.dumps(seg, ensure_ascii=False))
+            _echo(seg)
             sys.stdout.flush()
             last_seq = seg["seq"]
             new_any = True
-        if meeting.get("status") != "recording" and not new_any:
+        if meeting.get("status") not in control.LIVE_STATUSES and not new_any:
             break
         time.sleep(poll)
 
@@ -189,9 +269,10 @@ def transcript_follow(meeting_id, since, poll):
 @click.argument("seq", type=int)
 def transcript_ack(meeting_id, seq):
     """Marca até onde o Claude já processou o stream (para retomar após reconexão)."""
-    meeting_dir = storage.meeting_path(meeting_id)
-    storage.write_json(meeting_dir / "checkpoint.json", {"last_seq": seq})
-    click.echo(json.dumps({"last_seq": seq}))
+    _echo(_call("transcript_ack", meeting_id=meeting_id, seq=seq))
+
+
+# ---------------------------------------------------------------- notas/ações
 
 
 @cli.command()
@@ -200,13 +281,7 @@ def transcript_ack(meeting_id, seq):
 @click.option("--author", type=click.Choice(["claude", "user"]), default="claude")
 def note(meeting_id, text, author):
     """Adiciona uma nota ao vivo ao arquivo da reunião (ação automática, sem aprovação)."""
-    meeting_dir = storage.meeting_path(meeting_id)
-    notes_path = meeting_dir / "notes.md"
-    stamp = datetime.now().strftime("%H:%M")
-    tag = "🤖" if author == "claude" else "🧑"
-    with notes_path.open("a") as f:
-        f.write(f"- `{stamp}` {tag} {text}\n")
-    click.echo(json.dumps({"ok": True}))
+    _echo(_call("note", meeting_id=meeting_id, text=text, author=author))
 
 
 @cli.group()
@@ -221,20 +296,7 @@ def action():
 @click.option("--system", default="tolaria", help="Sistema alvo: tolaria, linear, slack, calendar, etc.")
 def action_add(meeting_id, title, detail, system):
     """Registra uma ação como pendente. Não executa nada — só sinaliza a intenção."""
-    meeting_dir = storage.meeting_path(meeting_id)
-    actions_path = meeting_dir / "actions.json"
-    actions = storage.read_json(actions_path, [])
-    entry = {
-        "id": f"a{len(actions) + 1}",
-        "title": title,
-        "detail": detail,
-        "system": system,
-        "status": "pending",
-        "created_at": storage.now_iso(),
-    }
-    actions.append(entry)
-    storage.write_json(actions_path, actions)
-    click.echo(json.dumps(entry, ensure_ascii=False))
+    _echo(_call("action_add", meeting_id=meeting_id, title=title, detail=detail, system=system))
 
 
 @action.command(name="list")
@@ -246,23 +308,9 @@ def action_add(meeting_id, title, detail, system):
     default="all",
 )
 def action_list(meeting_id, status_filter):
-    meeting_dir = storage.meeting_path(meeting_id)
-    actions = storage.read_json(meeting_dir / "actions.json", [])
-    if status_filter != "all":
-        actions = [a for a in actions if a["status"] == status_filter]
-    click.echo(json.dumps(actions, ensure_ascii=False, indent=2))
-
-
-def _set_action_status(meeting_id: str, action_id: str, new_status: str) -> dict:
-    meeting_dir = storage.meeting_path(meeting_id)
-    actions_path = meeting_dir / "actions.json"
-    actions = storage.read_json(actions_path, [])
-    for a in actions:
-        if a["id"] == action_id:
-            a["status"] = new_status
-            storage.write_json(actions_path, actions)
-            return a
-    raise click.ClickException(f"Ação '{action_id}' não encontrada.")
+    click.echo(
+        json.dumps(_call("action_list", meeting_id=meeting_id, status_filter=status_filter), ensure_ascii=False, indent=2)
+    )
 
 
 @action.command(name="approve")
@@ -270,14 +318,14 @@ def _set_action_status(meeting_id: str, action_id: str, new_status: str) -> dict
 @click.argument("action_id")
 def action_approve(meeting_id, action_id):
     """Aprova uma ação pendente. O Claude ainda precisa executá-la e chamar `action done`."""
-    click.echo(json.dumps(_set_action_status(meeting_id, action_id, "approved"), ensure_ascii=False))
+    _echo(_call("action_set", meeting_id=meeting_id, action_id=action_id, status="approved"))
 
 
 @action.command(name="reject")
 @click.argument("meeting_id")
 @click.argument("action_id")
 def action_reject(meeting_id, action_id):
-    click.echo(json.dumps(_set_action_status(meeting_id, action_id, "rejected"), ensure_ascii=False))
+    _echo(_call("action_set", meeting_id=meeting_id, action_id=action_id, status="rejected"))
 
 
 @action.command(name="done")
@@ -285,7 +333,10 @@ def action_reject(meeting_id, action_id):
 @click.argument("action_id")
 def action_done(meeting_id, action_id):
     """Marca uma ação aprovada como executada de fato."""
-    click.echo(json.dumps(_set_action_status(meeting_id, action_id, "done"), ensure_ascii=False))
+    _echo(_call("action_set", meeting_id=meeting_id, action_id=action_id, status="done"))
+
+
+# ------------------------------------------------------------------ finalize
 
 
 @cli.command()
@@ -296,64 +347,71 @@ def action_done(meeting_id, action_id):
     default=None,
     help="Backend pra transcrição final. Padrão: o mesmo escolhido em `fireball start` (ou whisper).",
 )
-def finalize(meeting_id, backend):
+@click.option("--wait/--no-wait", default=True, help="Espera a transcrição final terminar.")
+@click.option("--timeout", default=3600.0, type=float, help="Tempo máximo de espera, em segundos.")
+def finalize(meeting_id, backend, wait, timeout):
     """Roda a transcrição final (mais precisa) do áudio completo, por track
     (mic = 'Você', system = 'Outros participantes'), mesclando por ordem de
     início.
 
-    A reconciliação entre a transcrição final e as notas ao vivo (comparar,
-    corrigir imprecisões) é feita pelo Claude via skill, não por este comando —
-    aqui só produzimos transcript_final.ndjson.
+    O daemon roda isso num processo separado e supervisiona: o status vai pra
+    'finalizing' e depois 'finalized' (ou 'finalize_failed'). A reconciliação
+    entre a transcrição final e as notas ao vivo é feita pelo Claude via
+    skill, não por este comando.
     """
-    meeting_dir = storage.meeting_path(meeting_id)
-    meeting = storage.read_json(meeting_dir / "meeting.json")
-    final_path = meeting_dir / "transcript_final.ndjson"
-    if final_path.exists():
-        final_path.unlink()
-
-    if meeting.get("fake"):
-        for seg in storage.read_ndjson(meeting_dir / "transcript.ndjson"):
-            storage.append_ndjson(final_path, {**seg, "source": "final"})
-        meeting["status"] = "finalized"
-        storage.write_json(meeting_dir / "meeting.json", meeting)
-        click.echo(json.dumps({"ok": True, "final_path": str(final_path)}, ensure_ascii=False))
-        return
-
-    backend_name = backend or meeting.get("backend") or "whisper"
-    language = meeting.get("language") or realtime.DEFAULT_LANGUAGE
-    try:
-        batch_backend = get_batch_backend(backend_name)
-    except BackendUnavailable as exc:
-        raise click.ClickException(str(exc))
-
-    tracks = storage.read_json(meeting_dir / "audio_tracks.json", {})
-    entries = []
-    for key, speaker in (("mic", "Você"), ("system", "Outros participantes")):
-        wav_path = meeting_dir / f"{key}.wav"
-        if key not in tracks or not wav_path.exists():
-            continue
-        for seg in batch_backend.transcribe_file(wav_path, language):
-            entries.append({"start": seg["start"], "end": seg["end"], "speaker": speaker, "text": seg["text"]})
-    # sem timestamp (parakeet hoje), assume início da reunião — não deixa
-    # sem posição pra ordenar, só perde a intercalação fina com a outra track
-    entries.sort(key=lambda e: e["start"] if e["start"] is not None else 0.0)
-
-    for i, entry in enumerate(entries, start=1):
-        storage.append_ndjson(
-            final_path,
-            {
-                "seq": i,
-                "start": entry["start"],
-                "end": entry["end"],
-                "speaker": entry["speaker"],
-                "text": entry["text"],
-                "source": "final",
-            },
+    result = _call(
+        "finalize",
+        meeting_id=meeting_id,
+        backend=backend,
+        wait_timeout=timeout if wait else 0.0,
+        timeout=timeout + 30.0,
+    )
+    _echo(result)
+    if wait and result.get("status") != "finalized":
+        raise click.ClickException(
+            f"Finalização não concluiu (status: {result.get('status')}). "
+            f"Veja {storage.meeting_path(meeting_id) / 'finalize.log'}."
         )
 
-    meeting["status"] = "finalized"
-    storage.write_json(meeting_dir / "meeting.json", meeting)
-    click.echo(json.dumps({"ok": True, "final_path": str(final_path), "segments": len(entries)}, ensure_ascii=False))
+
+# ------------------------------------------- processos internos (do daemon)
+
+
+@cli.command(name="_engine", hidden=True)
+@click.argument("meeting_id")
+@click.option("--fake/--real", default=True)
+@click.option("--interval", default=3.0, type=float)
+@click.option("--mic-device", default=None)
+@click.option("--system-device", default=None)
+@click.option("--transcribe/--no-transcribe", default=True)
+@click.option("--backend", type=click.Choice(list(REALTIME_BACKENDS)), default="whisper")
+@click.option("--language", default=realtime.DEFAULT_LANGUAGE)
+def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcribe, backend, language):
+    """Processo de gravação. Subido e supervisionado pelo daemon — não chame na mão."""
+    meeting_dir = storage.meeting_path(meeting_id)
+    if fake:
+        engine.run_fake_engine(meeting_dir, interval=interval)
+    else:
+        engine.run_real_engine(
+            meeting_dir,
+            mic_device=mic_device,
+            system_device=system_device,
+            transcribe_live=transcribe,
+            backend_name=backend,
+            language=language,
+        )
+
+
+@cli.command(name="_finalize", hidden=True)
+@click.argument("meeting_id")
+@click.option("--backend", default=None)
+def _finalize_cmd(meeting_id, backend):
+    """Processo de transcrição final. Subido e supervisionado pelo daemon —
+    não escreve status, quem faz isso é o daemon ao ver este processo sair."""
+    try:
+        finalize_mod.run_finalize(storage.meeting_path(meeting_id), backend)
+    except BackendUnavailable as exc:
+        raise click.ClickException(str(exc))
 
 
 if __name__ == "__main__":

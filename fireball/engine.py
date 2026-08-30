@@ -51,19 +51,20 @@ def _emit(transcript_path: Path, seq: int, speaker: str, text: str) -> None:
 def run_fake_engine(meeting_dir: Path, interval: float = 3.0) -> None:
     transcript_path = meeting_dir / "transcript.ndjson"
 
-    state = {"running": True}
-
-    def _stop(signum, frame):
-        state["running"] = False
-
-    signal.signal(signal.SIGTERM, _stop)
-    signal.signal(signal.SIGINT, _stop)
+    # Event.wait() em vez de time.sleep(): desde o PEP 475 o sleep *retoma* o
+    # tempo que faltava depois de rodar o handler do sinal, então com
+    # --interval alto o engine só notava o SIGTERM segundos depois e o
+    # `fireball stop` ficava pendurado esperando. O Event acorda na hora.
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
 
     for seq, (speaker, text) in enumerate(FAKE_SCRIPT, start=1):
-        if not state["running"]:
+        if stop.is_set():
             break
         _emit(transcript_path, seq, speaker, text)
-        time.sleep(interval)
+        if stop.wait(timeout=interval):
+            break
 
 
 def run_real_engine(
