@@ -1376,3 +1376,275 @@ code {
     max-height: 55%;
   }
 }
+
+/* ------------------------------------------------------------------ avisos */
+
+/* O engine seguiu gravando apesar da falha, então isto não é erro fatal — é
+   âmbar, não vermelho. Mas fica acima do conteúdo e atravessa as abas: o
+   preço de não ver é descobrir depois da reunião que faltou metade dela. */
+.warnings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px 0;
+  flex: none;
+}
+
+.alert.warn {
+  background: #241c08;
+  border: 1px solid #e5a50a66;
+  color: #b8a675;
+  margin-top: 0;
+}
+
+.alert.warn::before {
+  color: var(--warn);
+}
+
+.alert.warn b {
+  color: #e5c46a;
+}
+
+.alert-file {
+  display: block;
+  font: 11px ui-monospace, Menlo, monospace;
+  color: #8a7d55;
+  margin-top: 8px;
+}
+
+/* ------------------------------------------------------------------ player */
+
+.player-bar.muted .player-track-fill {
+  width: 0;
+}
+
+.play-btn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  padding: 0;
+}
+
+.play-btn.off {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--faint);
+}
+
+.player-bar {
+  gap: 14px;
+}
+
+.player-time {
+  font: 600 12px ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  flex: none;
+}
+
+.player-time.dim {
+  color: var(--faint);
+}
+
+.player-track {
+  height: 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.player-bar:not(.muted) .player-track-fill {
+  background: var(--accent);
+}
+
+.follow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text-3);
+  flex: none;
+  cursor: pointer;
+}
+
+.follow input {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.edit-hint {
+  font-size: 11px;
+  color: var(--faint);
+  padding: 8px 20px 10px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+  flex: none;
+}
+
+audio {
+  display: none;
+}
+
+/* --------------------------------------------------- segmento: tocar/editar */
+
+/* A bolha que está tocando agora. Contorno em vez de fundo diferente: o fundo
+   já distingue quem fala, e trocá-lo aqui faria a fala parecer de outra
+   pessoa. */
+.msg.playing .bubble {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px #e01b2433;
+}
+
+.bubble-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.msg.mine .bubble-row {
+  flex-direction: row-reverse;
+}
+
+/* As ações só aparecem no hover: são para a leitura atenta de uma gravação
+   antiga, e mostradas o tempo todo virariam ruído em cima de cada fala. */
+.seg-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.msg:hover .seg-actions {
+  opacity: 1;
+}
+
+.seg-action {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--dim);
+  background: var(--surface);
+  white-space: nowrap;
+}
+
+.seg-action:hover {
+  border-color: #47434f;
+  color: var(--text-3);
+}
+
+.msg-edited {
+  color: var(--faint);
+  font-style: italic;
+}
+
+.bubble-edit {
+  width: 100%;
+  min-width: 320px;
+  background: var(--bubble);
+  border: 1.5px solid var(--accent);
+  border-radius: 14px;
+  padding: 9px 12px;
+  font: inherit;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.msg.mine .bubble-edit {
+  background: var(--accent-bg-2);
+}
+
+.edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 4px 0;
+}
+
+.edit-actions .label {
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* ------------------------------------------------------------------ resumo */
+
+.summary-box {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+}
+
+.summary-box.empty {
+  border-style: dashed;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.summary-box h1 {
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.3;
+  margin: 0 0 8px;
+}
+
+.summary-box h2 {
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin: 14px 0 8px;
+}
+
+.summary-box p {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-3);
+  margin: 0 0 12px;
+}
+
+.summary-box ul,
+.summary-box ol {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-3);
+}
+
+.summary-box blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 0 0 12px;
+  padding-left: 14px;
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.summary-box code {
+  font-size: 12.5px;
+}
+
+.summary-running {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.sec-head .btn.small {
+  margin-left: 10px;
+}

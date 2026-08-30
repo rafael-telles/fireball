@@ -22,6 +22,7 @@ from typing import Optional
 
 from fireball import realtime, storage
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS
+from fireball.summarizers import SUMMARY_PROVIDERS
 
 DEFAULTS = {
     # motor da transcrição em tempo real (a que alimenta o chat da janela)
@@ -31,6 +32,8 @@ DEFAULTS = {
     # motor da transcrição final, rodada sobre o áudio inteiro depois
     "final_backend": "whisper",
     "language": realtime.DEFAULT_LANGUAGE,
+    # quem escreve o resumo da reunião a partir da transcrição
+    "summary_provider": "claude_code",
 }
 
 
@@ -46,6 +49,8 @@ def _coerce(key: str, value) -> Optional[object]:
         return value if value in BATCH_BACKENDS else None
     if key == "transcribe_live":
         return bool(value)
+    if key == "summary_provider":
+        return value if value in SUMMARY_PROVIDERS else None
     if key == "language":
         text = str(value or "").strip()
         return text or None
@@ -87,6 +92,10 @@ def save(**fields) -> dict:
                 raise ValueError(f"Backend de tempo real inválido: '{raw}'. Use {list(REALTIME_BACKENDS)}.")
             if key == "final_backend":
                 raise ValueError(f"Backend de transcrição final inválido: '{raw}'. Use {list(BATCH_BACKENDS)}.")
+            if key == "summary_provider":
+                raise ValueError(
+                    f"Provedor de resumo inválido: '{raw}'. Use {list(SUMMARY_PROVIDERS)}."
+                )
             if key == "language":
                 raise ValueError("Idioma não pode ficar vazio (código curto, ex.: pt, en).")
             raise ValueError(f"Valor inválido para '{key}': {raw!r}.")

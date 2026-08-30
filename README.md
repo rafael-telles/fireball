@@ -34,8 +34,9 @@ O que **não** está implementado ainda:
   o monitor do sistema não distingue quem está falando do outro lado).
 - Na GUI, os lugares que o desenho reserva e o daemon ainda não alimenta — eles aparecem na
   tela como estado vazio, dizendo o que falta em vez de mostrar dado inventado: agenda
-  (não lemos calendário), reprodução do áudio junto à transcrição, edição de um segmento
-  transcrito, resumo gerado por modelo, e local/descrição/tags da reunião.
+  (não lemos calendário) e local/descrição/tags da reunião.
+- Anotar pela bandeja, e escolher outro device de captura quando o microfone falha (hoje
+  o aviso aparece, mas a troca é por flag na CLI).
 
 ## Daemon
 
@@ -265,8 +266,33 @@ Abrir uma reunião dá três abas:
   digitar (e na hora de sair da aba, que o debounce sozinho perderia as últimas teclas). A
   barra de cima insere markdown de verdade no texto; o arquivo é markdown, e é o mesmo que a
   CLI e o Claude leem e escrevem.
-- **Resumo** — a ficha: renomear (clicando no título), dia e horário, participantes, as ações
-  registradas, e abrir a pasta da reunião no gerenciador de arquivos.
+- **Resumo** — a ficha (renomear clicando no título, dia e horário, participantes, ações,
+  abrir a pasta) e o **resumo gerado da transcrição**, com *Gerar*/*Regerar*. Ver a seção
+  própria abaixo.
+
+Falhas que não interromperam a gravação aparecem como aviso âmbar acima das abas, em
+qualquer uma delas: o engine grava `audio_warnings.log` quando só o microfone entrou, e
+esse é justamente o erro que passa despercebido — nada quebra na hora, e a falta só
+aparece quando alguém vai ler a transcrição e metade da conversa não está lá.
+
+### Ouvir e corrigir
+
+Numa gravação encerrada, o rodapé da aba Transcrição vira o **player** do `meeting.wav`:
+tocar/pausar, arrastar a linha do tempo, velocidade, e *Seguir a transcrição*, que destaca a
+bolha correspondente ao instante que está tocando e a traz para a tela. Cada bolha ganha,
+no hover, **▶ ouvir** (pula o áudio para aquele ponto) e **✎ editar**.
+
+O player só existe sobre a transcrição **final**: ela é a única que guarda deslocamento em
+segundos (`start`/`end`); a do tempo real carimba hora de relógio, que não diz posição
+dentro do arquivo. Sem `meeting.wav` — ele é produzido pela finalização — o rodapé explica
+isso em vez de oferecer um controle morto.
+
+Editar corrige **só a transcrição**: o áudio não muda, e o segmento fica marcado com
+`edited` no ndjson (e "editado" na bolha). Sem essa marca, uma linha revisada seria
+indistinguível do que o motor de fato ouviu. A escrita reescreve o arquivo num temporário e
+troca por cima, porque outros processos leem esse ndjson e uma troca parcial o deixaria
+ilegível no meio da leitura. Enquanto a reunião grava, o daemon recusa a edição — o motor
+ainda está dando append no mesmo arquivo.
 
 No cabeçalho ficam o cronômetro e **Parar** enquanto grava; depois, **Finalizar** (ou
 **Retranscrever**, se já houver transcrição final), que roda o motor sobre o áudio inteiro sem
@@ -282,12 +308,41 @@ só: quem foi olhar outra coisa de propósito não é jogado de volta pra conver
 Quando ela termina (pelo botão, pela bandeja ou pela CLI), a mesma tela drena os últimos
 segmentos que o engine escreveu depois do sinal e vira reunião encerrada no lugar.
 
+### Resumo da reunião
+
+O resumo é gerado a partir da transcrição (a final, quando existe) por um **provedor
+plugável** — mesma forma dos backends de transcrição, em `fireball/summarizers/`. Trocar
+quem escreve o resumo não mexe em nada fora daquele pacote.
+
+Hoje há um provedor: `claude_code`, que chama o Claude Code instalado na máquina. Foi o
+primeiro porque não pede chave de API nem configuração — quem usa o Fireball para tomar
+nota com o Claude já tem o `claude` autenticado, e o custo é do plano de quem roda. Ele é
+invocado com `--output-format json`, e não com texto puro: em modo texto o Claude Code sai
+com código 0 mesmo falhando ("Not logged in · Please run /login" vira stdout como se fosse
+resposta), e só o JSON traz o `is_error` que permite saber a verdade. Também roda com
+`--bare` e sem ferramentas: aqui é transformação de texto, não uma sessão de trabalho.
+
+```bash
+fireball summarize <meeting_id>              # provedor configurado
+fireball summarize <meeting_id> --provider claude_code
+```
+
+Como o finalize, roda em **processo separado supervisionado pelo daemon** — pode demorar
+minutos e falhar de fora (sem login, sem rede), e nada disso pode parar o dono do estado. O
+estado dele mora em `summary_status` no meeting.json e **não** toca no `status` da reunião:
+resumo não é etapa do ciclo de vida, e uma reunião finalizada continua finalizada se o
+resumo falhar. Regerar apaga o anterior antes de começar — mostrar o resumo velho como se
+fosse o novo seria mentir.
+
+O markdown que volta é renderizado montando nós do DOM, nunca `innerHTML`: o texto vem de um
+modelo de linguagem sobre uma transcrição, ou seja, de fora, e concatenar isso em HTML
+deixaria a transcrição escrever marcação na janela.
+
 ### O que a tela ainda não tem
 
-O desenho da interface prevê mais do que o daemon serve hoje: a agenda que preenche a reunião
-antes de começar, o áudio tocando junto da transcrição, editar um segmento transcrito, um
-resumo gerado por modelo, local/descrição/tags. Esses lugares existem na tela **como estado
-vazio**, dizendo o que falta — a moldura tracejada é o sinal. É de propósito: um campo que
+O desenho da interface ainda prevê mais do que o daemon serve: a agenda que preenche a
+reunião antes de começar, e local/descrição/tags. Esses lugares existem na tela **como
+estado vazio**, dizendo o que falta — a moldura tracejada é o sinal. É de propósito: um campo que
 mostra dado inventado, ou um botão que não faz nada, custa mais caro que um espaço que se
 assume incompleto.
 
@@ -303,6 +358,7 @@ backend/idioma ficam na tela de configuração (⚙), em `~/.fireball/settings.j
 | `transcribe_live` | transcrever durante a reunião, ou só gravar o áudio | `true` |
 | `final_backend` | motor da transcrição final, sobre o áudio inteiro | `whisper` |
 | `language` | idioma esperado da fala | `pt` |
+| `summary_provider` | quem escreve o resumo a partir da transcrição | `claude_code` |
 
 Os dois modos são configurados separado de propósito: é comum querer um motor local durante a
 reunião e `groq` no final. `groq` só aparece na transcrição final — em tempo real seria uma

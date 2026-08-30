@@ -96,6 +96,7 @@ class DaemonCore:
         self._lock = threading.RLock()
         self._recording: Optional[Job] = None
         self._finalizing: dict[str, Job] = {}
+        self._summarizing: dict[str, Job] = {}
         self._started_at = storage.now_iso()
         self._shutting_down = False
         # preenchido pela casca gráfica (fireball.gui.shell) quando ela sobe;
@@ -143,11 +144,20 @@ class DaemonCore:
                 control.update_meeting(job.meeting_id, status=status, exit_code=code)
                 if self._recording is job:
                     self._recording = None
-            else:
+            elif job.kind == "finalize":
                 status = "finalized" if code == 0 else "finalize_failed"
                 control.update_meeting(job.meeting_id, status=status)
                 if self._finalizing.get(job.meeting_id) is job:
                     del self._finalizing[job.meeting_id]
+            else:
+                # Resumo não é etapa do ciclo de vida da reunião: uma reunião
+                # finalizada continua finalizada se o resumo falhar. Por isso
+                # ele tem estado próprio, e não toca em `status`.
+                control.write_meeting_fields(
+                    job.meeting_id, summary_status="ok" if code == 0 else "failed"
+                )
+                if self._summarizing.get(job.meeting_id) is job:
+                    del self._summarizing[job.meeting_id]
             job.done.set()
 
     def _spawn(self, meeting_id: str, kind: str, cmd: list[str], log_name: str) -> Job:
@@ -318,6 +328,103 @@ class DaemonCore:
 
     def transcript(self, meeting_id: str, since_seq: int = 0, source: str = "realtime") -> list[dict]:
         return control.read_transcript(meeting_id, since_seq=since_seq, source=source)
+
+    def edit_segment(self, meeting_id: str, seq: int, text: str, source: str = "realtime") -> dict:
+        """Corrige o texto de um segmento transcrito.
+
+        Recusa enquanto a reunião está viva: o engine ainda está dando append
+        no mesmo arquivo, e reescrevê-lo por baixo dele perderia as falas que
+        chegassem entre a leitura e a troca.
+        """
+        with self._lock:
+            meeting = control.read_meeting(meeting_id)
+            if meeting.get("status") in control.LIVE_STATUSES:
+                raise control.MeetingBusy(
+                    "Dá pra corrigir a transcrição depois que a reunião terminar — "
+                    "enquanto ela grava, o motor ainda está escrevendo neste arquivo."
+                )
+            return control.edit_segment(meeting_id, seq, text, source=source)
+
+    def warnings(self, meeting_id: str) -> list[dict]:
+        return control.read_warnings(meeting_id)
+
+    def audio_info(self, meeting_id: str) -> dict:
+        return control.audio_info(meeting_id)
+
+    def summary(self, meeting_id: str) -> dict:
+        """O resumo e o estado de quem o gera.
+
+        Os três vão juntos porque a tela precisa dos três para dizer a verdade:
+        ter markdown não significa que a geração de agora terminou, e não ter
+        pode ser "nunca gerou" ou "acabou de falhar" — que pedem telas
+        diferentes.
+        """
+        meeting = control.read_meeting(meeting_id)
+        return {
+            "summary": control.read_summary(meeting_id),
+            "status": meeting.get("summary_status"),
+            "provider": meeting.get("summary_provider"),
+            "error": self._summary_error(meeting_id),
+        }
+
+    def summarize(self, meeting_id: str, provider: Optional[str] = None, wait_timeout: float = 0.0) -> dict:
+        """Gera (ou regera) o resumo, como job supervisionado.
+
+        Mesma forma do finalize — processo separado, log próprio, status que a
+        janela acompanha pelo polling — porque a chamada ao provedor demora e
+        pode falhar de fora (sem login, sem rede), e nada disso pode parar o
+        daemon.
+        """
+        provider = provider or settings.load()["summary_provider"]
+        with self._lock:
+            control.read_meeting(meeting_id)  # 404 cedo, antes de subir processo
+            if meeting_id in self._summarizing:
+                raise control.MeetingBusy(f"O resumo da reunião '{meeting_id}' já está sendo gerado.")
+
+            # o resumo anterior sai de cena junto com o pedido de regerar: se
+            # este falhar, mostrar o antigo como se fosse o novo seria mentira.
+            meeting_dir = storage.meeting_path(meeting_id)
+            (meeting_dir / "summary.md").unlink(missing_ok=True)
+            (meeting_dir / "summary_result.json").unlink(missing_ok=True)
+
+            cmd = control.summarize_command(meeting_id, provider)
+            job = self._spawn(meeting_id, "summary", cmd, "summary.log")
+            self._summarizing[meeting_id] = job
+            self._supervise(job)
+            control.write_meeting_fields(meeting_id, summary_status="running", summary_provider=provider)
+
+        if wait_timeout:
+            job.done.wait(timeout=wait_timeout)
+
+        return {
+            "meeting_id": meeting_id,
+            "provider": provider,
+            "status": control.read_meeting(meeting_id).get("summary_status"),
+            "summary": control.read_summary(meeting_id),
+            "error": self._summary_error(meeting_id),
+        }
+
+    def _summary_error(self, meeting_id: str) -> Optional[str]:
+        """A última linha útil do summary.log, quando o job falhou.
+
+        O provedor já levanta mensagens escritas para gente ler ("Not logged
+        in", "comando 'claude' não encontrado"); jogá-las na tela é melhor que
+        um "falhou" que obriga a caçar log.
+        """
+        meeting = control.read_meeting(meeting_id)
+        if meeting.get("summary_status") != "failed":
+            return None
+        log = storage.meeting_path(meeting_id) / "summary.log"
+        if not log.exists():
+            return None
+        lines = [line.strip() for line in log.read_text().splitlines() if line.strip()]
+        if not lines:
+            return None
+        # a última linha do traceback vem como "pacote.Excecao: mensagem"; a
+        # mensagem já foi escrita para alguém ler, o nome da classe não.
+        last = lines[-1]
+        head, sep, rest = last.partition(": ")
+        return rest if sep and "." in head and " " not in head else last
 
     def notes(self, meeting_id: str) -> str:
         return control.read_notes(meeting_id)

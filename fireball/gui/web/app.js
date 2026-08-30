@@ -64,7 +64,10 @@ const state = {
   filter: "", // busca da barra lateral
   tab: "transcricao",
   notes: { loadedFor: null, saved: null, timer: null },
+  playing: null, // seq do segmento destacado agora, pra não repintar a cada tique
 };
+
+const RATES = [1, 1.25, 1.5, 2];
 
 const VIEWS = { home: "view-home", meeting: "view-meeting", settings: "view-settings" };
 const TABS = { resumo: "pane-resumo", transcricao: "pane-transcricao", notas: "pane-notas" };
@@ -192,6 +195,7 @@ function chatMessage(seg, previousSpeaker) {
 
   const wrap = document.createElement("div");
   wrap.className = "msg";
+  wrap.dataset.seq = seg.seq;
   if (speaker === "Você") wrap.classList.add("mine");
   if (groupStart) wrap.classList.add("group-start");
 
@@ -203,19 +207,58 @@ function chatMessage(seg, previousSpeaker) {
     wrap.appendChild(name);
   }
 
+  const row = document.createElement("div");
+  row.className = "bubble-row";
+
   const bubble = document.createElement("div");
   bubble.className = "bubble";
   bubble.textContent = seg.text || "";
-  wrap.appendChild(bubble);
+  row.appendChild(bubble);
+  row.appendChild(segmentActions(seg));
+  wrap.appendChild(row);
 
-  const stamp = segmentTime(seg);
-  if (stamp) {
-    const time = document.createElement("div");
-    time.className = "msg-time";
-    time.textContent = stamp;
-    wrap.appendChild(time);
-  }
+  wrap.appendChild(segmentStamp(seg));
   return wrap;
+}
+
+/** A linha de baixo da bolha: hora e, se for o caso, a marca de editado. */
+function segmentStamp(seg) {
+  const time = document.createElement("div");
+  time.className = "msg-time";
+  const stamp = segmentTime(seg);
+  time.textContent = stamp;
+  if (seg.edited) {
+    const mark = document.createElement("span");
+    mark.className = "msg-edited";
+    mark.textContent = stamp ? " · editado" : "editado";
+    time.appendChild(mark);
+  }
+  return time;
+}
+
+/** Ações de um segmento, no hover. Só existem numa gravação encerrada: com o
+    motor ainda escrevendo no arquivo, corrigir uma linha perderia as falas que
+    chegassem no meio da reescrita (o daemon recusa, e a janela não oferece). */
+function segmentActions(seg) {
+  const box = document.createElement("div");
+  box.className = "seg-actions";
+  const o = state.open;
+  if (!o || o.live) return box;
+
+  if (playerReady() && typeof seg.start === "number") {
+    const listen = document.createElement("button");
+    listen.className = "seg-action";
+    listen.textContent = "▶ ouvir";
+    listen.addEventListener("click", () => playFrom(seg.start));
+    box.appendChild(listen);
+  }
+
+  const edit = document.createElement("button");
+  edit.className = "seg-action";
+  edit.textContent = "✎ editar";
+  edit.addEventListener("click", (event) => startEdit(event.target.closest(".msg"), seg));
+  box.appendChild(edit);
+  return box;
 }
 
 function chatPlaceholder(text) {
@@ -232,6 +275,8 @@ function resetChat() {
   o.lastSeq = 0;
   o.lastSpeaker = null;
   o.lastSegmentAt = null;
+  o.timeline = [];
+  state.playing = null;
   if (o.live && o.meeting.transcribe_live === false) {
     chatPlaceholder(
       "Esta reunião está sendo só gravada — a transcrição ao vivo está desligada na configuração."
@@ -255,6 +300,11 @@ function appendSegments(segs) {
     o.lastSpeaker = seg.speaker || "?";
     o.lastSeq = seg.seq;
     if (seg.ts) o.lastSegmentAt = new Date(seg.ts).getTime();
+    // só a transcrição final guarda deslocamento em segundos; é ela que dá
+    // posição dentro do .wav, e por isso só ela acompanha o player
+    if (typeof seg.start === "number") {
+      o.timeline.push({ seq: seg.seq, start: seg.start, end: seg.end });
+    }
   }
   if (stick) chat.scrollTop = chat.scrollHeight;
 }
@@ -280,10 +330,11 @@ function renderLiveBar() {
   const o = state.open;
   if (!o) return;
   const live = el("live-bar");
-  const player = el("player-bar");
   live.classList.toggle("hidden", !o.live);
-  player.classList.toggle("hidden", o.live);
-  if (!o.live) return;
+  if (!o.live) {
+    renderPlayer();
+    return;
+  }
 
   if (o.meeting.transcribe_live === false) {
     el("live-bar-title").textContent = "Só gravando o áudio";
@@ -420,7 +471,10 @@ function showTab(name) {
     tab.classList.toggle("selected", tab.dataset.tab === name);
   }
   if (name === "notas") loadNotes();
-  if (name === "resumo") loadActions();
+  if (name === "resumo") {
+    loadActions();
+    loadSummary();
+  }
   // sair do editor sem esperar o debounce: trocar de aba é uma pausa
   if (name !== "notas") flushNotes();
 }
@@ -473,17 +527,27 @@ async function openMeeting(id, row) {
     lastSeq: 0,
     lastSpeaker: null,
     lastSegmentAt: null,
+    timeline: [],
+    warnings: [],
+    audio: null,
+    summaryState: null,
+    rate: 1,
   };
   state.notes.loadedFor = null;
+  state.playing = null;
 
   renderMeetingHeader();
   renderSourceSwitch();
   renderFicha();
+  renderWarnings();
   renderMeetingList(); // marca a linha da barra lateral
   resetChat();
   showTab(state.tab === "notas" ? "transcricao" : state.tab);
+  // o áudio antes do chat: é ele que decide se cada bolha ganha "▶ ouvir"
+  await loadAudio();
   await pollChat();
   el("chat").scrollTop = el("chat").scrollHeight;
+  loadWarnings();
 }
 
 function goHome() {
@@ -523,6 +587,12 @@ async function syncOpenMeeting(activeDetail) {
   o.live = false;
   await pollChat();
   await refreshOpenMeeting();
+  // as bolhas foram criadas enquanto a reunião gravava, quando corrigir e
+  // ouvir ainda não faziam sentido; agora fazem, então o chat é refeito
+  await loadAudio();
+  resetChat();
+  await pollChat();
+  loadWarnings();
 }
 
 async function refreshOpenMeeting() {
@@ -540,9 +610,12 @@ async function refreshOpenMeeting() {
     if (wasFinalizing && detail.meeting.status === "finalized") {
       o.hasFinal = true;
       o.source = "final";
+      await loadAudio(); // o meeting.wav é produzido justamente pela finalização
       resetChat();
       await pollChat();
     }
+    // o resumo roda em job próprio; quando ele acaba, a aba precisa saber
+    if (o.summaryState && o.summaryState.status === "running") await loadSummary();
   } catch (err) {
     setBanner(errText(err));
   }
@@ -791,6 +864,431 @@ function applyMarkdown(kind) {
   onNotesInput();
 }
 
+// ----------------------------------------------------------------- avisos
+
+/** Falhas que não interromperam a gravação — e por isso ninguém viu.
+
+    Gravar só o microfone porque o monitor do sistema não abriu não quebra
+    nada na hora: o arquivo sai, a reunião termina normalmente, e a falta só
+    aparece quando alguém vai ler a transcrição e metade da conversa não está
+    lá. Por isso o aviso é permanente na tela da reunião, e não um toast. */
+async function loadWarnings() {
+  const o = state.open;
+  if (!o) return;
+  let warnings;
+  try {
+    warnings = await api("warnings", o.id);
+  } catch (err) {
+    setBanner(errText(err));
+    return;
+  }
+  if (state.open !== o) return;
+  o.warnings = warnings;
+  renderWarnings();
+}
+
+const WARNING_TITLE = {
+  audio: "A captura de áudio não saiu completa",
+  transcricao: "A transcrição ao vivo falhou",
+};
+
+function renderWarnings() {
+  const box = el("warnings");
+  const warnings = (state.open && state.open.warnings) || [];
+  box.innerHTML = "";
+  box.classList.toggle("hidden", !warnings.length);
+
+  for (const warning of warnings) {
+    const card = document.createElement("div");
+    card.className = "alert warn";
+
+    const body = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = WARNING_TITLE[warning.kind] || "Aviso";
+    body.appendChild(title);
+    body.appendChild(document.createTextNode(warning.text));
+
+    const file = document.createElement("span");
+    file.className = "alert-file";
+    file.textContent = warning.file;
+    body.appendChild(file);
+
+    card.appendChild(body);
+    box.appendChild(card);
+  }
+}
+
+// ----------------------------------------------------------------- player
+
+/** Dá pra tocar o áudio e acompanhar a transcrição nele?
+
+    Precisa das duas pontas: o `meeting.wav` (produzido pela transcrição
+    final) e uma transcrição com deslocamento em segundos — só a final tem. A
+    do tempo real carimba hora de relógio, que não diz posição no arquivo. */
+function playerReady() {
+  const o = state.open;
+  return !!(o && !o.live && o.audio && o.audio.exists && o.source === "final");
+}
+
+async function loadAudio() {
+  const o = state.open;
+  if (!o) return;
+  try {
+    o.audio = o.live ? null : await api("audio_info", o.id);
+  } catch (err) {
+    o.audio = null;
+    setBanner(errText(err));
+  }
+  if (state.open === o) renderPlayer();
+}
+
+function renderPlayer() {
+  const o = state.open;
+  const bar = el("player-bar");
+  const none = el("player-none");
+  const audio = el("audio");
+
+  if (!o || o.live) {
+    bar.classList.add("hidden");
+    none.classList.add("hidden");
+    el("edit-hint").classList.add("hidden");
+    audio.pause();
+    return;
+  }
+
+  el("edit-hint").classList.remove("hidden");
+
+  if (!playerReady()) {
+    bar.classList.add("hidden");
+    none.classList.remove("hidden");
+    audio.pause();
+    el("player-none-note").textContent =
+      o.audio && o.audio.exists
+        ? "A transcrição do tempo real não guarda posição no áudio — troque para a final para ouvir junto."
+        : "Esta reunião não tem meeting.wav; ele é produzido pela transcrição final.";
+    return;
+  }
+
+  none.classList.add("hidden");
+  bar.classList.remove("hidden");
+
+  const src = "file://" + encodeURI(o.audio.path);
+  if (audio.dataset.src !== src) {
+    audio.dataset.src = src;
+    audio.src = src;
+    audio.playbackRate = o.rate || 1;
+  }
+}
+
+function renderPlayerTime() {
+  const audio = el("audio");
+  const total = isFinite(audio.duration) ? audio.duration : 0;
+  el("player-cur").textContent = clock(audio.currentTime);
+  el("player-total").textContent = clock(total);
+  el("player-fill").style.width = total ? `${(audio.currentTime / total) * 100}%` : "0";
+}
+
+/** O segmento que corresponde ao instante atual do áudio, por busca binária —
+    a transcrição de uma reunião longa tem centenas de segmentos e isto roda a
+    cada tique do player. */
+function segmentAt(timeline, seconds) {
+  let lo = 0;
+  let hi = timeline.length - 1;
+  let found = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (timeline[mid].start <= seconds) {
+      found = timeline[mid];
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  // passou do fim do segmento e ainda não começou o próximo: silêncio entre
+  // falas, e destacar a anterior mentiria menos que destacar nada
+  return found;
+}
+
+function onTimeUpdate() {
+  const o = state.open;
+  if (!o || !playerReady()) return;
+  renderPlayerTime();
+
+  const current = segmentAt(o.timeline, el("audio").currentTime);
+  const seq = current ? current.seq : null;
+  if (seq === state.playing) return;
+
+  const chat = el("chat");
+  const previous = chat.querySelector(".msg.playing");
+  if (previous) previous.classList.remove("playing");
+  state.playing = seq;
+  if (seq === null) return;
+
+  const node = chat.querySelector(`.msg[data-seq="${seq}"]`);
+  if (!node) return;
+  node.classList.add("playing");
+  if (el("follow-chk").checked) node.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function playFrom(seconds) {
+  const audio = el("audio");
+  audio.currentTime = seconds;
+  audio.play();
+}
+
+function onPlayPause() {
+  const audio = el("audio");
+  if (audio.paused) audio.play();
+  else audio.pause();
+}
+
+function renderPlayButton() {
+  el("play-btn").textContent = el("audio").paused ? "▶" : "❚❚";
+}
+
+function onSeek(event) {
+  const audio = el("audio");
+  if (!isFinite(audio.duration)) return;
+  const track = el("player-track");
+  const box = track.getBoundingClientRect();
+  const ratio = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+  audio.currentTime = ratio * audio.duration;
+}
+
+function onRate() {
+  const o = state.open;
+  const audio = el("audio");
+  const next = RATES[(RATES.indexOf(audio.playbackRate) + 1) % RATES.length];
+  audio.playbackRate = next;
+  if (o) o.rate = next;
+  el("player-rate").textContent = `${String(next).replace(".", ",")}×`;
+}
+
+// -------------------------------------------------- edição de um segmento
+
+/** Troca a bolha por um campo de texto, com salvar/cancelar embaixo.
+
+    Edita **só a transcrição**: o áudio não muda, e o segmento fica marcado
+    como editado justamente para que a diferença continue visível depois. */
+function startEdit(wrap, seg) {
+  if (!wrap || wrap.querySelector(".bubble-edit")) return;
+  const o = state.open;
+  const row = wrap.querySelector(".bubble-row");
+  const bubble = row.querySelector(".bubble");
+  const original = bubble.textContent;
+
+  const editor = document.createElement("textarea");
+  editor.className = "bubble-edit";
+  editor.value = original;
+  editor.rows = Math.min(6, Math.ceil(original.length / 60) + 1);
+  bubble.replaceWith(editor);
+
+  const stamp = wrap.querySelector(".msg-time");
+  const actions = document.createElement("div");
+  actions.className = "edit-actions";
+  const label = document.createElement("span");
+  label.className = "label";
+  label.textContent = "editando";
+  const cancel = document.createElement("button");
+  cancel.className = "btn outline small";
+  cancel.textContent = "Cancelar";
+  const save = document.createElement("button");
+  save.className = "btn primary small";
+  save.textContent = "Salvar";
+  actions.append(label, cancel, save);
+  stamp.classList.add("hidden");
+  wrap.appendChild(actions);
+
+  const finish = (seg2) => {
+    const fresh = document.createElement("div");
+    fresh.className = "bubble";
+    fresh.textContent = seg2 ? seg2.text : original;
+    editor.replaceWith(fresh);
+    actions.remove();
+    stamp.classList.remove("hidden");
+    if (seg2) stamp.replaceWith(segmentStamp(seg2));
+  };
+
+  cancel.addEventListener("click", () => finish(null));
+  save.addEventListener("click", async () => {
+    const text = editor.value.trim();
+    if (!text || text === original) return finish(null);
+    save.disabled = true;
+    try {
+      const updated = await api("edit_segment", o.id, seg.seq, text, o.source);
+      seg.text = updated.text;
+      seg.edited = true;
+      finish(updated);
+    } catch (err) {
+      save.disabled = false;
+      setAlert("meeting-error", "Não foi possível salvar a correção", errText(err));
+    }
+  });
+
+  editor.focus();
+  editor.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") finish(null);
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) save.click();
+  });
+}
+
+// ----------------------------------------------------------------- resumo
+
+/** Markdown → DOM, só o que o prompt do resumo pede: títulos, parágrafos,
+    listas, citação, `código` e **negrito**.
+
+    Escrito à mão e montando nós, não string de HTML: o texto vem de um modelo
+    de linguagem sobre uma transcrição, ou seja, de fora — e concatenar isso em
+    innerHTML seria deixar a transcrição escrever marcação na janela. */
+function inlineMarkdown(text, parent) {
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > last) parent.appendChild(document.createTextNode(text.slice(last, match.index)));
+    const token = match[0];
+    const node = document.createElement(token.startsWith("`") ? "code" : "strong");
+    node.textContent = token.slice(token.startsWith("`") ? 1 : 2, token.startsWith("`") ? -1 : -2);
+    parent.appendChild(node);
+    last = match.index + token.length;
+  }
+  if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+}
+
+function renderMarkdown(markdown, box) {
+  box.innerHTML = "";
+  let list = null;
+
+  const flush = () => {
+    list = null;
+  };
+
+  for (const raw of markdown.split("\n")) {
+    const line = raw.trimEnd();
+    const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
+    const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line);
+    const heading = /^(#{1,3})\s+(.*)$/.exec(line);
+    const quote = /^>\s?(.*)$/.exec(line);
+
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    if (heading) {
+      flush();
+      const node = document.createElement(`h${Math.min(2, heading[1].length)}`);
+      inlineMarkdown(heading[2], node);
+      box.appendChild(node);
+      continue;
+    }
+    if (bullet || numbered) {
+      const wanted = bullet ? "UL" : "OL";
+      if (!list || list.tagName !== wanted) {
+        list = document.createElement(bullet ? "ul" : "ol");
+        box.appendChild(list);
+      }
+      const item = document.createElement("li");
+      inlineMarkdown((bullet || numbered)[1], item);
+      list.appendChild(item);
+      continue;
+    }
+    flush();
+    if (quote) {
+      const node = document.createElement("blockquote");
+      inlineMarkdown(quote[1], node);
+      box.appendChild(node);
+      continue;
+    }
+    const para = document.createElement("p");
+    inlineMarkdown(line, para);
+    box.appendChild(para);
+  }
+}
+
+async function loadSummary() {
+  const o = state.open;
+  if (!o) return;
+  try {
+    o.summaryState = await api("summary", o.id);
+  } catch (err) {
+    setBanner(errText(err));
+    return;
+  }
+  if (state.open === o) renderSummary();
+}
+
+function renderSummary() {
+  const o = state.open;
+  const box = el("summary-box");
+  const button = el("summary-btn");
+  const meta = el("summary-meta");
+  const info = (o && o.summaryState) || {};
+  const summary = info.summary;
+
+  box.innerHTML = "";
+  box.classList.remove("empty");
+  button.disabled = info.status === "running";
+  button.textContent = info.status === "running" ? "Gerando…" : summary ? "Regerar" : "Gerar";
+  meta.textContent = "";
+
+  if (info.status === "running") {
+    box.classList.add("empty");
+    const running = document.createElement("div");
+    running.className = "summary-running";
+    const dot = document.createElement("span");
+    dot.className = "pulse-dot";
+    running.append(dot, document.createTextNode(`Gerando o resumo com ${info.provider || "o provedor configurado"}…`));
+    box.appendChild(running);
+    return;
+  }
+
+  if (summary) {
+    const bits = [summary.provider, summary.source === "final" ? "da transcrição final" : "da transcrição ao vivo"];
+    if (summary.generated_at) bits.push(dateLabel(summary.generated_at));
+    meta.textContent = bits.filter(Boolean).join(" · ");
+    renderMarkdown(summary.markdown, box);
+    return;
+  }
+
+  box.classList.add("empty");
+  if (info.status === "failed") {
+    const card = document.createElement("div");
+    card.className = "alert bad";
+    const body = document.createElement("div");
+    const title = document.createElement("b");
+    title.textContent = "Não foi possível gerar o resumo";
+    body.appendChild(title);
+    body.appendChild(document.createTextNode(info.error || "veja summary.log na pasta da reunião."));
+    card.appendChild(body);
+    box.appendChild(card);
+    return;
+  }
+
+  const title = document.createElement("div");
+  title.className = "slab-title";
+  title.textContent = "Nenhum resumo ainda";
+  const note = document.createElement("div");
+  note.className = "slab-note";
+  note.textContent =
+    "O resumo é gerado a partir da transcrição — a final, quando existe. Regerar substitui o anterior.";
+  box.append(title, note);
+}
+
+async function onSummarize() {
+  const o = state.open;
+  if (!o) return;
+  const button = el("summary-btn");
+  button.disabled = true;
+  setAlert("meeting-error", "");
+  try {
+    o.summaryState = await api("summarize", o.id);
+    renderSummary();
+  } catch (err) {
+    button.disabled = false;
+    setAlert("meeting-error", "Não foi possível pedir o resumo", errText(err));
+  }
+}
+
 // ---------------------------------------------------------- configuração
 
 function fillSelect(id, options, selected) {
@@ -817,6 +1315,7 @@ function renderSettings() {
   const s = state.settings;
   fillSelect("set-live-backend", state.backends.realtime, s.realtime_backend);
   fillSelect("set-final-backend", state.backends.final, s.final_backend);
+  fillSelect("set-summary-provider", state.backends.summary, s.summary_provider);
   el("set-live-on").checked = s.transcribe_live;
   el("set-language").value = s.language;
 }
@@ -844,6 +1343,7 @@ async function onSaveSettings() {
       realtime_backend: el("set-live-backend").value,
       transcribe_live: el("set-live-on").checked,
       final_backend: el("set-final-backend").value,
+      summary_provider: el("set-summary-provider").value,
       language: el("set-language").value,
     });
     renderSettings(); // o daemon é quem diz o que ficou valendo
@@ -953,6 +1453,7 @@ function onPickSource(event) {
   if (!o || o.source === source) return;
   o.source = source;
   renderSourceSwitch();
+  renderPlayer(); // só a final sincroniza com o áudio
   resetChat();
   pollChat();
 }
@@ -1003,6 +1504,18 @@ async function boot() {
       rename.blur();
     }
   });
+
+  el("summary-btn").addEventListener("click", onSummarize);
+
+  const audio = el("audio");
+  audio.addEventListener("timeupdate", onTimeUpdate);
+  audio.addEventListener("loadedmetadata", renderPlayerTime);
+  audio.addEventListener("play", renderPlayButton);
+  audio.addEventListener("pause", renderPlayButton);
+  audio.addEventListener("ended", renderPlayButton);
+  el("play-btn").addEventListener("click", onPlayPause);
+  el("player-track").addEventListener("click", onSeek);
+  el("player-rate").addEventListener("click", onRate);
 
   el("notes").addEventListener("input", onNotesInput);
   el("notes").addEventListener("blur", flushNotes);

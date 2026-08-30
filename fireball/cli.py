@@ -31,8 +31,9 @@ from dotenv import load_dotenv
 # (que reimportam este módulo via `python -m fireball.cli`).
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from fireball import audio, control, engine, finalize as finalize_mod, realtime, storage
+from fireball import audio, control, engine, finalize as finalize_mod, realtime, storage, summary as summary_mod
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS, BackendUnavailable
+from fireball.summarizers import SUMMARY_PROVIDERS
 from fireball.daemon import client, protocol, server as daemon_server
 
 
@@ -413,6 +414,33 @@ def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcrib
             backend_name=backend,
             language=language,
         )
+
+
+@cli.command()
+@click.argument("meeting_id")
+@click.option(
+    "--provider",
+    type=click.Choice(list(SUMMARY_PROVIDERS)),
+    default=None,
+    help="Quem escreve o resumo. Padrão: o configurado.",
+)
+@click.option("--wait/--no-wait", default=True, help="Espera o resumo ficar pronto.")
+@click.option("--timeout", default=900.0, type=float, help="Tempo máximo de espera, em segundos.")
+def summarize(meeting_id, provider, wait, timeout):
+    """Resume a reunião a partir da transcrição (a final, se houver).
+
+    Regera por cima do resumo anterior — o resumo é derivado da transcrição,
+    não um registro histórico.
+    """
+    _echo(_call("summarize", meeting_id=meeting_id, provider=provider, wait_timeout=timeout if wait else 0.0))
+
+
+@cli.command(name="_summarize", hidden=True)
+@click.argument("meeting_id")
+@click.option("--provider", default="claude_code")
+def _summarize_cmd(meeting_id, provider):
+    """Processo de resumo. Subido e supervisionado pelo daemon — não chame na mão."""
+    _echo(summary_mod.run_summary(storage.meeting_path(meeting_id), provider))
 
 
 @cli.command(name="_finalize", hidden=True)

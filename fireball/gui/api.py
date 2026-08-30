@@ -15,6 +15,7 @@ import shutil
 import subprocess
 
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS
+from fireball.summarizers import SUMMARY_PROVIDERS
 from fireball.daemon.core import DaemonCore
 
 
@@ -42,7 +43,11 @@ class Api:
         """O que a tela de configuração pode oferecer em cada modo. 'groq' só
         aparece no final: é API paga por requisição, e no tempo real viraria
         uma chamada a cada poucos segundos."""
-        return {"realtime": list(REALTIME_BACKENDS), "final": list(BATCH_BACKENDS)}
+        return {
+            "realtime": list(REALTIME_BACKENDS),
+            "final": list(BATCH_BACKENDS),
+            "summary": list(SUMMARY_PROVIDERS),
+        }
 
     def get_settings(self) -> dict:
         return self._call(self._core.get_settings)
@@ -78,6 +83,31 @@ class Api:
         desenhou, então o polling ao vivo transporta só o que chegou desde a
         volta anterior — a tela nunca é reconstruída do zero."""
         return self._call(self._core.transcript, meeting_id=meeting_id, since_seq=since_seq, source=source)
+
+    def warnings(self, meeting_id: str) -> dict:
+        """Falhas que não quebraram a gravação — e por isso passam batido.
+
+        Gravar só o microfone porque o monitor do sistema não abriu não
+        interrompe nada: o arquivo sai, a reunião termina, e só depois se
+        descobre que os outros participantes não estão na transcrição.
+        """
+        return self._call(self._core.warnings, meeting_id=meeting_id)
+
+    def audio_info(self, meeting_id: str) -> dict:
+        return self._call(self._core.audio_info, meeting_id=meeting_id)
+
+    def edit_segment(self, meeting_id: str, seq: int, text: str, source: str) -> dict:
+        return self._call(
+            self._core.edit_segment, meeting_id=meeting_id, seq=seq, text=text, source=source
+        )
+
+    def summary(self, meeting_id: str) -> dict:
+        return self._call(self._core.summary, meeting_id=meeting_id)
+
+    def summarize(self, meeting_id: str) -> dict:
+        """Gera ou regera o resumo. Sem espera, como o finalize: o provedor
+        pode levar minutos, e a janela acompanha o estado pelo polling."""
+        return self._call(self._core.summarize, meeting_id=meeting_id, wait_timeout=0.0)
 
     def notes(self, meeting_id: str) -> dict:
         return self._call(self._core.notes, meeting_id=meeting_id)
