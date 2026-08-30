@@ -87,9 +87,10 @@ fireball finalize <meeting_id> --backend groq
 ```
 
 `fireball start --backend groq` é rejeitado na CLI (não está na lista de backends ao vivo).
-**Não testado com uma chamada de API real** (sem chave neste ambiente) — a integração foi
-verificada contra a assinatura real do SDK `groq` instalado, mas vale confirmar com uma
-reunião de verdade antes de confiar cegamente.
+Testado com uma chamada de API real: em áudio majoritariamente silencioso, o modelo alucinou
+a mesma frase curta 3x, exatamente a cada 30s (janela interna do Whisper), com métricas de
+confiança "boas" — por isso `GroqBackend` filtra por energia (RMS) do trecho de áudio
+correspondente a cada segmento, não só pelas métricas do próprio modelo.
 
 ## Captura de áudio real (`--real`)
 
@@ -131,12 +132,20 @@ source .venv/bin/activate
 pip install -e .
 ```
 
-## Usar a skill no Claude Code
+## Usar as skills no Claude Code
 
-Copie (ou dê symlink em) `skills/fireball` para dentro de `~/.claude/skills/fireball`:
+Duas skills neste repo:
+
+- `skills/fireball` — genérica, escrivão de reunião independente de vault.
+- `skills/fireball-meeting` — mesma coisa, mas escreve as notas ao vivo direto numa nota
+  `Meeting`/`Transcript` de um vault Tolaria (em vez do `notes.md` do Fireball). Pressupõe que
+  o vault já tem os tipos `Meeting`/`Transcript` definidos.
+
+Copie (ou dê symlink em) cada uma para dentro de `~/.claude/skills/`:
 
 ```bash
 ln -s /home/rafaelt/Desktop/fireball/skills/fireball ~/.claude/skills/fireball
+ln -s /home/rafaelt/Desktop/fireball/skills/fireball-meeting ~/.claude/skills/fireball-meeting
 ```
 
 ## Testar o fluxo manualmente
