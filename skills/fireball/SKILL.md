@@ -12,14 +12,16 @@ como ação.
 ## Iniciar uma reunião
 
 1. `fireball start --name "<nome da reunião>" --real` → retorna `meeting_id`, grava microfone e
-   áudio do sistema de verdade (`mic.wav` / `system.wav` / `meeting.wav`).
-   - Use `--fake` (padrão) só para testar o resto do fluxo com uma transcrição simulada, sem
-     gravar áudio nenhum.
-   - A transcrição em tempo real a partir do áudio real ainda não está implementada — em uma
-     reunião `--real`, `transcript.ndjson` fica vazio; tome notas manualmente com base no que
-     está ouvindo, e use `fireball finalize` (quando a transcrição via provedor existir) para a
-     transcrição final.
-2. Avise o usuário que a reunião começou e qual é o `meeting_id`.
+   áudio do sistema de verdade e já transcreve ao vivo (local, sem chave de API) enquanto grava.
+   - `--backend whisper` (padrão, multi-idioma) ou `--backend parakeet` (Parakeet TDT
+     fine-tunado em pt-BR — capturou mais conteúdo real em teste manual, prefira esse para
+     reuniões em português se o modelo já estiver baixado, ver README).
+   - Use `--fake` só para testar o resto do fluxo com uma transcrição simulada, sem gravar
+     áudio nenhum.
+   - Se nenhum backend estiver instalado, a gravação continua normalmente mas
+     `transcript.ndjson` fica vazio (aviso em `transcribe_warnings.log`) — nesse caso, tome
+     notas manualmente com base no que está ouvindo.
+2. Avise o usuário que a reunião começou, o `meeting_id` e qual backend está transcrevendo.
 
 ## Acompanhar ao vivo
 
@@ -55,7 +57,8 @@ como ação.
 ## Encerrar a reunião
 
 1. `fireball stop <meeting_id>`
-2. `fireball finalize <meeting_id>` — roda a transcrição final (mais precisa).
+2. `fireball finalize <meeting_id>` — roda a transcrição final (mais precisa, sobre o áudio
+   inteiro de cada track, não em pedaços) com o mesmo backend usado ao vivo.
 3. Compare a transcrição final (`fireball transcript show <meeting_id> --source final`) com as
    notas ao vivo (arquivo `notes.md`, dentro da pasta da reunião). Corrija imprecisões
    diretamente no arquivo de notas e resuma para o usuário o que mudou. Isso é automático, não

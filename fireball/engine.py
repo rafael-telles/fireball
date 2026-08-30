@@ -12,11 +12,13 @@ sem depender de microfone, VAD ou chave de API.
 from __future__ import annotations
 
 import signal
+import threading
 import time
 from pathlib import Path
 from typing import Optional
 
-from fireball import audio, storage
+from fireball import audio, realtime, storage
+from fireball.backends import BackendUnavailable, get_realtime_backend
 
 FAKE_SCRIPT = [
     ("Rafael", "Bom dia pessoal, vamos começar a sincronização do projeto Fireball."),
@@ -68,15 +70,19 @@ def run_real_engine(
     meeting_dir: Path,
     mic_device: Optional[str] = None,
     system_device: Optional[str] = None,
+    transcribe_live: bool = True,
+    backend_name: str = "whisper",
+    language: str = realtime.DEFAULT_LANGUAGE,
 ) -> None:
     """Grava microfone + áudio do sistema (mic.pcm / system.pcm, via parecord)
     até receber SIGTERM/SIGINT, depois empacota tudo em .wav.
 
-    A transcrição em tempo real de verdade (rodar um modelo de streaming sobre
-    esse áudio e escrever segmentos em transcript.ndjson) ainda não está
-    implementada — isso aqui só cuida da captura. `transcript.ndjson` fica
-    vazio no modo --real por enquanto; use `fireball note` manualmente ou
-    `--fake` para exercitar o restante do pipeline (notas, ações, Monitor).
+    Se `transcribe_live` estiver ligado (padrão), roda a transcrição em tempo
+    real em paralelo usando o backend escolhido (ver fireball.backends),
+    escrevendo segmentos em transcript.ndjson conforme o áudio chega. Se o
+    backend não estiver instalado, a gravação continua normalmente e um
+    aviso é registrado em transcribe_warnings.log — `transcript.ndjson` fica
+    vazio nesse caso.
     """
     mic_pcm = meeting_dir / "mic.pcm"
     system_pcm = meeting_dir / "system.pcm"
@@ -127,6 +133,20 @@ def run_real_engine(
     signal.signal(signal.SIGTERM, _stop)
     signal.signal(signal.SIGINT, _stop)
 
+    transcribe_thread = None
+    if transcribe_live:
+        try:
+            backend = get_realtime_backend(backend_name)
+            transcribe_thread = threading.Thread(
+                target=realtime.run_realtime_transcription,
+                args=(meeting_dir, lambda: not state["running"], backend),
+                kwargs={"samplerate": rate, "language": language},
+                daemon=True,
+            )
+            transcribe_thread.start()
+        except BackendUnavailable as exc:
+            (meeting_dir / "transcribe_warnings.log").write_text(str(exc) + "\n")
+
     while state["running"]:
         time.sleep(0.5)
 
@@ -135,6 +155,11 @@ def run_real_engine(
     if has_system:
         system_proc.terminate()
         system_proc.wait(timeout=5)
+
+    if transcribe_thread is not None:
+        # a gravação já parou (sem mais bytes chegando); dá tempo da thread
+        # drenar o que sobrou nas duas tracks e rodar a última transcrição.
+        transcribe_thread.join(timeout=60)
 
     audio.wrap_pcm_as_wav(mic_pcm, meeting_dir / "mic.wav", rate, channels)
     tracks = {"mic": {"device": mic_source, "samplerate": rate, "channels": channels}}

@@ -18,7 +18,8 @@ from datetime import datetime
 
 import click
 
-from fireball import audio, engine, storage
+from fireball import audio, engine, realtime, storage
+from fireball.backends import BackendUnavailable, get_batch_backend
 
 
 @click.group()
@@ -56,7 +57,21 @@ def devices():
     default=None,
     help="Nome da fonte de monitor do sistema (ver `fireball devices`). Padrão: @DEFAULT_MONITOR@ (monitor da saída padrão).",
 )
-def start(name, fake, interval, mic_device, system_device):
+@click.option(
+    "--transcribe/--no-transcribe",
+    default=True,
+    help="No modo --real, roda transcrição em tempo real local em paralelo à gravação.",
+)
+@click.option(
+    "--backend",
+    type=click.Choice(["whisper", "parakeet"]),
+    default="whisper",
+    help="Motor de transcrição: 'whisper' (faster-whisper, multi-idioma) ou 'parakeet' (NeMo Parakeet TDT via ONNX).",
+)
+@click.option(
+    "--language", default=realtime.DEFAULT_LANGUAGE, help="Idioma esperado da fala (código curto, ex: pt, en)."
+)
+def start(name, fake, interval, mic_device, system_device, transcribe, backend, language):
     """Inicia uma nova reunião: cria a pasta e sobe o motor de gravação/transcrição em background."""
     meeting_dir = storage.new_meeting_dir(name)
     meeting_id = meeting_dir.name
@@ -80,6 +95,8 @@ def start(name, fake, interval, mic_device, system_device):
         cmd += ["--mic-device", mic_device]
     if system_device is not None:
         cmd += ["--system-device", system_device]
+    if not fake:
+        cmd += ["--transcribe" if transcribe else "--no-transcribe", "--backend", backend, "--language", language]
 
     log_path = meeting_dir / "engine.log"
     with open(log_path, "w") as log_file:
@@ -100,6 +117,9 @@ def start(name, fake, interval, mic_device, system_device):
         "engine_pid": proc.pid,
         "mic_device": mic_device,
         "system_device": system_device,
+        "transcribe_live": transcribe if not fake else None,
+        "backend": backend if not fake else None,
+        "language": language if not fake else None,
     }
     storage.write_json(meeting_dir / "meeting.json", meeting)
     storage.write_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
@@ -114,12 +134,22 @@ def start(name, fake, interval, mic_device, system_device):
 @click.option("--interval", default=3.0, type=float)
 @click.option("--mic-device", default=None)
 @click.option("--system-device", default=None)
-def _engine_cmd(meeting_id, fake, interval, mic_device, system_device):
+@click.option("--transcribe/--no-transcribe", default=True)
+@click.option("--backend", type=click.Choice(["whisper", "parakeet"]), default="whisper")
+@click.option("--language", default=realtime.DEFAULT_LANGUAGE)
+def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcribe, backend, language):
     meeting_dir = storage.meeting_path(meeting_id)
     if fake:
         engine.run_fake_engine(meeting_dir, interval=interval)
     else:
-        engine.run_real_engine(meeting_dir, mic_device=mic_device, system_device=system_device)
+        engine.run_real_engine(
+            meeting_dir,
+            mic_device=mic_device,
+            system_device=system_device,
+            transcribe_live=transcribe,
+            backend_name=backend,
+            language=language,
+        )
 
 
 @cli.command()
@@ -326,8 +356,16 @@ def action_done(meeting_id, action_id):
 
 @cli.command()
 @click.argument("meeting_id")
-def finalize(meeting_id):
-    """Roda a transcrição final (mais precisa) do áudio completo.
+@click.option(
+    "--backend",
+    type=click.Choice(["whisper", "parakeet"]),
+    default=None,
+    help="Backend pra transcrição final. Padrão: o mesmo escolhido em `fireball start` (ou whisper).",
+)
+def finalize(meeting_id, backend):
+    """Roda a transcrição final (mais precisa) do áudio completo, por track
+    (mic = 'Você', system = 'Outros participantes'), mesclando por ordem de
+    início.
 
     A reconciliação entre a transcrição final e as notas ao vivo (comparar,
     corrigir imprecisões) é feita pelo Claude via skill, não por este comando —
@@ -335,23 +373,44 @@ def finalize(meeting_id):
     """
     meeting_dir = storage.meeting_path(meeting_id)
     meeting = storage.read_json(meeting_dir / "meeting.json")
-
-    if not meeting.get("fake"):
-        raise click.ClickException(
-            "Transcrição final real ainda não implementada.\n"
-            "TODO: enviar o áudio completo para um provedor (Groq, OpenAI, etc.) e\n"
-            "escrever o resultado em transcript_final.ndjson."
-        )
-
     final_path = meeting_dir / "transcript_final.ndjson"
     if final_path.exists():
         final_path.unlink()
-    for seg in storage.read_ndjson(meeting_dir / "transcript.ndjson"):
-        storage.append_ndjson(final_path, {**seg, "source": "final"})
+
+    if meeting.get("fake"):
+        for seg in storage.read_ndjson(meeting_dir / "transcript.ndjson"):
+            storage.append_ndjson(final_path, {**seg, "source": "final"})
+        meeting["status"] = "finalized"
+        storage.write_json(meeting_dir / "meeting.json", meeting)
+        click.echo(json.dumps({"ok": True, "final_path": str(final_path)}, ensure_ascii=False))
+        return
+
+    backend_name = backend or meeting.get("backend") or "whisper"
+    language = meeting.get("language") or realtime.DEFAULT_LANGUAGE
+    try:
+        batch_backend = get_batch_backend(backend_name)
+    except BackendUnavailable as exc:
+        raise click.ClickException(str(exc))
+
+    tracks = storage.read_json(meeting_dir / "audio_tracks.json", {})
+    entries = []
+    for key, speaker in (("mic", "Você"), ("system", "Outros participantes")):
+        wav_path = meeting_dir / f"{key}.wav"
+        if key not in tracks or not wav_path.exists():
+            continue
+        for seg in batch_backend.transcribe_file(wav_path, language):
+            entries.append({"start": seg["start"] or 0.0, "speaker": speaker, "text": seg["text"]})
+    entries.sort(key=lambda e: e["start"])
+
+    for i, entry in enumerate(entries, start=1):
+        storage.append_ndjson(
+            final_path,
+            {"seq": i, "ts": None, "speaker": entry["speaker"], "text": entry["text"], "source": "final"},
+        )
 
     meeting["status"] = "finalized"
     storage.write_json(meeting_dir / "meeting.json", meeting)
-    click.echo(json.dumps({"ok": True, "final_path": str(final_path)}, ensure_ascii=False))
+    click.echo(json.dumps({"ok": True, "final_path": str(final_path), "segments": len(entries)}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

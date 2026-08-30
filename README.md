@@ -14,16 +14,66 @@ Sketch inicial. O que funciona:
     microfone ou chaves de API.
   - `--real`: captura **de verdade** o microfone e o áudio do sistema (o que os outros
     participantes da reunião estão falando, via monitor da saída padrão), gravando
-    `mic.wav`, `system.wav` e uma mixagem `meeting.wav` por reunião. Ver detalhes abaixo.
+    `mic.wav`, `system.wav` e uma mixagem `meeting.wav` por reunião — **e transcreve em
+    tempo real de verdade**, local, sem chave de API (ver Backends de transcrição abaixo).
+- Transcrição final (`fireball finalize`) roda o backend escolhido sobre cada `.wav`
+  inteiro (mais preciso que o tempo real) e mescla mic/system por ordem de início.
 - Skill (`skills/fireball/SKILL.md`) com as instruções de como o Claude deve agir como escrivão.
 
-O que **não** está implementado ainda (stubs com `NotImplementedError` e `TODO` no código):
+O que **não** está implementado ainda:
 
-- Transcrição em tempo real de verdade a partir do áudio capturado (rodar um modelo de
-  streaming sobre `mic.wav`/`system.wav` e escrever segmentos em `transcript.ndjson` —
-  hoje isso só existe no modo `--fake`).
-- Transcrição final via provedor (Groq/OpenAI) (`fireball/cli.py:finalize`).
+- Transcrição final via provedor em nuvem (Groq/OpenAI) — hoje "final" também é local,
+  pelo mesmo backend (whisper/parakeet) usado ao vivo, só que sobre o áudio inteiro.
+- Diarização de verdade para "Outros participantes" (hoje é só *um* falante genérico —
+  o monitor do sistema não distingue quem está falando do outro lado).
 - GUI.
+
+## Backends de transcrição (`--backend`)
+
+A transcrição em tempo real e a final usam a mesma interface plugável (`fireball/backends/`),
+trocável via `--backend`:
+
+- **`whisper`** (padrão) — [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
+  (CTranslate2), multi-idioma, modelo `base` por padrão.
+- **`parakeet`** — [onnx-asr](https://github.com/istupakov/onnx-asr) rodando o
+  [Parakeet TDT 0.6B v3 fine-tunado em pt-BR](https://huggingface.co/alefiury/parakeet-tdt-0.6b-v3-ptBR-TAGARELA-onnx)
+  (dataset TAGARELA), via ONNX Runtime puro — **sem PyTorch/NeMo toolkit**. Em teste manual,
+  capturou bem mais conteúdo real do que o whisper `base` no mesmo áudio.
+
+Os dois são **locais** (sem chave de API) e independentes do segmentador de fala: em vez de
+cortar em janelas de tempo fixo (que quebram frase no meio — testei e piora muito a
+qualidade), o loop ao vivo (`fireball/realtime.py`) usa um VAD (`fireball/vad.py`, Silero via
+faster-whisper) pra agrupar áudio em "falas" reais, entre pausas de silêncio, antes de mandar
+pra qualquer backend. **Por isso o extra `whisper` é necessário mesmo escolhendo
+`--backend parakeet`** — ele fornece o VAD, não só o motor de transcrição; desacoplar isso é
+um TODO.
+
+Instalar:
+
+```bash
+pip install -e '.[whisper]'     # backend whisper (e o VAD usado por qualquer backend)
+pip install -e '.[parakeet]'    # inclui onnx-asr + whisper (pro VAD)
+```
+
+O checkpoint pt-BR do Parakeet não está na lista curada do onnx-asr, então precisa ser
+baixado manualmente uma vez (± 2.4GB, fp32) antes do primeiro uso:
+
+```bash
+python -c "from huggingface_hub import snapshot_download; snapshot_download(
+    repo_id='alefiury/parakeet-tdt-0.6b-v3-ptBR-TAGARELA-onnx',
+    local_dir='.models/parakeet-ptbr')"
+```
+
+Por padrão o backend procura em `<repo>/.models/parakeet-ptbr`; aponte para outro lugar com
+`FIREBALL_PARAKEET_MODEL_DIR=/caminho/pro/modelo`.
+
+Usar:
+
+```bash
+fireball start --name "Reunião" --real --backend whisper    # padrão
+fireball start --name "Reunião" --real --backend parakeet
+fireball start --name "Reunião" --real --no-transcribe      # só grava, sem transcrever ao vivo
+```
 
 ## Captura de áudio real (`--real`)
 
@@ -86,7 +136,7 @@ fireball action add <meeting_id> --title "Abrir ticket no Linear" --system linea
 
 fireball status <meeting_id>
 fireball stop <meeting_id>
-fireball finalize <meeting_id>
+fireball finalize <meeting_id>                        # --backend whisper|parakeet, padrão: o mesmo do start
 fireball transcript show <meeting_id> --source final
 ```
 
