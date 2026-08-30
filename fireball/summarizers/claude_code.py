@@ -11,9 +11,11 @@ Detalhes que a invocação depende:
   sai com código 0 mesmo quando falha — "Not logged in · Please run /login" é
   impresso no stdout como se fosse resposta. O JSON traz `is_error`, que é o
   único jeito honesto de saber se deu certo.
-- `--bare` pula hooks, LSP e plugins: aqui é uma transformação de texto, não
-  uma sessão de trabalho, e o ambiente de outra pessoa não deve influenciar o
-  resumo.
+- **Sem `--bare`**, por mais tentador que pareça. Ele pula hooks, LSP e
+  plugins, o que soa perfeito para uma transformação de texto — mas pula
+  também o que carrega a autenticação, e toda chamada volta como "Not logged
+  in · Please run /login" mesmo com credencial válida no disco. Foi
+  exatamente esse o sintoma que apareceu na janela.
 - `--allowed-tools ""` porque não há nada para ele fazer além de ler o que
   mandamos: a transcrição vai no stdin, e sair lendo arquivo da máquina não é
   parte do trabalho.
@@ -81,7 +83,6 @@ class ClaudeCodeSummarizer:
         cmd = [
             binary,
             "-p",
-            "--bare",
             "--output-format",
             "json",
             "--allowed-tools",
