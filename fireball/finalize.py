@@ -5,8 +5,14 @@ pelo mesmo motivo: importar whisper/parakeet custa memória e tempo, e uma
 falha do backend não pode derrubar o dono do estado.
 
 Este módulo **não mexe em meeting.json**: quem escreve status é o daemon, que
-observa este processo terminar. Aqui só produzimos `transcript_final.ndjson` e
-um `finalize_result.json` com o resumo que o daemon devolve ao cliente.
+observa este processo terminar. Aqui só reescrevemos `transcript.ndjson` e
+produzimos um `finalize_result.json` com o resumo que o daemon devolve ao
+cliente.
+
+A reunião tem **uma** transcrição: esta passada reescreve a do tempo real por
+cima, porque é a mesma transcrição feita melhor. A troca é atômica (arquivo
+temporário e `replace`) — a janela lê esse ndjson enquanto o finalize roda, e
+uma troca parcial a deixaria ilegível no meio da leitura.
 """
 
 from __future__ import annotations
@@ -24,16 +30,19 @@ def run_finalize(meeting_dir: Path, backend: Optional[str] = None) -> dict:
     """Roda o backend de lote sobre cada .wav inteiro e mescla mic/system por
     ordem de início. Devolve (e grava) o resumo do que foi produzido."""
     meeting = storage.read_json(meeting_dir / "meeting.json")
-    final_path = meeting_dir / "transcript_final.ndjson"
-    if final_path.exists():
-        final_path.unlink()
+    transcript_path = meeting_dir / "transcript.ndjson"
+    # escreve ao lado e troca no fim: até lá, quem lê continua vendo a
+    # transcrição antiga inteira, em vez de uma meio reescrita
+    new_path = meeting_dir / "transcript.ndjson.new"
+    if new_path.exists():
+        new_path.unlink()
 
     if meeting.get("fake"):
         count = 0
         for seg in storage.read_ndjson(meeting_dir / "transcript.ndjson"):
-            storage.append_ndjson(final_path, {**seg, "source": "final"})
+            storage.append_ndjson(new_path, seg)
             count += 1
-        return _write_result(meeting_dir, final_path, count, "fake")
+        return _write_result(meeting_dir, new_path, count, "fake")
 
     backend_name = backend or meeting.get("backend") or "whisper"
     language = meeting.get("language") or realtime.DEFAULT_LANGUAGE
@@ -54,20 +63,37 @@ def run_finalize(meeting_dir: Path, backend: Optional[str] = None) -> dict:
 
     for i, entry in enumerate(entries, start=1):
         storage.append_ndjson(
-            final_path,
+            new_path,
             {
                 "seq": i,
                 "start": entry["start"],
                 "end": entry["end"],
                 "speaker": entry["speaker"],
                 "text": entry["text"],
-                "source": "final",
             },
         )
-    return _write_result(meeting_dir, final_path, len(entries), backend_name)
+    return _write_result(meeting_dir, new_path, len(entries), backend_name)
 
 
-def _write_result(meeting_dir: Path, final_path: Path, segments: int, backend: str) -> dict:
-    result = {"final_path": str(final_path), "segments": segments, "backend": backend}
+def _write_result(meeting_dir: Path, new_path: Path, segments: int, backend: str) -> dict:
+    """Troca a transcrição pela recém-produzida e registra o resultado.
+
+    A troca só acontece se saiu alguma coisa: um backend que devolveu zero
+    segmento (áudio mudo, falha silenciosa) não pode apagar a transcrição do
+    tempo real, que era o único registro daquela reunião.
+    """
+    transcript_path = meeting_dir / "transcript.ndjson"
+    replaced = segments > 0
+    if replaced:
+        new_path.replace(transcript_path)
+    else:
+        new_path.unlink(missing_ok=True)
+
+    result = {
+        "transcript_path": str(transcript_path),
+        "segments": segments,
+        "backend": backend,
+        "replaced": replaced,
+    }
     storage.write_json(meeting_dir / "finalize_result.json", result)
     return result

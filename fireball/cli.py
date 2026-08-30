@@ -239,10 +239,9 @@ def transcript():
 @transcript.command(name="show")
 @click.argument("meeting_id")
 @click.option("--since", default=0, type=int, help="Só mostra segmentos com seq maior que este valor.")
-@click.option("--source", type=click.Choice(["realtime", "final"]), default="realtime")
-def transcript_show(meeting_id, since, source):
+def transcript_show(meeting_id, since):
     meeting_dir = storage.meeting_path(meeting_id)
-    filename = "transcript.ndjson" if source == "realtime" else "transcript_final.ndjson"
+    filename = "transcript.ndjson"
     for seg in storage.read_ndjson(meeting_dir / filename, since_seq=since):
         _echo(seg)
 

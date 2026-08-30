@@ -263,7 +263,60 @@ function segmentActions(seg) {
   edit.textContent = "✎ editar";
   edit.addEventListener("click", (event) => startEdit(event.target.closest(".msg"), seg));
   box.appendChild(edit);
+
+  const remove = document.createElement("button");
+  remove.className = "seg-action danger";
+  remove.textContent = "✕ excluir";
+  remove.addEventListener("click", (event) => confirmDelete(event.target.closest(".msg"), seg));
+  box.appendChild(remove);
   return box;
+}
+
+/** Excluir uma fala pede confirmação no lugar das próprias ações da bolha.
+
+    A transcrição não tem desfazer, e as ações ficam a um hover de distância
+    de qualquer fala — sem o segundo passo, um clique torto apagaria a fala
+    errada sem chance de perceber. */
+function confirmDelete(wrap, seg) {
+  const box = wrap.querySelector(".seg-actions");
+  if (!box || box.dataset.confirming) return;
+  box.dataset.confirming = "1";
+  const original = [...box.children];
+  box.innerHTML = "";
+
+  const label = document.createElement("span");
+  label.className = "seg-confirm-label";
+  label.textContent = "Excluir esta fala?";
+
+  const cancel = document.createElement("button");
+  cancel.className = "seg-action";
+  cancel.textContent = "Cancelar";
+  cancel.addEventListener("click", () => {
+    box.innerHTML = "";
+    original.forEach((node) => box.appendChild(node));
+    delete box.dataset.confirming;
+  });
+
+  const confirm = document.createElement("button");
+  confirm.className = "seg-action danger solid";
+  confirm.textContent = "Excluir";
+  confirm.addEventListener("click", async () => {
+    confirm.disabled = true;
+    try {
+      await api("delete_segment", state.open.id, seg.seq);
+      // tira da linha do tempo junto, senão o player continuaria destacando
+      // uma bolha que não existe mais
+      const o = state.open;
+      o.timeline = o.timeline.filter((entry) => entry.seq !== seg.seq);
+      if (state.playing === seg.seq) state.playing = null;
+      wrap.remove();
+    } catch (err) {
+      confirm.disabled = false;
+      setAlert("meeting-error", "Não foi possível excluir a fala", errText(err));
+    }
+  });
+
+  box.append(label, cancel, confirm);
 }
 
 function chatPlaceholder(text) {
@@ -319,7 +372,7 @@ async function pollChat() {
   if (!o) return;
   let segs;
   try {
-    segs = await api("transcript", o.id, o.lastSeq, o.source);
+    segs = await api("transcript", o.id, o.lastSeq);
     setBanner("");
   } catch (err) {
     setBanner(errText(err));
@@ -410,18 +463,11 @@ function renderMeetingHeader() {
   finalize.classList.toggle("hidden", !finished && m.status !== "finalizing");
   finalize.disabled = m.status === "finalizing";
   finalize.textContent =
-    m.status === "finalizing" ? "Finalizando…" : o.hasFinal ? "Retranscrever" : "Finalizar";
-}
-
-function renderSourceSwitch() {
-  const o = state.open;
-  const box = el("source-switch");
-  // só faz sentido escolher quando existem as duas transcrições: ao vivo há
-  // apenas a do tempo real.
-  box.classList.toggle("hidden", o.live || !o.hasFinal);
-  for (const chip of box.querySelectorAll(".chip")) {
-    chip.classList.toggle("selected", chip.dataset.source === o.source);
-  }
+    m.status === "finalizing"
+      ? "Finalizando…"
+      : m.status === "finalized"
+        ? "Retranscrever"
+        : "Transcrever";
 }
 
 function renderFicha() {
@@ -491,6 +537,9 @@ function showTab(name) {
   }
   if (name === "notas") loadNotes();
   if (name === "resumo") {
+    // desenha antes de ir buscar: sem isto a caixa fica em branco entre abrir
+    // a aba e o resumo chegar, o que se lê como "não tem nada aqui"
+    renderSummary();
     loadActions();
     loadSummary();
   }
@@ -526,12 +575,6 @@ async function openMeeting(id, row) {
   }
 
   const live = LIVE_STATUSES.has(detail.meeting.status);
-  // uma reunião viva nunca tem transcrição final (ela só é escrita depois do
-  // `finalize`), então nesse caso nem vale a consulta.
-  let hasFinal = false;
-  if (!live) {
-    hasFinal = row ? !!row.has_final : (await api("transcript", id, 0, "final")).length > 0;
-  }
 
   state.open = {
     id,
@@ -541,8 +584,6 @@ async function openMeeting(id, row) {
     path: detail.path,
     actions: null,
     live,
-    hasFinal,
-    source: hasFinal ? "final" : "realtime",
     lastSeq: 0,
     lastSpeaker: null,
     lastSegmentAt: null,
@@ -557,7 +598,6 @@ async function openMeeting(id, row) {
 
   resetDelete(); // confirmação pendente não atravessa para outra reunião
   renderMeetingHeader();
-  renderSourceSwitch();
   renderFicha();
   renderWarnings();
   renderMeetingList(); // marca a linha da barra lateral
@@ -628,9 +668,9 @@ async function refreshOpenMeeting() {
     o.path = detail.path;
     o.live = LIVE_STATUSES.has(detail.meeting.status);
     if (wasFinalizing && detail.meeting.status === "finalized") {
-      o.hasFinal = true;
-      o.source = "final";
-      await loadAudio(); // o meeting.wav é produzido justamente pela finalização
+      // a transcrição foi reescrita por cima: os seq não são mais os mesmos,
+      // então o chat incremental precisa recomeçar do zero
+      await loadAudio();
       resetChat();
       await pollChat();
     }
@@ -640,7 +680,6 @@ async function refreshOpenMeeting() {
     setBanner(errText(err));
   }
   renderMeetingHeader();
-  renderSourceSwitch();
   renderFicha();
   renderLiveBar();
   renderMeetingList();
@@ -1165,7 +1204,7 @@ function startEdit(wrap, seg) {
     if (!text || text === original) return finish(null);
     save.disabled = true;
     try {
-      const updated = await api("edit_segment", o.id, seg.seq, text, o.source);
+      const updated = await api("edit_segment", o.id, seg.seq, text);
       seg.text = updated.text;
       seg.edited = true;
       finish(updated);
@@ -1274,9 +1313,21 @@ function renderSummary() {
   const meta = el("summary-meta");
   const info = (o && o.summaryState) || {};
   const summary = info.summary;
+  const loading = !!o && o.summaryState === null;
 
   box.innerHTML = "";
   box.classList.remove("empty");
+
+  if (loading) {
+    box.classList.add("empty");
+    const note = document.createElement("div");
+    note.className = "slab-note";
+    note.textContent = "Carregando…";
+    box.appendChild(note);
+    button.disabled = true;
+    meta.textContent = "";
+    return;
+  }
   button.disabled = info.status === "running";
   button.textContent = info.status === "running" ? "Gerando…" : summary ? "Regerar" : "Gerar";
   meta.textContent = "";
@@ -1293,7 +1344,7 @@ function renderSummary() {
   }
 
   if (summary) {
-    const bits = [summary.provider, summary.source === "final" ? "da transcrição final" : "da transcrição ao vivo"];
+    const bits = [summary.provider];
     if (summary.generated_at) bits.push(dateLabel(summary.generated_at));
     meta.textContent = bits.filter(Boolean).join(" · ");
     renderMarkdown(summary.markdown, box);
@@ -1552,17 +1603,6 @@ async function onOpenFolder() {
   }
 }
 
-function onPickSource(event) {
-  const source = event.currentTarget.dataset.source;
-  const o = state.open;
-  if (!o || o.source === source) return;
-  o.source = source;
-  renderSourceSwitch();
-  renderPlayer(); // só a final sincroniza com o áudio
-  resetChat();
-  pollChat();
-}
-
 // ------------------------------------------------------------------ boot
 
 function tick() {
@@ -1604,9 +1644,6 @@ async function boot() {
 
   for (const tab of document.querySelectorAll(".tab")) {
     tab.addEventListener("click", () => showTab(tab.dataset.tab));
-  }
-  for (const chip of el("source-switch").querySelectorAll(".chip")) {
-    chip.addEventListener("click", onPickSource);
   }
 
   const rename = el("mv-rename");

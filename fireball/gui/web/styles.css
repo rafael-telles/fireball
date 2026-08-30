@@ -1721,3 +1721,33 @@ audio {
   line-height: 1.4;
   color: var(--faint);
 }
+
+/* ------------------------------------------------- excluir uma fala */
+
+.seg-action.danger {
+  color: var(--accent-text-2);
+  border-color: var(--accent-border);
+}
+
+.seg-action.danger:hover {
+  background: var(--accent-bg-2);
+  color: var(--accent-text-2);
+}
+
+.seg-action.danger.solid {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.seg-confirm-label {
+  font-size: 11px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* Confirmando, as ações param de depender do hover: sair com o mouse no meio
+   da pergunta esconderia a resposta. */
+.msg .seg-actions[data-confirming] {
+  opacity: 1;
+}

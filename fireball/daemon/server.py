@@ -74,6 +74,7 @@ class _Handler(socketserver.StreamRequestHandler):
             "finalize": core.finalize,
             "summarize": core.summarize,
             "edit_segment": core.edit_segment,
+            "delete_segment": core.delete_segment,
             "warnings": core.warnings,
             "show_window": core.show_window,
             "shutdown": self._shutdown,

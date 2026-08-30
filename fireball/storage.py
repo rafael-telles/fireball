@@ -4,8 +4,10 @@ Tudo baseado em arquivos, dentro de ~/.fireball (ou $FIREBALL_HOME):
 
     meetings/<meeting_id>/
         meeting.json          metadados (nome, status, timestamps, pid do motor)
-        transcript.ndjson     transcrição em tempo real, um segmento por linha
-        transcript_final.ndjson  transcrição final, escrita por `fireball finalize`
+        transcript.ndjson     a transcrição, um segmento por linha. Nasce do tempo
+                              real e é reescrita por `fireball finalize` — uma
+                              reunião tem uma transcrição só
+        summary.md            resumo gerado da transcrição (ver fireball.summary)
         notes.md              notas ao vivo (Claude + usuário)
         actions.json          ações pendentes/aprovadas/rejeitadas/executadas
         checkpoint.json       até onde o stream já foi processado (resiliência)

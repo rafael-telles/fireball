@@ -18,19 +18,9 @@ from typing import Optional
 from fireball import storage
 from fireball.summarizers import SummarizerUnavailable, get_summary_provider
 
-# Resumir a transcrição final é sempre melhor: ela roda sobre o áudio inteiro
-# e erra menos. A do tempo real é o que sobra quando a reunião nunca foi
-# finalizada — resumo de texto pior, mas resumo.
-SOURCES = (("final", "transcript_final.ndjson"), ("realtime", "transcript.ndjson"))
-
-
-def pick_transcript(meeting_dir: Path) -> tuple[Optional[str], list[dict]]:
-    """A melhor transcrição disponível: (nome da fonte, segmentos)."""
-    for source, filename in SOURCES:
-        segments = list(storage.read_ndjson(meeting_dir / filename))
-        if segments:
-            return source, segments
-    return None, []
+def read_transcript(meeting_dir: Path) -> list[dict]:
+    """A transcrição da reunião — uma só (o finalize reescreve esta mesma)."""
+    return list(storage.read_ndjson(meeting_dir / "transcript.ndjson"))
 
 
 def as_dialogue(segments: list[dict]) -> str:
@@ -50,7 +40,7 @@ def as_dialogue(segments: list[dict]) -> str:
 def run_summary(meeting_dir: Path, provider: str) -> dict:
     """Gera o resumo e grava `summary.md`. Devolve (e grava) a procedência."""
     meeting = storage.read_json(meeting_dir / "meeting.json")
-    source, segments = pick_transcript(meeting_dir)
+    segments = read_transcript(meeting_dir)
     if not segments:
         raise SummarizerUnavailable(
             "Esta reunião não tem transcrição nenhuma para resumir."
@@ -68,7 +58,6 @@ def run_summary(meeting_dir: Path, provider: str) -> dict:
     (meeting_dir / "summary.md").write_text(markdown + "\n")
     result = {
         "provider": provider,
-        "source": source,
         "segments": len(segments),
         "generated_at": storage.now_iso(),
     }

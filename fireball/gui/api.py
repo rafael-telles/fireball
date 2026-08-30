@@ -92,11 +92,11 @@ class Api:
     def meeting_status(self, meeting_id: str) -> dict:
         return self._call(self._core.meeting_status, meeting_id=meeting_id)
 
-    def transcript(self, meeting_id: str, since_seq: int, source: str) -> dict:
+    def transcript(self, meeting_id: str, since_seq: int) -> dict:
         """Segmentos novos do chat. O front-end manda o último seq que já
         desenhou, então o polling ao vivo transporta só o que chegou desde a
         volta anterior — a tela nunca é reconstruída do zero."""
-        return self._call(self._core.transcript, meeting_id=meeting_id, since_seq=since_seq, source=source)
+        return self._call(self._core.transcript, meeting_id=meeting_id, since_seq=since_seq)
 
     def warnings(self, meeting_id: str) -> dict:
         """Falhas que não quebraram a gravação — e por isso passam batido.
@@ -127,10 +127,11 @@ class Api:
         info["exists"] = bool(info["url"])
         return result
 
-    def edit_segment(self, meeting_id: str, seq: int, text: str, source: str) -> dict:
-        return self._call(
-            self._core.edit_segment, meeting_id=meeting_id, seq=seq, text=text, source=source
-        )
+    def edit_segment(self, meeting_id: str, seq: int, text: str) -> dict:
+        return self._call(self._core.edit_segment, meeting_id=meeting_id, seq=seq, text=text)
+
+    def delete_segment(self, meeting_id: str, seq: int) -> dict:
+        return self._call(self._core.delete_segment, meeting_id=meeting_id, seq=seq)
 
     def summary(self, meeting_id: str) -> dict:
         return self._call(self._core.summary, meeting_id=meeting_id)

@@ -76,7 +76,8 @@ CLI do Fireball (venv dedicado, não está no PATH):
 2. `fireball finalize <meeting_id>` — mesmo backend do início por padrão; `--backend groq` se
    preferir a passada final via API (`GROQ_API_KEY` no `.env` do Fireball) em vez do modelo
    local.
-3. Leia `~/.fireball/meetings/<meeting_id>/transcript_final.ndjson` e monte o corpo de uma nota
+3. Leia `~/.fireball/meetings/<meeting_id>/transcript.ndjson` (após o `finalize`, ela já é a versão
+   feita sobre o áudio inteiro) e monte o corpo de uma nota
    `Transcript` nova no vault, uma linha por segmento, formato `[mm:ss] <speaker>: <texto>`
    (calcule mm:ss a partir de `start`; se vier `null`, omita o timestamp).
 

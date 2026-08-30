@@ -170,7 +170,7 @@ def get_meeting_status(meeting_id: str) -> dict:
     meeting_dir = storage.meeting_path(meeting_id)
     meeting = storage.read_json(meeting_dir / "meeting.json")
     checkpoint = storage.read_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
-    segments = sum(1 for _ in storage.read_ndjson(meeting_dir / "transcript.ndjson"))
+    segments = sum(1 for _ in storage.read_ndjson(meeting_dir / TRANSCRIPT_FILE))
     actions = storage.read_json(meeting_dir / "actions.json", [])
     pending = [a for a in actions if a["status"] == "pending"]
     return {
@@ -205,127 +205,126 @@ def scan_live_meetings() -> list[dict]:
 
 # ------------------------------------------------------------- transcrição
 
-# Duas transcrições convivem por reunião: a do tempo real (escrita pelo engine
-# durante a gravação) e a final (escrita pelo `finalize`, mais precisa). A GUI
-# mostra as duas — ao vivo só existe a primeira; numa reunião passada já
-# finalizada, a final é o padrão.
-TRANSCRIPT_FILES = {"realtime": "transcript.ndjson", "final": "transcript_final.ndjson"}
+# Uma reunião tem **uma** transcrição. Ela nasce do tempo real, enquanto a
+# reunião grava, e o `finalize` a reescreve por cima com a versão feita sobre o
+# áudio inteiro — que é mais precisa e é a mesma coisa, melhor.
+#
+# Antes eram dois arquivos convivendo, com um seletor na tela. Duas versões do
+# mesmo texto significavam decidir em qual corrigir uma frase, e uma correção
+# feita numa sumia quando a outra virava a exibida. Uma só remove a pergunta.
+TRANSCRIPT_FILE = "transcript.ndjson"
+
+# Nome antigo, mantido só para a migração de reuniões gravadas no modelo de dois
+# arquivos (ver `migrate_transcripts`).
+LEGACY_FINAL_FILE = "transcript_final.ndjson"
 
 
-def read_transcript(meeting_id: str, since_seq: int = 0, source: str = "realtime") -> list[dict]:
+def transcript_path(meeting_id: str) -> Path:
+    return storage.meeting_path(meeting_id) / TRANSCRIPT_FILE
+
+
+def read_transcript(meeting_id: str, since_seq: int = 0) -> list[dict]:
     """Segmentos da transcrição com `seq` maior que `since_seq`.
 
     O corte por seq é o que deixa o chat ao vivo da GUI barato: ela guarda o
     último seq que já desenhou e a cada polling pede só o que veio depois, em
     vez de reler a reunião inteira e reconstruir a tela.
     """
-    filename = TRANSCRIPT_FILES.get(source)
-    if filename is None:
-        raise ValueError(f"Fonte de transcrição desconhecida: {source!r} (use realtime ou final).")
-    return list(storage.read_ndjson(storage.meeting_path(meeting_id) / filename, since_seq=since_seq))
+    return list(storage.read_ndjson(transcript_path(meeting_id), since_seq=since_seq))
 
 
-def edit_segment(meeting_id: str, seq: int, text: str, source: str = "realtime") -> dict:
+def _rewrite_transcript(meeting_id: str, change) -> dict:
+    """Reescreve a transcrição aplicando `change` a cada segmento.
+
+    `change` devolve o segmento novo, ou None para descartá-lo. A escrita vai
+    num temporário e troca por cima (`replace`, atômico no mesmo filesystem):
+    o ndjson é lido por outros processos, e uma troca parcial deixaria a
+    transcrição ilegível no meio da leitura.
+    """
+    path = transcript_path(meeting_id)
+    if not path.exists():
+        raise FileNotFoundError(f"A reunião '{meeting_id}' não tem transcrição.")
+
+    touched = None
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w") as out:
+        for seg in storage.read_ndjson(path):
+            new = change(seg)
+            if new is not seg:
+                touched = new or seg
+            if new is not None:
+                out.write(json.dumps(new, ensure_ascii=False) + "\n")
+
+    if touched is None:
+        tmp.unlink(missing_ok=True)
+        raise LookupError("Segmento não encontrado na transcrição.")
+    tmp.replace(path)
+    return touched
+
+
+def edit_segment(meeting_id: str, seq: int, text: str) -> dict:
     """Corrige o texto de um segmento já transcrito.
-
-    Reescreve o arquivo inteiro num temporário e troca por cima (`replace`, que
-    é atômico no mesmo filesystem): o ndjson é lido por outros processos, e uma
-    troca parcial deixaria a transcrição ilegível no meio da leitura.
 
     Corrige **só a transcrição** — o áudio original não muda, e por isso o
     segmento fica marcado com `edited`. Sem essa marca, uma transcrição
     corrigida seria indistinguível do que o motor de fato ouviu, e quem lesse
     depois não teria como saber que aquilo é revisão humana.
     """
-    filename = TRANSCRIPT_FILES.get(source)
-    if filename is None:
-        raise ValueError(f"Fonte de transcrição desconhecida: {source!r} (use realtime ou final).")
-
-    path = storage.meeting_path(meeting_id) / filename
-    if not path.exists():
-        raise FileNotFoundError(f"A reunião '{meeting_id}' não tem transcrição em '{source}'.")
-
     text = text.strip()
     if not text:
         raise ValueError("O texto do segmento não pode ficar vazio.")
 
-    updated = None
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w") as out:
-        for seg in storage.read_ndjson(path):
-            if seg.get("seq") == seq:
-                seg = {**seg, "text": text, "edited": True}
-                updated = seg
-            out.write(json.dumps(seg, ensure_ascii=False) + "\n")
+    def change(seg):
+        return {**seg, "text": text, "edited": True} if seg.get("seq") == seq else seg
 
-    if updated is None:
-        tmp.unlink(missing_ok=True)
-        raise LookupError(f"Segmento {seq} não existe na transcrição '{source}'.")
-
-    tmp.replace(path)
-    return updated
+    return _rewrite_transcript(meeting_id, change)
 
 
-# ------------------------------------------------------------------ avisos
+def delete_segment(meeting_id: str, seq: int) -> dict:
+    """Tira um segmento da transcrição de vez.
 
-# O engine grava esses arquivos quando algo deu errado mas a gravação seguiu
-# assim mesmo — são exatamente as falhas que passam despercebidas, porque
-# nada quebra na hora: você só descobre depois que faltou metade da reunião.
-WARNING_FILES = (
-    ("audio", "audio_warnings.log"),
-    ("transcricao", "transcribe_warnings.log"),
-)
-
-
-def read_warnings(meeting_id: str) -> list[dict]:
-    warnings = []
-    meeting_dir = storage.meeting_path(meeting_id)
-    for kind, filename in WARNING_FILES:
-        path = meeting_dir / filename
-        if not path.exists():
-            continue
-        text = path.read_text().strip()
-        if text:
-            warnings.append({"kind": kind, "file": filename, "text": text})
-    return warnings
-
-
-# ------------------------------------------------------------------ resumo
-
-
-def read_summary(meeting_id: str) -> Optional[dict]:
-    """O resumo gerado, com a procedência — ou None se ainda não houver."""
-    meeting_dir = storage.meeting_path(meeting_id)
-    path = meeting_dir / "summary.md"
-    if not path.exists():
-        return None
-    return {
-        "markdown": path.read_text(),
-        **storage.read_json(meeting_dir / "summary_result.json", {}),
-    }
-
-
-# ------------------------------------------------------------------- áudio
-
-
-def audio_info(meeting_id: str) -> dict:
-    """Onde está o áudio da reunião, e se dá pra acompanhar a transcrição nele.
-
-    `meeting.wav` é a mistura de mic + sistema que o finalize produz. Só a
-    transcrição **final** carrega deslocamento em segundos (`start`/`end`); a
-    do tempo real tem carimbo de relógio absoluto, que não dá posição dentro do
-    arquivo. Por isso o player só sincroniza na final, e a janela precisa saber
-    disso daqui em vez de adivinhar.
+    Os `seq` dos demais **não** são renumerados: eles são a identidade de cada
+    fala, e o chat da janela pede "o que veio depois do seq N" a cada volta do
+    polling. Renumerar mudaria o significado de um número que a tela já tem na
+    mão. Buraco na sequência é esperado.
     """
-    meeting_dir = storage.meeting_path(meeting_id)
-    # meeting.wav é a mistura mic+sistema, escrita pelo engine ao terminar de
-    # gravar. Quando o monitor do sistema não abriu, ela não existe — mas
-    # mic.wav existe, e ouvir só o seu lado é melhor que não ouvir nada.
-    for name, mixed in (("meeting.wav", True), ("mic.wav", False)):
-        path = meeting_dir / name
-        if path.exists():
-            return {"path": str(path), "exists": True, "size": path.stat().st_size, "mixed": mixed}
-    return {"path": None, "exists": False, "size": 0, "mixed": False}
+    removed = {}
+
+    def change(seg):
+        if seg.get("seq") != seq:
+            return seg
+        removed.update(seg)
+        return None
+
+    _rewrite_transcript(meeting_id, change)
+    return {"seq": seq, "deleted": True, "text": removed.get("text")}
+
+
+def migrate_transcripts() -> list[str]:
+    """Funde o modelo antigo de dois arquivos no de um só.
+
+    Reuniões gravadas antes disso têm `transcript.ndjson` (tempo real) e talvez
+    `transcript_final.ndjson`. A final é a mesma transcrição, melhor — que é
+    exatamente o que o `finalize` passa a fazer por cima do arquivo único.
+    Então ela vira a transcrição, e o nome antigo some.
+
+    Final vazia (finalize que falhou no meio) é descartada em vez de promovida:
+    trocar uma transcrição que existe por um arquivo vazio perderia a reunião.
+    """
+    migrated = []
+    root = storage.meetings_root()
+    if not root.is_dir():
+        return migrated
+    for meeting_dir in sorted(root.iterdir()):
+        legacy = meeting_dir / LEGACY_FINAL_FILE
+        if not legacy.is_file():
+            continue
+        if any(True for _ in storage.read_ndjson(legacy)):
+            legacy.replace(meeting_dir / TRANSCRIPT_FILE)
+            migrated.append(meeting_dir.name)
+        else:
+            legacy.unlink()
+    return migrated
 
 
 def meeting_summaries() -> list[dict]:
@@ -341,8 +340,7 @@ def meeting_summaries() -> list[dict]:
         rows.append(
             {
                 **meeting,
-                "segments": sum(1 for _ in storage.read_ndjson(meeting_dir / "transcript.ndjson")),
-                "has_final": (meeting_dir / "transcript_final.ndjson").exists(),
+                "segments": sum(1 for _ in storage.read_ndjson(meeting_dir / TRANSCRIPT_FILE)),
             }
         )
     return rows

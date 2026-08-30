@@ -126,6 +126,15 @@ class DaemonCore:
         """
         recovered = []
         with self._lock:
+            # reuniões do modelo antigo (duas transcrições) viram uma só antes
+            # de qualquer leitura, para ninguém ver a versão pior de uma
+            # reunião já finalizada
+            migrated = control.migrate_transcripts()
+            if migrated:
+                print(
+                    f"[daemon] transcrição unificada em {len(migrated)} reunião(ões) do formato antigo",
+                    flush=True,
+                )
             for meeting in control.scan_live_meetings():
                 meeting_id = meeting["id"]
                 pid = meeting.get("engine_pid")
@@ -386,24 +395,30 @@ class DaemonCore:
     def meeting_summaries(self) -> list[dict]:
         return control.meeting_summaries()
 
-    def transcript(self, meeting_id: str, since_seq: int = 0, source: str = "realtime") -> list[dict]:
-        return control.read_transcript(meeting_id, since_seq=since_seq, source=source)
+    def transcript(self, meeting_id: str, since_seq: int = 0) -> list[dict]:
+        return control.read_transcript(meeting_id, since_seq=since_seq)
 
-    def edit_segment(self, meeting_id: str, seq: int, text: str, source: str = "realtime") -> dict:
-        """Corrige o texto de um segmento transcrito.
+    def _editable(self, meeting_id: str) -> None:
+        """Recusa mexer na transcrição de uma reunião viva.
 
-        Recusa enquanto a reunião está viva: o engine ainda está dando append
-        no mesmo arquivo, e reescrevê-lo por baixo dele perderia as falas que
-        chegassem entre a leitura e a troca.
+        O engine ainda está dando append no mesmo arquivo; reescrevê-lo por
+        baixo dele perderia as falas que chegassem entre a leitura e a troca.
         """
+        if control.read_meeting(meeting_id).get("status") in control.LIVE_STATUSES:
+            raise control.MeetingBusy(
+                "Dá pra mexer na transcrição depois que a reunião terminar — "
+                "enquanto ela grava, o motor ainda está escrevendo neste arquivo."
+            )
+
+    def edit_segment(self, meeting_id: str, seq: int, text: str) -> dict:
         with self._lock:
-            meeting = control.read_meeting(meeting_id)
-            if meeting.get("status") in control.LIVE_STATUSES:
-                raise control.MeetingBusy(
-                    "Dá pra corrigir a transcrição depois que a reunião terminar — "
-                    "enquanto ela grava, o motor ainda está escrevendo neste arquivo."
-                )
-            return control.edit_segment(meeting_id, seq, text, source=source)
+            self._editable(meeting_id)
+            return control.edit_segment(meeting_id, seq, text)
+
+    def delete_segment(self, meeting_id: str, seq: int) -> dict:
+        with self._lock:
+            self._editable(meeting_id)
+            return control.delete_segment(meeting_id, seq)
 
     def warnings(self, meeting_id: str) -> list[dict]:
         return control.read_warnings(meeting_id)

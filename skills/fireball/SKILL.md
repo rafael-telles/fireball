@@ -61,7 +61,7 @@ como ação.
    inteiro de cada track, não em pedaços) com o mesmo backend usado ao vivo. Também aceita
    `--backend groq` (API paga, `whisper-large-v3-turbo`, requer `GROQ_API_KEY`) se o usuário
    preferir não depender do modelo local para a passada final.
-3. Compare a transcrição final (`fireball transcript show <meeting_id> --source final`) com as
+3. Compare a transcrição (`fireball transcript show <meeting_id>`, já reescrita pelo finalize) com as
    notas ao vivo (arquivo `notes.md`, dentro da pasta da reunião). Corrija imprecisões
    diretamente no arquivo de notas e resuma para o usuário o que mudou. Isso é automático, não
    precisa ser pedido.
@@ -77,7 +77,7 @@ Cada reunião mora em `~/.fireball/meetings/<meeting_id>/`:
 - `meeting.json` — metadados
 - `mic.wav` / `system.wav` / `meeting.wav` — áudio real (só em reuniões `--real`)
 - `transcript.ndjson` — transcrição em tempo real (fonte primária durante a reunião)
-- `transcript_final.ndjson` — transcrição final, após `finalize`
+- a transcrição é um arquivo só (`transcript.ndjson`): o `finalize` reescreve por cima dela
 - `notes.md` — notas ao vivo (a mesma fonte que a GUI reflete)
 - `actions.json` — ações pendentes/aprovadas/rejeitadas/executadas
 - `checkpoint.json` — até onde o stream já foi processado

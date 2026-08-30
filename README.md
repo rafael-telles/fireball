@@ -318,13 +318,13 @@ tocar/pausar, arrastar a linha do tempo, velocidade, e *Seguir a transcrição*,
 bolha correspondente ao instante que está tocando e a traz para a tela. Cada bolha ganha,
 no hover, **▶ ouvir** (pula o áudio para aquele ponto) e **✎ editar**.
 
-As **duas** transcrições guardam deslocamento em segundos (`start`/`end`), então o player
-acompanha qualquer uma. No tempo real a posição vem do VAD: o `Endpointer` conta quantas
+A transcrição guarda deslocamento em segundos (`start`/`end`) desde o tempo real, então o
+player acompanha ela em qualquer momento. No tempo real a posição vem do VAD: o `Endpointer` conta quantas
 amostras da track já saíram do buffer, e a posição de cada fala é essa contagem — ou seja, a
 posição real dentro do PCM, não uma estimativa de relógio. (Conferido contra o whisper na
 mesma gravação: a primeira fala dá `1.17` nos dois.) Reuniões gravadas antes disso só têm
-posição na transcrição final; a janela decide pelo que os segmentos trazem, não pelo nome da
-fonte, então elas continuam funcionando.
+posição depois de retranscritas; a janela decide pelo que os segmentos trazem, então elas
+continuam funcionando de qualquer forma.
 
 O áudio é o `meeting.wav`, escrito pelo **engine ao terminar de gravar** (mistura de mic +
 sistema). Quando o monitor do sistema não abriu, ele não é produzido e a janela cai no
@@ -333,10 +333,30 @@ diz isso em vez de oferecer um controle morto.
 
 Editar corrige **só a transcrição**: o áudio não muda, e o segmento fica marcado com
 `edited` no ndjson (e "editado" na bolha). Sem essa marca, uma linha revisada seria
-indistinguível do que o motor de fato ouviu. A escrita reescreve o arquivo num temporário e
-troca por cima, porque outros processos leem esse ndjson e uma troca parcial o deixaria
-ilegível no meio da leitura. Enquanto a reunião grava, o daemon recusa a edição — o motor
-ainda está dando append no mesmo arquivo.
+indistinguível do que o motor de fato ouviu. **Excluir** uma fala (✕) tira ela de vez, com
+uma confirmação na própria bolha — as ações ficam a um hover de distância de qualquer fala, e
+sem o segundo passo um clique torto apagaria a errada. Os `seq` das demais **não** são
+renumerados: eles são a identidade de cada fala, e a janela pede "o que veio depois do seq N"
+a cada volta do polling; buraco na sequência é esperado.
+
+As duas escritas reescrevem o arquivo num temporário e trocam por cima, porque outros
+processos leem esse ndjson e uma troca parcial o deixaria ilegível no meio da leitura.
+Enquanto a reunião grava, o daemon recusa as duas — o motor ainda está dando append ali.
+
+### Uma transcrição por reunião
+
+A reunião tem **uma** transcrição (`transcript.ndjson`). Ela nasce do tempo real e o
+`finalize` a reescreve por cima com a versão feita sobre o áudio inteiro — que é a mesma
+transcrição, melhor. Por isso o botão vira *Retranscrever* depois da primeira vez.
+
+Antes eram dois arquivos convivendo, com um seletor na tela. Duas versões do mesmo texto
+significavam ter de escolher em qual corrigir uma frase, e a correção feita numa sumia quando
+a outra virava a exibida. Uma só remove a pergunta.
+
+Duas salvaguardas: a troca é atômica (arquivo temporário e `replace`), e uma passada que
+devolve zero segmento **não** substitui nada — um backend que falhou em silêncio não pode
+apagar o único registro da reunião. Reuniões gravadas no formato antigo são convertidas na
+subida do daemon: a final vira a transcrição, e a do tempo real sai de cena.
 
 No cabeçalho ficam o cronômetro e **Parar** enquanto grava; depois, **Finalizar** (ou
 **Retranscrever**, se já houver transcrição final), que roda o motor sobre o áudio inteiro sem
@@ -490,7 +510,7 @@ fireball action add <meeting_id> --title "Abrir ticket no Linear" --system linea
 fireball status <meeting_id>
 fireball stop                                         # sem argumento: para a reunião ativa
 fireball finalize <meeting_id>                        # --backend whisper|parakeet, padrão: o mesmo do start
-fireball transcript show <meeting_id> --source final
+fireball transcript show <meeting_id>
 ```
 
 ## Onde ficam os dados
