@@ -15,8 +15,15 @@ import subprocess
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
 import click
+from dotenv import load_dotenv
+
+# Carrega segredos (ex.: GROQ_API_KEY) do .env na raiz do repo, se existir.
+# Roda pra qualquer subcomando, incluindo o `_engine` em background (que
+# reimporta este módulo via `python -m fireball.cli`).
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from fireball import audio, engine, realtime, storage
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS, BackendUnavailable, get_batch_backend
