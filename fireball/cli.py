@@ -9,9 +9,6 @@ o fluxo completo que o Claude segue.
 from __future__ import annotations
 
 import json
-import os
-import signal
-import subprocess
 import sys
 import time
 from datetime import datetime
@@ -25,7 +22,7 @@ from dotenv import load_dotenv
 # reimporta este módulo via `python -m fireball.cli`).
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from fireball import audio, engine, realtime, storage
+from fireball import audio, control, engine, realtime, storage
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS, BackendUnavailable, get_batch_backend
 
 
@@ -80,59 +77,18 @@ def devices():
 )
 def start(name, fake, interval, mic_device, system_device, transcribe, backend, language):
     """Inicia uma nova reunião: cria a pasta e sobe o motor de gravação/transcrição em background."""
-    meeting_dir = storage.new_meeting_dir(name)
-    meeting_id = meeting_dir.name
-
-    (meeting_dir / "notes.md").write_text(
-        f"# {name}\n\n_Notas ao vivo tomadas pelo Claude e por você._\n\n## Notas\n"
+    meeting = control.start_meeting(
+        name=name,
+        fake=fake,
+        interval=interval,
+        mic_device=mic_device,
+        system_device=system_device,
+        transcribe=transcribe,
+        backend=backend,
+        language=language,
     )
-    (meeting_dir / "transcript.ndjson").touch()
-
-    cmd = [
-        sys.executable,
-        "-m",
-        "fireball.cli",
-        "_engine",
-        meeting_id,
-        "--fake" if fake else "--real",
-        "--interval",
-        str(interval),
-    ]
-    if mic_device is not None:
-        cmd += ["--mic-device", mic_device]
-    if system_device is not None:
-        cmd += ["--system-device", system_device]
-    if not fake:
-        cmd += ["--transcribe" if transcribe else "--no-transcribe", "--backend", backend, "--language", language]
-
-    log_path = meeting_dir / "engine.log"
-    with open(log_path, "w") as log_file:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-
-    meeting = {
-        "id": meeting_id,
-        "name": name,
-        "started_at": storage.now_iso(),
-        "ended_at": None,
-        "status": "recording",
-        "fake": fake,
-        "engine_pid": proc.pid,
-        "mic_device": mic_device,
-        "system_device": system_device,
-        "transcribe_live": transcribe if not fake else None,
-        "backend": backend if not fake else None,
-        "language": language if not fake else None,
-    }
-    storage.write_json(meeting_dir / "meeting.json", meeting)
-    storage.write_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
-    storage.write_json(meeting_dir / "actions.json", [])
-
-    click.echo(json.dumps({"meeting_id": meeting_id, "path": str(meeting_dir)}, ensure_ascii=False))
+    meeting_dir = storage.meeting_path(meeting["id"])
+    click.echo(json.dumps({"meeting_id": meeting["id"], "path": str(meeting_dir)}, ensure_ascii=False))
 
 
 @cli.command(name="_engine", hidden=True)
@@ -163,52 +119,20 @@ def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcrib
 @click.argument("meeting_id")
 def stop(meeting_id):
     """Para a gravação/transcrição em tempo real de uma reunião."""
-    meeting_dir = storage.meeting_path(meeting_id)
-    meeting = storage.read_json(meeting_dir / "meeting.json")
-    pid = meeting.get("engine_pid")
-    if pid:
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-    meeting["status"] = "stopped"
-    meeting["ended_at"] = storage.now_iso()
-    storage.write_json(meeting_dir / "meeting.json", meeting)
-    click.echo(json.dumps(meeting, ensure_ascii=False))
+    click.echo(json.dumps(control.stop_meeting(meeting_id), ensure_ascii=False))
 
 
 @cli.command()
 @click.argument("meeting_id")
 def status(meeting_id):
     """Mostra o estado atual de uma reunião: metadados, checkpoint, segmentos, ações pendentes."""
-    meeting_dir = storage.meeting_path(meeting_id)
-    meeting = storage.read_json(meeting_dir / "meeting.json")
-    checkpoint = storage.read_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
-    segments = list(storage.read_ndjson(meeting_dir / "transcript.ndjson"))
-    actions = storage.read_json(meeting_dir / "actions.json", [])
-    pending = [a for a in actions if a["status"] == "pending"]
-    click.echo(
-        json.dumps(
-            {
-                "meeting": meeting,
-                "checkpoint": checkpoint,
-                "segments_total": len(segments),
-                "actions_pending": len(pending),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
+    click.echo(json.dumps(control.get_meeting_status(meeting_id), ensure_ascii=False, indent=2))
 
 
 @cli.command(name="list")
 def list_meetings():
     """Lista todas as reuniões conhecidas."""
-    rows = []
-    for d in sorted(storage.meetings_root().iterdir()):
-        if d.is_dir():
-            rows.append(storage.read_json(d / "meeting.json", {"id": d.name}))
-    click.echo(json.dumps(rows, ensure_ascii=False, indent=2))
+    click.echo(json.dumps(control.list_meetings(), ensure_ascii=False, indent=2))
 
 
 @cli.group()

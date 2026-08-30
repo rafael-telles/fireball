@@ -15,9 +15,16 @@ dependencies = [
 whisper = ["faster-whisper>=1.0", "numpy>=1.24"]
 parakeet = ["onnx-asr[cpu,hub]>=0.7", "faster-whisper>=1.0", "numpy>=1.24"]
 groq = ["groq>=1.0"]
+# Um toolkit só (Qt) pra janela E pra bandeja — ver fireball/gui/tray.py
+# pro motivo de não misturar com GTK/pystray. PyQt6 cobre as duas coisas:
+# pywebview usa o Qt pra renderizar a janela, e QSystemTrayIcon (parte do
+# PyQt6, sem lib extra) cobre a bandeja. No Linux isso funciona isolado no
+# venv, sem precisar de webkit2gtk/pacote de sistema.
+gui = ["pywebview>=5", "qtpy>=2.4", "PyQt6>=6.6", "PyQt6-WebEngine>=6.6"]
 
 [project.scripts]
 fireball = "fireball.cli:cli"
+fireball-gui = "fireball.gui.app:main"
 
 [build-system]
 requires = ["setuptools>=68"]

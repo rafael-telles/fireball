@@ -20,12 +20,15 @@ Sketch inicial. O que funciona:
   inteiro (mais preciso que o tempo real) e mescla mic/system por ordem de início — local
   (whisper/parakeet) ou via API da Groq (`--backend groq`, só pra transcrição final).
 - Skill (`skills/fireball/SKILL.md`) com as instruções de como o Claude deve agir como escrivão.
+- GUI + bandeja (`fireball-gui`) — Fase 1: iniciar/parar reunião e ver status, minimizado pra
+  bandeja. Ver seção própria abaixo.
 
 O que **não** está implementado ainda:
 
 - Diarização de verdade para "Outros participantes" (hoje é só *um* falante genérico —
   o monitor do sistema não distingue quem está falando do outro lado).
-- GUI.
+- Na GUI: lista de reuniões passadas, view ao vivo (transcrição/notas/ações), overlay de
+  áudio, tela de configuração (ver plano em `.claude/plans/` da sessão que criou isso).
 
 ## Backends de transcrição (`--backend`)
 
@@ -122,6 +125,39 @@ Se o nome do device passado em `--mic-device`/`--system-device` não existir, o 
 alto (para mic) ou cai para só-microfone com aviso (para o sistema) — `parecord` sozinho
 aceitaria silenciosamente um nome errado e gravaria a fonte padrão sem avisar, então
 validamos o nome contra `pactl` antes de gravar.
+
+## GUI + bandeja (`fireball-gui`)
+
+Viewer + controle fino sobre os mesmos arquivos/funções da CLI (`fireball.control`) — não
+duplica lógica nem fala com a CLI via subprocesso, importa direto.
+
+```bash
+pip install -e '.[gui]'
+fireball-gui
+```
+
+Fase 1 (atual): bandeja com status (ícone muda quando está gravando) e menu (abrir janela,
+parar reunião atual, sair); janela mínima pra iniciar uma reunião (nome, backend, real/fake)
+ou ver o status/parar a que estiver rodando. Fechar a janela só esconde — o app continua na
+bandeja; "Sair" pelo menu da bandeja encerra de verdade (a gravação, se houver, continua
+rodando normalmente — é um processo separado e destacado).
+
+**Um toolkit só: Qt.** Janela via `pywebview` (backend Qt/PyQt6) e bandeja via
+`QSystemTrayIcon` (parte do PyQt6, sem lib extra) — de propósito, não GTK/`pystray`. Em teste
+manual, rodar o backend AppIndicator do `pystray` (GTK/GLib) no mesmo processo que o Qt do
+pywebview travava com erros de contexto de thread do Qt/OpenGL. Um toolkit, um processo, um
+event loop.
+
+**Pegadinha real do pywebview**: `QApplication.setQuitOnLastWindowClosed(False)` **não**
+impede o app de fechar quando a janela fecha — o próprio pywebview chama `_app.exit()`
+explicitamente dentro do `closeEvent` quando a última janela dele fecha
+(`webview/platforms/qt.py`), ignorando esse ajuste do Qt. A forma que funciona é interceptar
+`window.events.closing` e cancelar o close de verdade (retornar `False`), escondendo a janela
+no lugar — ver `fireball/gui/app.py:_on_closing`.
+
+No Linux, `pywebview` com Qt precisa do `qtpy`+`PyQt6`+`PyQt6-WebEngine` (tudo isolado no
+venv, sem pacote de sistema); a alternativa seria GTK+`webkit2gtk`, que normalmente exige
+instalar um pacote de sistema.
 
 ## Instalar
 
