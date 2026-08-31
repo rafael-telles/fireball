@@ -453,6 +453,13 @@ pedido ser repetido uma vez sem o campo, e o prompt já pede JSON por escrito. E
 é traduzido para a frase que diz o que fazer: 401 fala da chave, 404 fala da URL e do modelo,
 5xx e 429 dizem que o problema é do outro lado e não da configuração.
 
+A requisição manda um `User-Agent` nosso. Sem ele o urllib se identifica como
+`Python-urllib/3.x`, e provedor atrás de Cloudflare responde **403 `error code: 1010`** —
+bloqueio pela assinatura do cliente, antes de a chave sequer ser olhada. Como 403 é o mesmo
+status de "chave recusada", isso mandava a pessoa trocar uma chave que estava certa; por isso
+um 403 cujo corpo não é o JSON de erro da API agora diz que quem barrou foi o serviço na frente
+dela, não a credencial.
+
 ```bash
 fireball summarize <meeting_id>              # provedor configurado
 fireball summarize <meeting_id> --provider openai_api

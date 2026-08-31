@@ -45,6 +45,10 @@ TIMEOUT_S = 600
 # nome e as mesmas tags se alguém regerar.
 TEMPERATURE = 0.2
 
+# Serviço atrás de Cloudflare bloqueia o User-Agent padrão do urllib
+# (403 "error code: 1010") antes mesmo de olhar a chave — daí a nossa.
+USER_AGENT = "fireball"
+
 ENV_BASE_URL = "FIREBALL_OPENAI_BASE_URL"
 ENV_API_KEY = "FIREBALL_OPENAI_API_KEY"
 ENV_MODEL = "FIREBALL_OPENAI_MODEL"
@@ -98,6 +102,7 @@ class OpenAICompatibleSummarizer:
                 # servidor local costuma ignorar a chave; mandar mesmo assim é
                 # inofensivo e evita um caminho de código a menos pra testar
                 "Authorization": f"Bearer {self.api_key}",
+                "User-Agent": USER_AGENT,
             },
             method="POST",
         )
@@ -168,12 +173,24 @@ def _http_error(code: int, detail: str, base_url: str) -> Exception:
     classe que a janela mostra como "arrume isto". 5xx é o outro lado com
     problema — tentar de novo é a resposta certa, não mexer na configuração.
 
+    Um 403 cujo corpo não é o JSON de erro da API não é sobre a chave: é um
+    CDN na frente do provedor recusando o cliente, e a mensagem diz isso.
+
     O status vai junto no `.status` da exceção: é por ele que a chamada decide
     repetir sem `response_format`, e não pelo texto da mensagem, que muda de
     servidor para servidor.
     """
-    message = _api_message(detail) or detail[:300] or f"HTTP {code}"
-    if code in (401, 403):
+    api_message = _api_message(detail)
+    message = api_message or detail[:300] or f"HTTP {code}"
+    if code == 403 and api_message is None:
+        # 403 sem erro de API no corpo não veio do provedor, e sim de um proxy/CDN
+        # na frente dele barrando o cliente (Cloudflare: "error code: 1010").
+        # Mandar conferir a chave aqui é mandar procurar no lugar errado.
+        error = SummarizerUnavailable(
+            f"{chat_completions_url(base_url)} barrou a requisição antes de chegar na API "
+            f"(403): {message}. Não é a chave — é o serviço na frente dela recusando este cliente."
+        )
+    elif code in (401, 403):
         error = SummarizerUnavailable(
             f"A API recusou a chave ({code}): {message}. Confira a chave em Configurações → Resumo."
         )
