@@ -66,6 +66,9 @@ que está sendo dito em tempo real através do CLI `fireball` e decide o que ano
    pronta (`fireball summarize <meeting_id>` força de novo). Se a reunião ainda estiver sem
    nome depois disso, o provedor de resumo não está configurado — diga isso ao usuário em vez
    de inventar um nome com `fireball rename`.
+   - O formato do resumo vem de um prompt salvo. `fireball prompts` lista os que existem e
+     qual é o padrão; `fireball summarize <meeting_id> --prompt <id>` gera com outro. A
+     reunião lembra o que usou, então regerar repete a escolha sem você precisar repeti-la.
 4. Compare a transcrição (`fireball transcript show <meeting_id>`, já reescrita pelo finalize) com as
    notas ao vivo (arquivo `notes.md`, dentro da pasta da reunião). Corrija imprecisões
    diretamente no arquivo de notas e resuma para o usuário o que mudou. Isso é automático, não

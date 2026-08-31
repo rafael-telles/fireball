@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-from fireball import control, settings, storage
+from fireball import control, prompts, settings, storage
 from fireball.daemon import protocol
 
 
@@ -496,7 +496,13 @@ class DaemonCore:
             "error": self._summary_error(meeting_id),
         }
 
-    def summarize(self, meeting_id: str, provider: Optional[str] = None, wait_timeout: float = 0.0) -> dict:
+    def summarize(
+        self,
+        meeting_id: str,
+        provider: Optional[str] = None,
+        prompt: Optional[str] = None,
+        wait_timeout: float = 0.0,
+    ) -> dict:
         """Gera (ou regera) o resumo, como job supervisionado.
 
         Mesma forma do finalize — processo separado, log próprio, status que a
@@ -506,9 +512,11 @@ class DaemonCore:
         """
         provider = provider or settings.load()["summary_provider"]
         with self._lock:
-            control.read_meeting(meeting_id)  # 404 cedo, antes de subir processo
+            meeting = control.read_meeting(meeting_id)  # 404 cedo, antes de subir processo
             if meeting_id in self._summarizing:
                 raise control.MeetingBusy(f"O resumo da reunião '{meeting_id}' já está sendo gerado.")
+
+            prompt_id = self._resolve_prompt(prompt, meeting)
 
             # o resumo anterior sai de cena junto com o pedido de regerar: se
             # este falhar, mostrar o antigo como se fosse o novo seria mentira.
@@ -516,11 +524,16 @@ class DaemonCore:
             (meeting_dir / "summary.md").unlink(missing_ok=True)
             (meeting_dir / "summary_result.json").unlink(missing_ok=True)
 
-            cmd = control.summarize_command(meeting_id, provider)
+            cmd = control.summarize_command(meeting_id, provider, prompt_id)
             job = self._spawn(meeting_id, "summary", cmd, "summary.log")
             self._summarizing[meeting_id] = job
             self._supervise(job)
-            control.write_meeting_fields(meeting_id, summary_status="running", summary_provider=provider)
+            control.write_meeting_fields(
+                meeting_id,
+                summary_status="running",
+                summary_provider=provider,
+                summary_prompt=prompt_id,
+            )
 
         if wait_timeout:
             job.done.wait(timeout=wait_timeout)
@@ -528,10 +541,54 @@ class DaemonCore:
         return {
             "meeting_id": meeting_id,
             "provider": provider,
+            "prompt": prompt_id,
             "status": control.read_meeting(meeting_id).get("summary_status"),
             "summary": control.read_summary(meeting_id),
             "error": self._summary_error(meeting_id),
         }
+
+    def _resolve_prompt(self, asked: Optional[str], meeting: dict) -> str:
+        """Qual prompt escreve este resumo: o pedido, o da reunião, ou o padrão.
+
+        A reunião vem antes do padrão de propósito. Regerar e o resumo
+        automático que roda depois do `finalize` não passam por uma escolha de
+        ninguém; sem essa memória, a reunião trocaria de formato sozinha no meio
+        do caminho só porque o padrão da configuração é outro.
+        """
+        chosen = (asked or "").strip() or (meeting.get("summary_prompt") or "").strip()
+        if chosen:
+            return prompts.resolve(chosen)["id"]
+        return prompts.resolve(settings.load()["summary_prompt"])["id"]
+
+    # ------------------------------------------------------------- prompts
+
+    def prompts(self) -> dict:
+        """A lista, qual deles é o padrão, e o texto embutido.
+
+        Os três juntos porque a tela precisa dos três: a lista para desenhar, o
+        padrão para marcá-lo, e o texto embutido para o botão que devolve um
+        prompt editado ao ponto de partida — tê-lo escrito na janela o faria
+        envelhecer sozinho no dia em que o do Python mudasse.
+        """
+        return {
+            "prompts": prompts.load(),
+            "default": settings.load()["summary_prompt"],
+            "default_instructions": prompts.builtin()["instructions"],
+        }
+
+    def save_prompt(self, name: str, instructions: str, prompt_id: Optional[str] = None) -> dict:
+        with self._lock:
+            return prompts.save(name, instructions, prompt_id)
+
+    def delete_prompt(self, prompt_id: str) -> dict:
+        """Apaga o prompt e, se ele era o padrão, passa o posto ao primeiro que
+        sobrou — configuração apontando para um prompt que não existe mais é
+        estado quebrado, e arrumá-lo é trabalho de quem apagou."""
+        with self._lock:
+            result = prompts.delete(prompt_id)
+            if settings.load()["summary_prompt"] == prompt_id:
+                settings.save(summary_prompt=prompts.load()[0]["id"])
+            return result
 
     def _summary_error(self, meeting_id: str) -> Optional[str]:
         """A última linha útil do summary.log, quando o job falhou.

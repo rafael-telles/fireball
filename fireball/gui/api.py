@@ -140,10 +140,21 @@ class Api:
     def summary(self, meeting_id: str) -> dict:
         return self._call(self._core.summary, meeting_id=meeting_id)
 
-    def summarize(self, meeting_id: str) -> dict:
+    def summarize(self, meeting_id: str, prompt: str = "") -> dict:
         """Gera ou regera o resumo. Sem espera, como o finalize: o provedor
         pode levar minutos, e a janela acompanha o estado pelo polling."""
-        return self._call(self._core.summarize, meeting_id=meeting_id, wait_timeout=0.0)
+        return self._call(self._core.summarize, meeting_id=meeting_id, prompt=prompt, wait_timeout=0.0)
+
+    def prompts(self) -> dict:
+        return self._call(self._core.prompts)
+
+    def save_prompt(self, name: str, instructions: str, prompt_id: str = "") -> dict:
+        return self._call(
+            self._core.save_prompt, name=name, instructions=instructions, prompt_id=prompt_id or None
+        )
+
+    def delete_prompt(self, prompt_id: str) -> dict:
+        return self._call(self._core.delete_prompt, prompt_id=prompt_id)
 
     def notes(self, meeting_id: str) -> dict:
         return self._call(self._core.notes, meeting_id=meeting_id)

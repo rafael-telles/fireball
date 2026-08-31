@@ -429,9 +429,14 @@ def delete(meeting_id, yes):
     default=None,
     help="Quem escreve o resumo. Padrão: o configurado.",
 )
+@click.option(
+    "--prompt",
+    default=None,
+    help="Id do prompt a usar (ver `fireball prompts`). Padrão: o da reunião, ou o configurado.",
+)
 @click.option("--wait/--no-wait", default=True, help="Espera o resumo ficar pronto.")
 @click.option("--timeout", default=900.0, type=float, help="Tempo máximo de espera, em segundos.")
-def summarize(meeting_id, provider, wait, timeout):
+def summarize(meeting_id, provider, prompt, wait, timeout):
     """Resume a reunião a partir da transcrição, e com ela escreve o nome e as
     tags da reunião.
 
@@ -442,15 +447,34 @@ def summarize(meeting_id, provider, wait, timeout):
     Roda sozinho quando a gravação termina e quando a transcrição final fica
     pronta, salvo se `auto_summarize` estiver desligado na configuração.
     """
-    _echo(_call("summarize", meeting_id=meeting_id, provider=provider, wait_timeout=timeout if wait else 0.0))
+    _echo(
+        _call(
+            "summarize",
+            meeting_id=meeting_id,
+            provider=provider,
+            prompt=prompt,
+            wait_timeout=timeout if wait else 0.0,
+        )
+    )
+
+
+@cli.command()
+def prompts():
+    """Lista os prompts de resumo salvos, e marca o padrão.
+
+    Administrar a lista (criar, editar, apagar) é trabalho da tela de
+    configuração — aqui só se lê, que é o que `summarize --prompt` precisa.
+    """
+    click.echo(json.dumps(_call("prompts"), ensure_ascii=False, indent=2))
 
 
 @cli.command(name="_summarize", hidden=True)
 @click.argument("meeting_id")
 @click.option("--provider", default="claude_code")
-def _summarize_cmd(meeting_id, provider):
+@click.option("--prompt", default="")
+def _summarize_cmd(meeting_id, provider, prompt):
     """Processo de resumo. Subido e supervisionado pelo daemon — não chame na mão."""
-    _echo(summary_mod.run_summary(storage.meeting_path(meeting_id), provider))
+    _echo(summary_mod.run_summary(storage.meeting_path(meeting_id), provider, prompt))
 
 
 @cli.command(name="_finalize", hidden=True)

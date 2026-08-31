@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from fireball import realtime, storage
+from fireball import prompts, realtime, storage
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS
 from fireball.summarizers import SUMMARY_PROVIDERS
 
@@ -41,6 +41,9 @@ DEFAULTS = {
     "language": realtime.DEFAULT_LANGUAGE,
     # quem escreve o resumo da reunião a partir da transcrição
     "summary_provider": "claude_code",
+    # qual dos prompts salvos (ver fireball/prompts.py) é usado quando ninguém
+    # escolhe um. Reunião já resumida lembra o dela e não passa por aqui.
+    "summary_prompt": prompts.BUILTIN_ID,
     # gerar resumo, nome e tags sozinho quando a reunião termina. É o que faz
     # "reunião nasce sem nome, a IA nomeia" acontecer sem ninguém clicar —
     # sem isso a reunião ficaria sem nome até alguém lembrar de pedir.
@@ -78,6 +81,9 @@ def _coerce(key: str, value) -> Optional[object]:
         return str(value or "").strip()
     if key == "summary_provider":
         return value if value in SUMMARY_PROVIDERS else None
+    if key == "summary_prompt":
+        # a lista é o registro: id que saiu dela não vale mais como padrão
+        return value if value in prompts.ids() else None
     if key == "language":
         text = str(value or "").strip()
         return text or None
@@ -122,6 +128,10 @@ def save(**fields) -> dict:
             if key == "summary_provider":
                 raise ValueError(
                     f"Provedor de resumo inválido: '{raw}'. Use {list(SUMMARY_PROVIDERS)}."
+                )
+            if key == "summary_prompt":
+                raise ValueError(
+                    f"Prompt de resumo inválido: '{raw}'. Use {prompts.ids()}."
                 )
             if key == "openai_base_url":
                 raise ValueError(

@@ -20,7 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from fireball import storage
+from fireball import prompts as prompts_store, storage
 from fireball.summarizers import SummarizerUnavailable, get_summary_provider
 
 def read_transcript(meeting_dir: Path) -> list[dict]:
@@ -42,8 +42,13 @@ def as_dialogue(segments: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def run_summary(meeting_dir: Path, provider: str) -> dict:
-    """Gera o resumo e grava `summary.md`. Devolve (e grava) a procedência."""
+def run_summary(meeting_dir: Path, provider: str, prompt_id: str = "") -> dict:
+    """Gera o resumo e grava `summary.md`. Devolve (e grava) a procedência.
+
+    O prompt entra por id e é resolvido aqui, e não recebido já como texto: o
+    que fica registrado na procedência é *qual* prompt escreveu aquele resumo,
+    e um id é o que continua fazendo sentido depois que o texto dele mudou.
+    """
     meeting = storage.read_json(meeting_dir / "meeting.json")
     segments = read_transcript(meeting_dir)
     if not segments:
@@ -58,13 +63,16 @@ def run_summary(meeting_dir: Path, provider: str) -> dict:
         )
 
     # o provedor pode querer a pasta (o claude_code roda com o cwd nela)
+    prompt = prompts_store.resolve(prompt_id)
     written = get_summary_provider(provider).summarize(
-        dialogue, {**meeting, "_dir": str(meeting_dir)}
+        dialogue, {**meeting, "_dir": str(meeting_dir)}, prompt["instructions"]
     )
 
     (meeting_dir / "summary.md").write_text(written["markdown"] + "\n")
     result = {
         "provider": provider,
+        "prompt": prompt["id"],
+        "prompt_name": prompt["name"],
         "segments": len(segments),
         "generated_at": storage.now_iso(),
         # o nome só vale como sugestão até o daemon decidir aplicá-lo: uma

@@ -64,9 +64,12 @@ const state = {
   autoOpened: null, // id já aberto sozinho, pra não reabrir depois de sair
   settings: null, // preferências vindas do daemon (backends, idioma)
   backends: { realtime: [], final: [] },
+  prompts: { list: [], default: null, instructions: "" }, // prompts salvos, o padrão, e o texto embutido
+  editingPrompt: null, // id em edição, ou "" para um prompt novo; null = editor fechado
   rows: [], // histórico como veio do daemon, mais recentes primeiro
   filter: "", // busca da barra lateral
   tab: "transcricao",
+  settingsTab: "transcricao", // aba da tela de configuração, lembrada entre visitas
   notes: { loadedFor: null, saved: null, timer: null },
   playing: null, // seq do segmento destacado agora, pra não repintar a cada tique
   deleteTimer: null, // confirmação de exclusão pendente, que expira sozinha
@@ -76,6 +79,10 @@ const RATES = [1, 1.25, 1.5, 2];
 
 const VIEWS = { home: "view-home", meeting: "view-meeting", settings: "view-settings" };
 const TABS = { resumo: "pane-resumo", transcricao: "pane-transcricao", notas: "pane-notas" };
+// As duas telas têm abas, e as da configuração são `.set-tab` de propósito:
+// com a mesma classe, o listener de `.tab` trocaria também a aba da reunião
+// aberta atrás — pedindo notas e resumo dela sem ninguém ter clicado nisso.
+const SETTINGS_TABS = { transcricao: "set-pane-transcricao", resumo: "set-pane-resumo" };
 
 function showView(name) {
   state.view = name;
@@ -1332,11 +1339,30 @@ async function loadSummary() {
   if (state.open === o) renderSummary();
 }
 
+/** O seletor de prompt do cabeçalho, já apontando para o que vale agora. */
+function renderSummaryPrompt() {
+  const o = state.open;
+  const select = el("summary-prompt");
+  // o que a reunião usou vale mais que o padrão: quem já resumiu com um prompt
+  // espera "Gerar de novo" repetir aquele, não trocar de formato sem avisar
+  const chosen = (o && o.meeting.summary_prompt) || state.prompts.default;
+  select.innerHTML = "";
+  for (const prompt of state.prompts.list) {
+    const option = document.createElement("option");
+    option.value = prompt.id;
+    option.textContent = prompt.name;
+    option.selected = prompt.id === chosen;
+    select.appendChild(option);
+  }
+  select.disabled = !state.prompts.list.length;
+}
+
 function renderSummary() {
   const o = state.open;
   const box = el("summary-box");
   const button = el("summary-btn");
   const meta = el("summary-meta");
+  renderSummaryPrompt();
   const info = (o && o.summaryState) || {};
   const summary = info.summary;
   const loading = !!o && o.summaryState === null;
@@ -1370,7 +1396,7 @@ function renderSummary() {
   }
 
   if (summary) {
-    const bits = [summary.provider];
+    const bits = [summary.provider, summary.prompt_name];
     if (summary.generated_at) bits.push(dateLabel(summary.generated_at));
     meta.textContent = bits.filter(Boolean).join(" · ");
     renderMarkdown(summary.markdown, box);
@@ -1409,7 +1435,7 @@ async function onSummarize() {
   button.disabled = true;
   setAlert("meeting-error", "");
   try {
-    o.summaryState = await api("summarize", o.id);
+    o.summaryState = await api("summarize", o.id, el("summary-prompt").value);
     renderSummary();
   } catch (err) {
     button.disabled = false;
@@ -1419,14 +1445,17 @@ async function onSummarize() {
 
 // ---------------------------------------------------------- configuração
 
+/** Preenche um <select>. Cada opção é o valor, ou um par [valor, rótulo] —
+ *  backend e provedor se chamam pelo id, prompt tem nome escolhido por gente. */
 function fillSelect(id, options, selected) {
   const select = el(id);
   select.innerHTML = "";
-  for (const name of options) {
+  for (const entry of options) {
+    const [value, label] = Array.isArray(entry) ? entry : [entry, entry];
     const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    option.selected = name === selected;
+    option.value = value;
+    option.textContent = label;
+    option.selected = value === selected;
     select.appendChild(option);
   }
 }
@@ -1439,11 +1468,109 @@ function renderConfigSummary() {
   el("config-summary-text").textContent = `${live} · final: ${s.final_backend} · ${s.language}`;
 }
 
+function renderPromptList() {
+  const list = el("prompt-list");
+  list.innerHTML = "";
+  for (const prompt of state.prompts.list) {
+    const row = document.createElement("div");
+    row.className = "prompt-row" + (prompt.id === state.prompts.default ? " is-default" : "");
+
+    const name = document.createElement("span");
+    name.className = "prompt-name";
+    name.textContent = prompt.name;
+    row.appendChild(name);
+
+    const edit = document.createElement("button");
+    edit.className = "btn outline small";
+    edit.textContent = "Editar";
+    edit.addEventListener("click", () => openPromptEditor(prompt.id));
+    row.appendChild(edit);
+
+    const remove = document.createElement("button");
+    remove.className = "btn outline small danger";
+    remove.textContent = "Apagar";
+    // o último não sai: sem nenhum prompt não haveria pedido a fazer
+    remove.disabled = state.prompts.list.length < 2;
+    remove.addEventListener("click", () => onDeletePrompt(prompt.id));
+    row.appendChild(remove);
+
+    list.appendChild(row);
+  }
+}
+
+function openPromptEditor(promptId) {
+  const prompt = state.prompts.list.find((p) => p.id === promptId);
+  state.editingPrompt = prompt ? prompt.id : "";
+  el("prompt-dialog-title").textContent = prompt ? `Editar "${prompt.name}"` : "Novo prompt";
+  el("prompt-name").value = prompt ? prompt.name : "";
+  el("prompt-instructions").value = prompt ? prompt.instructions : state.prompts.instructions;
+  setAlert("prompt-error", "");
+  el("prompt-dialog").showModal();
+  el("prompt-name").focus();
+}
+
+function closePromptEditor() {
+  // `close()` num diálogo fechado é ruído, não erro — mas chamar isto faz
+  // parte de sair da tela, e não só de cancelar a edição
+  const dialog = el("prompt-dialog");
+  if (dialog.open) dialog.close();
+}
+
+async function loadPrompts() {
+  const data = await api("prompts");
+  state.prompts = {
+    list: data.prompts || [],
+    default: data.default,
+    instructions: data.default_instructions || "",
+  };
+}
+
+async function onSavePrompt() {
+  const button = el("prompt-save");
+  button.disabled = true;
+  setAlert("prompt-error", "");
+  try {
+    await api("save_prompt", el("prompt-name").value, el("prompt-instructions").value, state.editingPrompt || "");
+    await loadPrompts();
+    closePromptEditor();
+    renderPromptList();
+    // o novo entra na lista do padrão e na do cabeçalho da reunião na hora
+    fillSelect("set-summary-prompt", promptOptions(), state.settings.summary_prompt);
+    if (state.open) renderSummaryPrompt();
+  } catch (err) {
+    setAlert("prompt-error", "Não foi possível salvar o prompt", errText(err));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function onDeletePrompt(promptId) {
+  setAlert("settings-error", "");
+  try {
+    await api("delete_prompt", promptId);
+    // apagar o padrão faz o daemon eleger outro: a configuração na tela
+    // ficou velha, e reler é mais barato que adivinhar qual ele escolheu
+    state.settings = await api("get_settings");
+    await loadPrompts();
+    if (state.editingPrompt === promptId) closePromptEditor();
+    renderSettings();
+  } catch (err) {
+    setAlert("settings-error", "Não foi possível apagar o prompt", errText(err));
+  }
+}
+
+/** Ids e nomes na forma que o `fillSelect` entende. */
+function promptOptions() {
+  return state.prompts.list.map((p) => [p.id, p.name]);
+}
+
 function renderSettings() {
   const s = state.settings;
   fillSelect("set-live-backend", state.backends.realtime, s.realtime_backend);
   fillSelect("set-final-backend", state.backends.final, s.final_backend);
   fillSelect("set-summary-provider", state.backends.summary, s.summary_provider);
+  fillSelect("set-summary-prompt", promptOptions(), s.summary_prompt);
+  renderPromptList();
   el("set-live-on").checked = s.transcribe_live;
   el("set-auto-summarize").checked = s.auto_summarize;
   el("set-openai-url").value = s.openai_base_url || "";
@@ -1463,13 +1590,25 @@ function renderProviderFields() {
 async function loadSettings() {
   state.backends = await window.pywebview.api.backend_options();
   state.settings = await api("get_settings");
+  await loadPrompts();
   renderConfigSummary();
 }
 
-function openSettings() {
+function showSettingsTab(name) {
+  state.settingsTab = name;
+  for (const [key, id] of Object.entries(SETTINGS_TABS)) el(id).classList.toggle("hidden", key !== name);
+  for (const tab of document.querySelectorAll(".set-tab")) {
+    tab.classList.toggle("selected", tab.dataset.setTab === name);
+  }
+}
+
+async function openSettings() {
   flushNotes();
   setAlert("settings-error", "");
   el("settings-note").textContent = "";
+  closePromptEditor(); // edição pendente não atravessa uma saída da tela
+  showSettingsTab(state.settingsTab);
+  await loadPrompts();
   renderSettings(); // sempre do estado conhecido, nunca do que ficou na tela
   showView("settings");
 }
@@ -1484,6 +1623,7 @@ async function onSaveSettings() {
       transcribe_live: el("set-live-on").checked,
       final_backend: el("set-final-backend").value,
       summary_provider: el("set-summary-provider").value,
+      summary_prompt: el("set-summary-prompt").value,
       auto_summarize: el("set-auto-summarize").checked,
       openai_base_url: el("set-openai-url").value,
       openai_api_key: el("set-openai-key").value,
@@ -1734,6 +1874,26 @@ async function boot() {
   // trocar de provedor mostra/esconde os campos dele na hora, sem salvar:
   // preencher URL e chave só faz sentido para quem já escolheu usá-los
   el("set-summary-provider").addEventListener("change", renderProviderFields);
+  for (const tab of document.querySelectorAll(".set-tab")) {
+    tab.addEventListener("click", () => showSettingsTab(tab.dataset.setTab));
+  }
+  el("prompt-new").addEventListener("click", () => openPromptEditor(null));
+  el("prompt-save").addEventListener("click", onSavePrompt);
+  el("prompt-cancel").addEventListener("click", closePromptEditor);
+  el("prompt-close").addEventListener("click", closePromptEditor);
+  el("prompt-restore").addEventListener("click", () => {
+    el("prompt-instructions").value = state.prompts.instructions;
+  });
+  // o Esc fecha sozinho (é `<dialog>`), mas quem larga o estado é isto: sem
+  // ele, sair pelo Esc deixaria `editingPrompt` apontando pra edição abandonada
+  el("prompt-dialog").addEventListener("close", () => {
+    state.editingPrompt = null;
+  });
+  // clique no fundo escuro fecha. O alvo do clique é o próprio <dialog> só
+  // quando ele cai fora do cartão — dentro, o alvo é algum filho.
+  el("prompt-dialog").addEventListener("click", (event) => {
+    if (event.target === el("prompt-dialog")) closePromptEditor();
+  });
   el("set-final-backend").addEventListener("change", renderProviderFields);
 
   await loadSettings();

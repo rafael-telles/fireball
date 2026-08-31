@@ -16,6 +16,14 @@ ter de aguentar modelo que não obedece formato: `parse_result` aceita cerca de
 código em volta, texto antes e depois, e cai para "isso aqui é o resumo
 inteiro" quando não achar JSON nenhum — perder o nome e as tags é bem melhor
 que perder o resumo.
+
+O pedido é montado em três partes, e **só a do meio é configurável** (ver
+`fireball.prompts`): `HEAD` explica de onde vem a transcrição e fecha o
+contrato JSON, `TAIL` põe as guardas que valem para qualquer resumo, e no meio
+entram as instruções de o que o resumo deve dizer. Deixar o contrato fora do
+alcance de quem escreve prompt é o que garante que **todo** prompt continue
+devolvendo nome e tags — um prompt livre que esquecesse de pedir o JSON faria
+a reunião parar de ganhar nome sozinha, e o sintoma apareceria longe da causa.
 """
 
 from __future__ import annotations
@@ -31,7 +39,7 @@ MAX_TAGS = 5
 MAX_TAG_LEN = 40
 MAX_TITLE_LEN = 80
 
-PROMPT = """\
+HEAD = """\
 Você está lendo a transcrição de uma reunião gravada pelo Fireball. Seu
 trabalho é dar um nome à reunião, classificá-la com tags e escrever o resumo.
 
@@ -53,8 +61,12 @@ antes ou depois, com exatamente estas três chaves:
   "title": "nome curto da reunião, até 60 caracteres, sem data nem hora",
   "tags": ["3 a 5 tags", "minúsculas", "uma ou duas palavras cada"],
   "summary": "o resumo em markdown, no formato abaixo"
-}
+}\
+"""
 
+# A parte configurável: o que o resumo deve dizer, e em que forma. Este é o
+# texto que a tela de configuração edita, e o que cada prompt salvo substitui.
+DEFAULT_INSTRUCTIONS = """\
 O markdown de "summary" segue esta estrutura:
 
 <um parágrafo, no máximo três frases, dizendo o que a reunião resolveu>
@@ -63,8 +75,10 @@ O markdown de "summary" segue esta estrutura:
 - <o que ficou decidido; omita a seção inteira se nada foi decidido>
 
 ## Em aberto
-- <o que ficou sem resposta; omita a seção inteira se não houver>
+- <o que ficou sem resposta; omita a seção inteira se não houver>\
+"""
 
+TAIL = """\
 Escreva tudo em português do Brasil. Não abra o resumo com o título nem o
 repita — ele já vai em "title". As tags dizem assunto e tipo da reunião
 ("produto", "contratação", "1:1", "planejamento"): elas servem para agrupar
@@ -78,17 +92,22 @@ definido").\
 """
 
 
-def build_prompt(meeting: dict) -> str:
-    """O prompt com o pouco de contexto que a reunião tem para oferecer.
+def build_prompt(meeting: dict, instructions: str = "") -> str:
+    """O pedido inteiro: as partes fixas com as instruções escolhidas no meio.
 
-    O nome só entra quando existe: reunião sem nome é o padrão agora, e
-    mandar "o nome desta reunião é: Sem nome" ancoraria o modelo justamente no
-    que ele foi chamado para escrever.
+    Instruções vazias caem no padrão — um prompt salvo sem texto nenhum não
+    pode virar um pedido sem forma nenhuma.
+
+    O nome da reunião só entra quando existe: reunião sem nome é o padrão
+    agora, e mandar "o nome desta reunião é: Sem nome" ancoraria o modelo
+    justamente no que ele foi chamado para escrever.
     """
+    middle = (instructions or "").strip() or DEFAULT_INSTRUCTIONS.strip()
+    prompt = f"{HEAD.strip()}\n\n{middle}\n\n{TAIL.strip()}"
     name = (meeting.get("name") or "").strip()
     if not name:
-        return PROMPT
-    return f"{PROMPT}\n\nEsta reunião já tem um nome dado por quem gravou: {name}"
+        return prompt
+    return f"{prompt}\n\nEsta reunião já tem um nome dado por quem gravou: {name}"
 
 
 def _strip_fences(text: str) -> str:
@@ -191,6 +210,19 @@ def _clean_tags(raw) -> list[str]:
     return tags
 
 
+def _as_markdown(raw) -> str:
+    """O campo "summary" como texto, mesmo quando ele não veio como texto.
+
+    Um prompt que peça bullets faz o modelo devolver `summary` como lista JSON
+    em vez de string — e aí `str()` produziria o repr da lista dentro do
+    resumo. Como o prompt é configurável, esse formato deixou de ser desvio
+    exótico: vira markdown de lista, que é o que a pessoa pediu.
+    """
+    if isinstance(raw, list):
+        return "\n".join(f"- {str(item).strip()}" for item in raw if str(item).strip())
+    return str(raw or "").strip()
+
+
 def parse_result(raw: str) -> dict:
     """A resposta do provedor virada em `{markdown, title, tags}`.
 
@@ -206,7 +238,7 @@ def parse_result(raw: str) -> dict:
     if data is None:
         return {"markdown": text, "title": None, "tags": []}
 
-    markdown = str(data.get("summary") or "").strip()
+    markdown = _as_markdown(data.get("summary"))
     if not markdown:
         raise SummarizerFailed(
             "O provedor devolveu um JSON sem o campo 'summary' — não veio resumo nenhum."

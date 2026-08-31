@@ -8,7 +8,9 @@ específico, então trocar quem escreve o resumo não mexe em nada além daqui.
 Adicionar um provedor novo: criar um módulo em fireball/summarizers/,
 implementar `SummaryProvider` e registrar em SUMMARY_PROVIDERS abaixo. O
 prompt e a leitura da resposta são compartilhados (`fireball/summarizers/
-prompt.py`) — o que cada provedor implementa é o transporte, não o pedido.
+prompt.py`) — o que cada provedor implementa é o transporte, não o pedido. As
+`instructions` são o miolo configurável desse pedido (ver `fireball.prompts`):
+o provedor só as repassa a `build_prompt`, sem interpretá-las.
 
 Os dois de hoje:
 
@@ -54,7 +56,7 @@ class SummaryProvider(Protocol):
 
     name: str
 
-    def summarize(self, transcript: str, meeting: dict) -> dict: ...
+    def summarize(self, transcript: str, meeting: dict, instructions: str = "") -> dict: ...
 
 
 SUMMARY_PROVIDERS = ("claude_code", "openai_api")

@@ -131,7 +131,7 @@ class OpenAICompatibleSummarizer:
 
     # -------------------------------------------------------------- api
 
-    def summarize(self, transcript: str, meeting: dict) -> dict:
+    def summarize(self, transcript: str, meeting: dict, instructions: str = "") -> dict:
         if not self.base_url:
             raise SummarizerUnavailable(
                 "Falta a URL da API compatível com OpenAI. Preencha em Configurações → "
@@ -147,7 +147,7 @@ class OpenAICompatibleSummarizer:
             "model": self.model,
             "temperature": TEMPERATURE,
             "messages": [
-                {"role": "system", "content": build_prompt(meeting)},
+                {"role": "system", "content": build_prompt(meeting, instructions)},
                 {"role": "user", "content": transcript},
             ],
             "response_format": {"type": "json_object"},

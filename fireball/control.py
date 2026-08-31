@@ -133,8 +133,11 @@ def finalize_command(meeting_id: str, backend: Optional[str]) -> list[str]:
     return cmd
 
 
-def summarize_command(meeting_id: str, provider: str) -> list[str]:
-    return [sys.executable, "-m", "fireball.cli", "_summarize", meeting_id, "--provider", provider]
+def summarize_command(meeting_id: str, provider: str, prompt: str = "") -> list[str]:
+    cmd = [sys.executable, "-m", "fireball.cli", "_summarize", meeting_id, "--provider", provider]
+    if prompt:
+        cmd += ["--prompt", prompt]
+    return cmd
 
 
 def read_meeting(meeting_id: str) -> dict:
@@ -482,12 +485,19 @@ def apply_summary_metadata(meeting_id: str) -> dict:
     - **tags**: substituem as anteriores. Elas são derivadas da transcrição,
       como o resumo — manter tag de uma versão antiga ao lado das novas seria
       mostrar duas leituras da mesma reunião como se fossem uma.
+    - **prompt**: fica gravado o que de fato escreveu este resumo. É o que faz
+      regerar (e o resumo automático depois do finalize) repetir a escolha em
+      vez de cair no padrão e trocar de formato no meio do caminho.
     """
     meeting_dir = storage.meeting_path(meeting_id)
     result = storage.read_json(meeting_dir / "summary_result.json", {}) or {}
     meeting = read_meeting(meeting_id)
 
     fields = {}
+    prompt_id = (result.get("prompt") or "").strip()
+    if prompt_id:
+        fields["summary_prompt"] = prompt_id
+
     tags = [tag for tag in (result.get("tags") or []) if tag]
     if tags:
         fields["tags"] = tags

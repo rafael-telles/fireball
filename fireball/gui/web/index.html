@@ -216,6 +216,7 @@
                 <div class="sec-head tight">
                   <span class="lbl">Resumo</span>
                   <span class="sec-right" id="summary-meta"></span>
+                  <select class="mini" id="summary-prompt" title="Com qual prompt gerar"></select>
                   <button class="btn outline small" id="summary-btn">Gerar</button>
                 </div>
                 <div class="summary-box" id="summary-box"></div>
@@ -316,8 +317,14 @@
           </div>
         </div>
 
+        <div class="tabs">
+          <button class="set-tab selected" data-set-tab="transcricao">Transcrição</button>
+          <button class="set-tab" data-set-tab="resumo">Resumo</button>
+        </div>
+
         <div class="scroll">
           <div class="settings-col">
+            <div id="set-pane-transcricao">
             <section class="card">
               <div class="card-title">Transcrição ao vivo</div>
               <p class="card-note">
@@ -354,6 +361,18 @@
               </div>
             </section>
 
+            <section class="card">
+              <div class="card-title">Idioma</div>
+              <div class="lbl">Código curto da fala esperada (pt, en, es…)</div>
+              <input type="text" id="set-language" />
+              <div class="field-note">
+                É o que o motor de transcrição espera ouvir. O resumo sai em português de
+                qualquer jeito — isso está na parte fixa do pedido, não no prompt.
+              </div>
+            </section>
+            </div>
+
+            <div class="hidden" id="set-pane-resumo">
             <section class="card">
               <div class="card-title">Resumo, nome e tags</div>
               <p class="card-note">
@@ -406,11 +425,32 @@
             </section>
 
             <section class="card">
-              <div class="card-title">Idioma</div>
-              <div class="lbl">Código curto da fala esperada (pt, en, es…)</div>
-              <input type="text" id="set-language" />
+              <div class="card-title">Prompts do resumo</div>
+              <p class="card-note">
+                Um prompt diz <b>o que o resumo deve conter e em que forma</b>. O resto do pedido
+                é sempre o mesmo e não se edita: de onde vem a transcrição, o que significam os
+                dois falantes, e o JSON com <code>title</code>, <code>tags</code> e
+                <code>summary</code> — é isso que faz qualquer prompt continuar rendendo nome e
+                tags para a reunião.
+              </p>
+
+              <div class="lbl">Padrão</div>
+              <select id="set-summary-prompt"></select>
+              <div class="field-note">
+                Vale para reunião que ainda não foi resumida. Depois de resumida, ela lembra o
+                prompt que usou — regerar e o resumo automático pós-<code>finalize</code> repetem
+                a escolha em vez de trocar de formato no meio do caminho.
+              </div>
+
+              <div class="prompt-list" id="prompt-list"></div>
+              <button class="btn outline small" id="prompt-new">Novo prompt</button>
+
             </section>
 
+            </div>
+
+            <!-- Fora das abas: um Salvar só. Esconder uma aba não apaga o que
+                 está nos campos dela, então salvar daqui salva as duas. -->
             <div class="settings-actions">
               <button class="btn primary" id="settings-save">Salvar</button>
               <span class="saved" id="settings-note"></span>
@@ -421,6 +461,42 @@
       </main>
     </div>
   </div>
+
+  <!-- Editor de prompt. `<dialog>` de verdade, e não uma div sobreposta: o Esc,
+       a camada de cima e o fundo escurecido vêm do próprio elemento. (O que a
+       janela do pywebview não desenha bem é o diálogo *do sistema* — o
+       `confirm()` —, que é outra coisa: este aqui é desenhado pela página.) -->
+  <dialog id="prompt-dialog">
+    <div class="dialog-card">
+      <div class="dialog-head">
+        <div class="dialog-title" id="prompt-dialog-title">Novo prompt</div>
+        <button class="btn outline icon" id="prompt-close" title="Fechar">✕</button>
+      </div>
+
+      <div class="dialog-body">
+        <div class="lbl">Nome</div>
+        <input type="text" id="prompt-name" placeholder="Ata formal, bullets secos…" />
+
+        <div class="lbl">Instruções</div>
+        <textarea id="prompt-instructions" rows="16" spellcheck="false"></textarea>
+        <div class="field-note">
+          Escreva como se continuasse a frase "e o resumo deve ficar assim". Peça
+          <code>summary</code> em markdown; um prompt que peça lista também funciona. O resto do
+          pedido — os falantes e o JSON com <code>title</code>, <code>tags</code> e
+          <code>summary</code> — entra sozinho, e não se edita aqui.
+        </div>
+
+        <div class="alert bad hidden" id="prompt-error"></div>
+      </div>
+
+      <div class="dialog-actions">
+        <button class="btn outline" id="prompt-restore">Texto padrão</button>
+        <span class="dialog-spacer"></span>
+        <button class="btn outline" id="prompt-cancel">Cancelar</button>
+        <button class="btn primary" id="prompt-save">Salvar prompt</button>
+      </div>
+    </div>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

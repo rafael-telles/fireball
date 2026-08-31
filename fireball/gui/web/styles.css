@@ -689,6 +689,17 @@ code {
   margin-bottom: 0;
 }
 
+/* O <select> do cabeçalho divide a linha com o botão, então ele não pode
+   herdar o `width: 100%` dos campos de formulário. */
+select.mini {
+  width: auto;
+  max-width: 180px;
+  padding: 5px 9px;
+  font-size: 11px;
+  border-radius: 8px;
+  align-self: center;
+}
+
 .start-card {
   background: var(--surface);
   border: 1px solid var(--accent-border);
@@ -784,7 +795,8 @@ code {
   flex: none;
 }
 
-.tab {
+.tab,
+.set-tab {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -794,11 +806,13 @@ code {
   color: var(--dim);
 }
 
-.tab:hover {
+.tab:hover,
+.set-tab:hover {
   color: var(--text-2);
 }
 
-.tab.selected {
+.tab.selected,
+.set-tab.selected {
   border-bottom-color: var(--accent);
   font-weight: 600;
   color: var(--text);
@@ -1323,6 +1337,154 @@ code {
   line-height: 1.55;
   color: var(--faint);
   margin-top: 6px;
+}
+
+.prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 0 10px;
+}
+
+.prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px 8px 12px;
+}
+
+.prompt-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* O padrão é o que roda quando ninguém escolhe: a lista diz qual é sem exigir
+   que se olhe o <select> acima dela. */
+.prompt-row.is-default .prompt-name::after {
+  content: "padrão";
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--accent-bg-2);
+  border: 1px solid var(--accent-border);
+  color: var(--accent-text-2);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Mesma convenção do `.seg-action.danger`: o vermelho cheio fica reservado ao
+   que grava, então destrutivo aqui é o tom claro do acento, não o acento. */
+.btn.outline.danger {
+  color: var(--accent-text-2);
+  border-color: var(--accent-border);
+}
+
+.btn.outline.danger:not(:disabled):hover {
+  border-color: var(--accent-border);
+  background: var(--accent-bg-2);
+}
+
+/* -------------------------------------------------------------- diálogo */
+
+/* O `<dialog>` traz camada de cima, Esc e fundo escurecido de fábrica; o que
+   ele não traz é aparência, e o padrão do navegador (branco, borda 3D) não é
+   deste app. Daí zerar tudo aqui e desenhar o cartão por dentro. */
+dialog {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  max-width: min(680px, calc(100vw - 48px));
+  max-height: calc(100vh - 64px);
+  width: 100%;
+  overflow: visible;
+}
+
+dialog::backdrop {
+  background: #06050799;
+  backdrop-filter: blur(2px);
+}
+
+.dialog-card {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 64px);
+  background: var(--surface);
+  border: 1px solid var(--border-2);
+  border-radius: 16px;
+  /* a sombra é o que diz "isto está por cima", já que o cartão usa a mesma
+     superfície dos cartões da configuração que ficam atrás dele */
+  box-shadow: 0 24px 64px #00000099;
+  overflow: hidden;
+}
+
+.dialog-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.dialog-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* O corpo é o que rola: cabeçalho e ações ficam presos, senão o Salvar sairia
+   da tela num prompt comprido. */
+.dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 18px;
+}
+
+.dialog-body .lbl {
+  margin-top: 14px;
+}
+
+.dialog-body .lbl:first-child {
+  margin-top: 0;
+}
+
+.dialog-body .alert {
+  margin-top: 14px;
+}
+
+.dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-foot);
+  flex: none;
+}
+
+.dialog-spacer {
+  flex: 1;
+}
+
+#prompt-instructions {
+  font: 12.5px/1.6 ui-monospace, Menlo, Consolas, monospace;
+  resize: vertical;
+  min-height: 260px;
 }
 
 .card-note.tight {

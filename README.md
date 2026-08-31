@@ -27,7 +27,9 @@ Sketch inicial. O que funciona:
 - **Resumo, nome e tags** (`fireball summarize`) — um provedor plugável lê a transcrição e
   escreve as três coisas de uma vez. Reunião nasce **sem nome**: quem nomeia é a IA, quando a
   gravação termina. Dois provedores hoje: o Claude Code da máquina e qualquer API compatível
-  com OpenAI (URL, chave e modelo na configuração). Ver seção própria abaixo.
+  com OpenAI (URL, chave e modelo na configuração). O **prompt é configurável** — uma lista
+  administrada na tela de configuração, com um padrão, escolhível na hora de gerar. Ver seção
+  própria abaixo.
 - GUI + bandeja — barra lateral com o histórico e a reunião em andamento (pausar/retomar,
   parar), e a reunião aberta
   em três abas (Resumo · Transcrição · Notas): transcrição ao vivo em formato de chat, editor
@@ -461,9 +463,72 @@ um 403 cujo corpo não é o JSON de erro da API agora diz que quem barrou foi o 
 dela, não a credencial.
 
 ```bash
-fireball summarize <meeting_id>              # provedor configurado
+fireball summarize <meeting_id>              # provedor e prompt configurados
 fireball summarize <meeting_id> --provider openai_api
 ```
+
+#### Prompts
+
+O pedido que vai para o provedor tem três partes, e **só a do meio se edita**:
+
+```
+HEAD   de onde vem a transcrição, o que significam os dois falantes,
+       e o JSON com title/tags/summary          ← fixo
+─────────────────────────────────────────────────────────────────
+       o que o resumo deve dizer e em que forma ← o prompt
+─────────────────────────────────────────────────────────────────
+TAIL   idioma, regras de título e tag, "não invente nada"  ← fixo
+```
+
+O contrato ficar fora do alcance de quem escreve prompt não é zelo: é o que garante que
+**todo** prompt continue rendendo nome e tags. Um prompt livre que esquecesse de pedir o JSON
+faria a reunião parar de ganhar nome sozinha, e o sintoma apareceria longe da causa — na lista
+cheia de "Sem nome", não na tela onde o texto foi escrito.
+
+Já vêm sete, e não um: uma tela de prompts que começa com um item só não ensina o que dá pra
+fazer com ela. **Padrão** (parágrafo + Decisões + Em aberto), **Ata formal** (pauta,
+deliberações, encaminhamentos — e o que foi decidido *não* fazer), **Só as ações** (checklist,
+sem contexto, e que se recusa a transformar "seria bom…" em tarefa), **Resumo executivo**
+(quatro linhas para quem faltou), **Conversa 1:1** (temas, combinados, retomar na próxima —
+preservando como a pessoa descreveu o que sente), **Entrevista / discovery** (dores, pedidos e
+citações literais, sem propor solução) e **Aula ou palestra**, que separa o conteúdo do vídeo
+dos comentários de quem assistia — o áudio do sistema e o microfone são justamente duas trilhas
+diferentes, e é isso que faz a gravação valer depois.
+
+A lista mora em `~/.fireball/prompts.json`, separada do `settings.json` porque é um punhado de
+textos de várias linhas, e não escalares — misturar os dois tornaria a configuração ilegível
+justamente onde editar na mão é o caminho (servidor, ssh). Qual deles é o padrão, esse sim é
+configuração (`summary_prompt`). O arquivo pode nem existir: sem ele a lista é a dos embutidos, e o
+Fireball resume sem ninguém ter salvo nada. Apagar um embutido escreve o arquivo, e a partir
+daí é ele que manda — o apagado não volta.
+
+A tela de configuração administra a lista (criar, editar, apagar, e um botão que devolve o
+texto embutido); o cabeçalho da aba Resumo tem o seletor de com qual gerar. Duas salvaguardas:
+o último prompt não pode ser apagado, e apagar o que era padrão faz o daemon eleger outro —
+configuração apontando para um prompt que não existe mais é estado quebrado, e arrumá-lo é
+trabalho de quem apagou.
+
+Editar abre um **`<dialog>`**, e não um campo que cresce dentro do cartão: um editor de texto
+de dezesseis linhas empurrando o resto da configuração para baixo faz perder o lugar duas vezes
+— ao abrir e ao fechar. O elemento nativo dá o Esc, a camada de cima e o fundo escurecido de
+graça; clicar no fundo também fecha. (Isso não contradiz o botão de excluir reunião, que evita
+diálogo de propósito: lá o que se recusa é o `confirm()` **do sistema**, que a janela do
+pywebview não desenha bem. Este é desenhado pela página.) Erro ao salvar aparece dentro do
+próprio diálogo — no alerta da tela, ficaria atrás dele.
+
+**A reunião lembra com qual prompt foi resumida** (`summary_prompt` no `meeting.json`), e essa
+memória vem antes do padrão. Regerar e o resumo automático que roda depois do `finalize` não
+passam por escolha de ninguém; sem ela, a reunião trocaria de formato sozinha no meio do
+caminho só porque o padrão da configuração era outro. Prompt apagado depois disso não quebra
+nada: o resumo cai no primeiro da lista, porque resumir com outro é melhor que não resumir.
+
+```bash
+fireball prompts                              # a lista salva, e qual é o padrão
+fireball summarize <meeting_id> --prompt ata  # gerar com um específico
+```
+
+Administrar a lista é da janela, não da CLI — mesma regra do resto da configuração, que
+também não tem comando.
 
 #### Quando roda
 
@@ -503,7 +568,13 @@ assume incompleto.
 Backend é decisão de configuração, não de cada reunião: quem vai gravar quer clicar em
 "iniciar", não escolher motor de transcrição. Então a janela pergunta só o nome — e nem isso é
 obrigatório, já que a IA escreve um depois —, e backend/idioma ficam na tela de configuração
-(⚙), em `~/.fireball/settings.json`:
+(⚙), em `~/.fireball/settings.json`.
+
+A tela tem **duas abas**, e a divisão é a das duas metades do Fireball: **Transcrição** (motor
+ao vivo, motor final, idioma) e **Resumo** (provedor, chaves, prompts). O idioma fica na
+primeira porque é o que o motor espera *ouvir* — o resumo sai em português de qualquer jeito,
+e isso está na parte fixa do pedido, não no prompt. O **Salvar é um só**, fora das abas:
+esconder uma aba não apaga o que está nos campos dela.
 
 | chave | o que é | padrão |
 | --- | --- | --- |
@@ -513,6 +584,7 @@ obrigatório, já que a IA escreve um depois —, e backend/idioma ficam na tela
 | `groq_api_key` | chave da Groq, usada só pelo backend `groq` | vazio |
 | `language` | idioma esperado da fala | `pt` |
 | `summary_provider` | quem escreve nome, tags e resumo a partir da transcrição | `claude_code` |
+| `summary_prompt` | qual prompt salvo o resumo usa quando ninguém escolhe | `padrao` |
 | `auto_summarize` | gerar as três coisas sozinho quando a reunião termina | `true` |
 | `openai_base_url` | URL da API compatível com OpenAI (provedor `openai_api`) | vazio |
 | `openai_api_key` | chave dessa API | vazio |
@@ -619,3 +691,6 @@ fireball rename <meeting_id> "Nome que eu escolhi"    # nome dado à mão não �
 
 `~/.fireball/meetings/<meeting_id>/` (ou `$FIREBALL_HOME/meetings/...` se a variável de ambiente
 estiver definida). Ver `skills/fireball/SKILL.md` para o layout de arquivos.
+
+Ao lado deles, na raiz do `$FIREBALL_HOME`: `settings.json` (as preferências, com permissão
+600), `prompts.json` (os prompts de resumo), `daemon.sock`, `daemon.lock` e `daemon.log`.
