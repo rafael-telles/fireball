@@ -14,9 +14,9 @@ padrão.
 
 O arquivo é JSON comum de propósito: sem sessão gráfica (servidor, ssh) editar
 na mão é o caminho, já que a tela de configuração não existe lá. Ele é escrito
-com permissão 600 porque pode guardar a chave da API de resumo — quem prefere
-não ter segredo em JSON põe a chave no ambiente, que tem precedência sobre o
-campo vazio (ver `fireball/summarizers/openai_api.py`).
+com permissão 600 porque pode guardar chave de API (a do resumo e a da Groq) —
+quem prefere não ter segredo em JSON põe a chave no ambiente, que tem
+precedência sobre o campo vazio (ver `fireball/summarizers/openai_api.py`).
 """
 
 from __future__ import annotations
@@ -35,6 +35,9 @@ DEFAULTS = {
     "transcribe_live": True,
     # motor da transcrição final, rodada sobre o áudio inteiro depois
     "final_backend": "whisper",
+    # chave da Groq, usada só quando final_backend é "groq". Vazio aqui não é
+    # erro — significa "não configurado", ou "está no ambiente".
+    "groq_api_key": "",
     "language": realtime.DEFAULT_LANGUAGE,
     # quem escreve o resumo da reunião a partir da transcrição
     "summary_provider": "claude_code",
@@ -51,7 +54,7 @@ DEFAULTS = {
 
 # As chaves cujo valor vazio é uma resposta legítima ("não configurado"), e
 # não configuração estragada.
-TEXT_KEYS = ("openai_base_url", "openai_api_key", "openai_model")
+TEXT_KEYS = ("openai_base_url", "openai_api_key", "openai_model", "groq_api_key")
 
 
 def settings_path():

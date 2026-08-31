@@ -231,6 +231,9 @@ export GROQ_API_KEY=...   # https://console.groq.com/keys
 fireball finalize <meeting_id> --backend groq
 ```
 
+A chave também sai da configuração (`groq_api_key`, com campo próprio na tela quando o backend
+final é `groq`); o ambiente entra quando esse campo está vazio, como no provedor de resumo.
+
 `fireball start --backend groq` é rejeitado na CLI (não está na lista de backends ao vivo).
 Testado com uma chamada de API real: em áudio majoritariamente silencioso, o modelo alucinou
 a mesma frase curta 3x, exatamente a cada 30s (janela interna do Whisper), com métricas de
@@ -477,6 +480,7 @@ obrigatório, já que a IA escreve um depois —, e backend/idioma ficam na tela
 | `realtime_backend` | motor da transcrição ao vivo (a que alimenta o chat) | `whisper` |
 | `transcribe_live` | transcrever durante a reunião, ou só gravar o áudio | `true` |
 | `final_backend` | motor da transcrição final, sobre o áudio inteiro | `whisper` |
+| `groq_api_key` | chave da Groq, usada só pelo backend `groq` | vazio |
 | `language` | idioma esperado da fala | `pt` |
 | `summary_provider` | quem escreve nome, tags e resumo a partir da transcrição | `claude_code` |
 | `auto_summarize` | gerar as três coisas sozinho quando a reunião termina | `true` |

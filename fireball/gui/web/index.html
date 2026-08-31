@@ -348,6 +348,18 @@
               </p>
               <div class="lbl">Backend</div>
               <select id="set-final-backend"></select>
+
+              <!-- Só aparece com groq escolhido: campo de chave de API numa
+                   tela onde ele não é usado é convite a preencher errado. -->
+              <div class="subcard hidden" id="groq-fields">
+                <div class="lbl">Chave da Groq</div>
+                <input type="password" id="set-groq-key" placeholder="gsk_…" spellcheck="false" autocomplete="off" />
+                <div class="field-note">
+                  Guardada em <code>~/.fireball/settings.json</code>, com permissão 600. Deixe
+                  vazia para usar <code>GROQ_API_KEY</code> do ambiente. Pegue a sua em
+                  <code>console.groq.com/keys</code>.
+                </div>
+              </div>
             </section>
 
             <section class="card">

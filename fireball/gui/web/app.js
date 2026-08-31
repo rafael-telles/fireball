@@ -1504,6 +1504,7 @@ function renderSettings() {
   el("set-openai-url").value = s.openai_base_url || "";
   el("set-openai-key").value = s.openai_api_key || "";
   el("set-openai-model").value = s.openai_model || "";
+  el("set-groq-key").value = s.groq_api_key || "";
   el("set-language").value = s.language;
   renderProviderFields();
 }
@@ -1511,6 +1512,7 @@ function renderSettings() {
 /** Os campos da API só existem quando o provedor que os usa está escolhido. */
 function renderProviderFields() {
   el("openai-fields").classList.toggle("hidden", el("set-summary-provider").value !== "openai_api");
+  el("groq-fields").classList.toggle("hidden", el("set-final-backend").value !== "groq");
 }
 
 async function loadSettings() {
@@ -1541,6 +1543,7 @@ async function onSaveSettings() {
       openai_base_url: el("set-openai-url").value,
       openai_api_key: el("set-openai-key").value,
       openai_model: el("set-openai-model").value,
+      groq_api_key: el("set-groq-key").value,
       language: el("set-language").value,
     });
     renderSettings(); // o daemon é quem diz o que ficou valendo
@@ -1786,6 +1789,7 @@ async function boot() {
   // trocar de provedor mostra/esconde os campos dele na hora, sem salvar:
   // preencher URL e chave só faz sentido para quem já escolheu usá-los
   el("set-summary-provider").addEventListener("change", renderProviderFields);
+  el("set-final-backend").addEventListener("change", renderProviderFields);
 
   await loadSettings();
   await loadHistory();

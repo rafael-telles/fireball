@@ -63,6 +63,21 @@ def _segment_rms(wav_path: Path, start: Optional[float], end: Optional[float]) -
     return math.sqrt(sum(s * s for s in samples) / len(samples)) / 32768.0
 
 
+def _configured_key() -> str:
+    """A chave que está na configuração, se houver.
+
+    Import adiado: o registro de backends não pode depender de settings no
+    topo do módulo, e um settings ilegível não deve impedir quem passa a
+    chave por argumento ou ambiente de transcrever.
+    """
+    try:
+        from fireball import settings
+
+        return (settings.load()["groq_api_key"] or "").strip()
+    except Exception:
+        return ""
+
+
 class GroqBackend:
     name = "groq"
 
@@ -73,11 +88,12 @@ class GroqBackend:
                 "  pip install -e '.[groq]'\n"
                 f"Erro original: {_import_error}"
             )
-        key = api_key or os.environ.get("GROQ_API_KEY")
+        key = api_key or _configured_key() or os.environ.get("GROQ_API_KEY", "").strip()
         if not key:
             raise BackendUnavailable(
-                "GROQ_API_KEY não definida. Exporte a variável de ambiente com sua chave da Groq\n"
-                "(https://console.groq.com/keys) antes de usar --backend groq."
+                "Chave da Groq não configurada. Preencha o campo na tela de configuração\n"
+                "(⚙ › Transcrição final), ou exporte GROQ_API_KEY no ambiente\n"
+                "(https://console.groq.com/keys), antes de usar --backend groq."
             )
         self.client = Groq(api_key=key)
         self.model = model
