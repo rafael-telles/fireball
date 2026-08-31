@@ -158,6 +158,7 @@ class DaemonCore:
 
     def _await_job(self, job: Job) -> None:
         code = job.wait()
+        transcript_changed = False
         with self._lock:
             job.exit_code = code
             if job.kind == "engine":
@@ -165,23 +166,72 @@ class DaemonCore:
                 # tratamos igual a um stop pedido — a gravação terminou bem.
                 status = "stopped" if (job.stopping or code in (0, None)) else "crashed"
                 control.update_meeting(job.meeting_id, status=status, exit_code=code)
+                transcript_changed = status == "stopped"
                 if self._recording is job:
                     self._recording = None
             elif job.kind == "finalize":
                 status = "finalized" if code == 0 else "finalize_failed"
                 control.update_meeting(job.meeting_id, status=status)
+                # a transcrição foi reescrita por cima, melhor: o resumo, o
+                # nome e as tags saíram da versão antiga e ficaram velhos
+                transcript_changed = status == "finalized"
                 if self._finalizing.get(job.meeting_id) is job:
                     del self._finalizing[job.meeting_id]
             else:
                 # Resumo não é etapa do ciclo de vida da reunião: uma reunião
                 # finalizada continua finalizada se o resumo falhar. Por isso
                 # ele tem estado próprio, e não toca em `status`.
+                if code == 0:
+                    self._apply_summary_metadata(job.meeting_id)
                 control.write_meeting_fields(
                     job.meeting_id, summary_status="ok" if code == 0 else "failed"
                 )
                 if self._summarizing.get(job.meeting_id) is job:
                     del self._summarizing[job.meeting_id]
             job.done.set()
+
+        # fora do lock e depois do `done`: quem esperava a gravação fechar não
+        # tem por que esperar também o resumo subir.
+        if transcript_changed:
+            self._auto_summarize(job.meeting_id)
+
+    def _apply_summary_metadata(self, meeting_id: str) -> None:
+        """Leva o nome e as tags do resumo para o meeting.json.
+
+        Falhar aqui não pode derrubar a thread de supervisão nem transformar um
+        resumo que ficou pronto em 'failed': o resumo está no disco, e o que se
+        perde é a etiqueta.
+        """
+        try:
+            control.apply_summary_metadata(meeting_id)
+        except Exception as exc:  # noqa: BLE001 — supervisão não morre por isto
+            print(f"[daemon] nome/tags de {meeting_id} não aplicados: {exc}", flush=True)
+
+    def _auto_summarize(self, meeting_id: str) -> None:
+        """Sobe o resumo sozinho quando a reunião ganha uma transcrição nova.
+
+        É o que faz a reunião sem nome ganhar um: nomear só no clique de
+        *Gerar* deixaria o histórico cheio de "Sem nome" até alguém lembrar de
+        pedir, e ninguém lembra.
+
+        Duas recusas de propósito. Reunião `fake` não gera: o motor simulado
+        existe para exercitar o pipeline **sem chave de API**, e um roteiro de
+        teste virando chamada paga contraria justamente isso. E reunião sem
+        fala nenhuma também não: o job só falharia, deixando um erro na tela
+        que não é sobre nada.
+        """
+        try:
+            if not settings.load()["auto_summarize"]:
+                return
+            if control.read_meeting(meeting_id).get("fake"):
+                return
+            if not control.read_transcript(meeting_id):
+                return
+            self.summarize(meeting_id)
+        except control.MeetingBusy:
+            pass  # já tem um resumo rodando; o que ele escrever serve igual
+        except Exception as exc:  # noqa: BLE001 — supervisão não morre por isto
+            print(f"[daemon] resumo automático de {meeting_id} não subiu: {exc}", flush=True)
 
     def _spawn(self, meeting_id: str, kind: str, cmd: list[str], log_name: str) -> Job:
         meeting_dir = storage.meeting_path(meeting_id)
@@ -246,7 +296,7 @@ class DaemonCore:
 
     def start_meeting(
         self,
-        name: str = "Reunião",
+        name: Optional[str] = None,
         fake: bool = True,
         interval: float = 3.0,
         mic_device: Optional[str] = None,
@@ -258,7 +308,11 @@ class DaemonCore:
         """Nada de backend/idioma obrigatórios: o que o chamador não disser sai
         da configuração (ver `fireball.settings`). É o que deixa a janela
         perguntar só nome e modo — o resto foi decidido uma vez, na tela de
-        configuração, e vale igual pra CLI."""
+        configuração, e vale igual pra CLI.
+
+        Nome também não é obrigatório: reunião nasce sem nome e o provedor de
+        resumo escreve um depois, a partir do que foi dito (ver
+        `_auto_summarize`)."""
         prefs = settings.load()
         transcribe = prefs["transcribe_live"] if transcribe is None else transcribe
         backend = backend or prefs["realtime_backend"]

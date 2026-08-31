@@ -7,7 +7,12 @@ falhar de formas que não podem derrubar o dono do estado.
 Este módulo **não mexe em meeting.json**: quem escreve status é o daemon, que
 observa este processo terminar. Aqui só produzimos `summary.md` e um
 `summary_result.json` com a procedência — qual provedor escreveu, quando, e
-sobre qual das duas transcrições.
+sobre quantos segmentos.
+
+O nome e as tags que o provedor escreveu saem por esse mesmo
+`summary_result.json`, e não direto no meeting.json, pela mesma regra: este é
+um processo filho, o dono do estado é o daemon. Ele lê o resultado quando o
+job sai com código 0 e aplica na reunião (ver `control.apply_summary_metadata`).
 """
 
 from __future__ import annotations
@@ -53,13 +58,20 @@ def run_summary(meeting_dir: Path, provider: str) -> dict:
         )
 
     # o provedor pode querer a pasta (o claude_code roda com o cwd nela)
-    markdown = get_summary_provider(provider).summarize(dialogue, {**meeting, "_dir": str(meeting_dir)})
+    written = get_summary_provider(provider).summarize(
+        dialogue, {**meeting, "_dir": str(meeting_dir)}
+    )
 
-    (meeting_dir / "summary.md").write_text(markdown + "\n")
+    (meeting_dir / "summary.md").write_text(written["markdown"] + "\n")
     result = {
         "provider": provider,
         "segments": len(segments),
         "generated_at": storage.now_iso(),
+        # o nome só vale como sugestão até o daemon decidir aplicá-lo: uma
+        # reunião que já tem nome dado por gente não é renomeada por modelo
+        # nenhum (ver `control.apply_summary_metadata`)
+        "title": written.get("title"),
+        "tags": written.get("tags") or [],
     }
     storage.write_json(meeting_dir / "summary_result.json", result)
     return result

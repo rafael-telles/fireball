@@ -47,11 +47,31 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def new_meeting_dir(name: str) -> Path:
+def new_meeting_dir(name: Optional[str] = None) -> Path:
+    """A pasta da reunião: hora de criação + slug do nome.
+
+    Reunião nasce sem nome (quem nomeia é a IA, depois), e aí o slug é o
+    genérico que o `slugify` já devolve para texto vazio. O nome que a IA
+    escrever **não** renomeia a pasta: o id é a identidade, e todo caminho já
+    gravado aponta pra ele.
+
+    Duas reuniões criadas no mesmo segundo ganham um sufixo. Enquanto todo
+    mundo dava nome, o slug variava e a colisão era quase impossível; com o
+    nome saindo de cena o slug virou constante, e o `exist_ok=False` — que está
+    aqui justamente para nunca escrever numa pasta que já é de outra reunião —
+    passaria a estourar na cara de quem só clicou em "iniciar".
+    """
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    path = meetings_root() / f"{stamp}-{slugify(name)}"
-    path.mkdir(parents=True, exist_ok=False)
-    return path
+    base = meetings_root() / f"{stamp}-{slugify(name or '')}"
+    path = base
+    suffix = 2
+    while True:
+        try:
+            path.mkdir(parents=True, exist_ok=False)
+            return path
+        except FileExistsError:
+            path = base.with_name(f"{base.name}-{suffix}")
+            suffix += 1
 
 
 def meeting_path(meeting_id: str) -> Path:

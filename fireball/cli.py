@@ -135,7 +135,11 @@ def devices():
 
 
 @cli.command()
-@click.option("--name", default="Reunião", help="Nome da reunião.")
+@click.option(
+    "--name",
+    default=None,
+    help="Nome da reunião. Sem isso ela começa sem nome, e o provedor de resumo escreve um a partir da transcrição.",
+)
 @click.option(
     "--fake/--real",
     default=True,
@@ -168,6 +172,12 @@ def start(name, fake, interval, mic_device, system_device, transcribe, backend, 
     """Inicia uma nova reunião. O daemon cria a pasta e sobe o engine de
     gravação/transcrição, que ele mesmo supervisiona. Falha se já houver uma
     reunião gravando — só uma por vez.
+
+    Reunião começa **sem nome** por padrão: o nome bom só existe depois de
+    saber do que ela foi, e quem entra numa reunião não quer parar pra
+    batizá-la. Quando a gravação termina, o provedor de resumo escreve nome,
+    tags e resumo a partir da transcrição. `--name` é o override de quem já
+    sabe o nome — e um nome dado por gente não é trocado pela IA.
 
     Backend, idioma e transcrever-ao-vivo não passados aqui saem da
     configuração (`~/.fireball/settings.json`, editável pela tela de
@@ -286,6 +296,19 @@ def transcript_ack(meeting_id, seq):
 
 
 # ---------------------------------------------------------------- notas/ações
+
+
+@cli.command()
+@click.argument("meeting_id")
+@click.argument("name")
+def rename(meeting_id, name):
+    """Dá (ou troca) o nome de exibição de uma reunião.
+
+    Nomear à mão marca a reunião como nomeada por gente, e isso é definitivo:
+    regerar o resumo não troca mais o nome. Use quando o usuário disser o nome
+    — não para adivinhar um que a IA não conseguiu escrever.
+    """
+    _echo(_call("rename", meeting_id=meeting_id, name=name))
 
 
 @cli.command()
@@ -461,10 +484,15 @@ def delete(meeting_id, yes):
 @click.option("--wait/--no-wait", default=True, help="Espera o resumo ficar pronto.")
 @click.option("--timeout", default=900.0, type=float, help="Tempo máximo de espera, em segundos.")
 def summarize(meeting_id, provider, wait, timeout):
-    """Resume a reunião a partir da transcrição (a final, se houver).
+    """Resume a reunião a partir da transcrição, e com ela escreve o nome e as
+    tags da reunião.
 
     Regera por cima do resumo anterior — o resumo é derivado da transcrição,
-    não um registro histórico.
+    não um registro histórico. O mesmo vale para as tags; já o nome só é
+    escrito se ninguém tiver dado um à mão.
+
+    Roda sozinho quando a gravação termina e quando a transcrição final fica
+    pronta, salvo se `auto_summarize` estiver desligado na configuração.
     """
     _echo(_call("summarize", meeting_id=meeting_id, provider=provider, wait_timeout=timeout if wait else 0.0))
 

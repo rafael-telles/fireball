@@ -23,10 +23,14 @@ Sketch inicial. O que funciona:
 - **Daemon** (`fireball.daemon`) — o processo dono do estado, que supervisiona as gravações,
   garante uma reunião por vez e **mostra o ícone na bandeja**: enquanto o Fireball está ligado,
   ele aparece lá. Ver seção própria abaixo.
+- **Resumo, nome e tags** (`fireball summarize`) — um provedor plugável lê a transcrição e
+  escreve as três coisas de uma vez. Reunião nasce **sem nome**: quem nomeia é a IA, quando a
+  gravação termina. Dois provedores hoje: o Claude Code da máquina e qualquer API compatível
+  com OpenAI (URL, chave e modelo na configuração). Ver seção própria abaixo.
 - GUI + bandeja — barra lateral com o histórico e a reunião em andamento (pausar/retomar,
   parar), e a reunião aberta
   em três abas (Resumo · Transcrição · Notas): transcrição ao vivo em formato de chat, editor
-  do `notes.md`, ficha com renomear/finalizar/abrir a pasta. `fireball-gui` abre a janela do
+  do `notes.md`, ficha com nome/tags/finalizar/abrir a pasta. `fireball-gui` abre a janela do
   daemon. Ver seção própria abaixo.
 
 O que **não** está implementado ainda:
@@ -35,7 +39,7 @@ O que **não** está implementado ainda:
   o monitor do sistema não distingue quem está falando do outro lado).
 - Na GUI, os lugares que o desenho reserva e o daemon ainda não alimenta — eles aparecem na
   tela como estado vazio, dizendo o que falta em vez de mostrar dado inventado: agenda
-  (não lemos calendário) e local/descrição/tags da reunião.
+  (não lemos calendário) e local/descrição da reunião.
 - Anotar pela bandeja, e escolher outro device de captura quando o microfone falha (hoje
   o aviso aparece, mas a troca é por flag na CLI).
 
@@ -302,9 +306,9 @@ Abrir uma reunião dá três abas:
   digitar (e na hora de sair da aba, que o debounce sozinho perderia as últimas teclas). A
   barra de cima insere markdown de verdade no texto; o arquivo é markdown, e é o mesmo que a
   CLI e o Claude leem e escrevem.
-- **Resumo** — a ficha (renomear clicando no título, dia e horário, participantes, ações,
-  abrir a pasta) e o **resumo gerado da transcrição**, com *Gerar*/*Regerar*. Ver a seção
-  própria abaixo.
+- **Resumo** — a ficha (nome, tags, dia e horário, participantes, ações, abrir a pasta) e o
+  **resumo gerado da transcrição**, com *Gerar*/*Regerar*. Nome e tags saem do mesmo pedido
+  que escreve o resumo; clicar no nome renomeia à mão. Ver a seção própria abaixo.
 
 Falhas que não interromperam a gravação aparecem como aviso âmbar acima das abas, em
 qualquer uma delas: o engine grava `audio_warnings.log` quando só o microfone entrou, e
@@ -372,31 +376,82 @@ só: quem foi olhar outra coisa de propósito não é jogado de volta pra conver
 Quando ela termina (pelo botão, pela bandeja ou pela CLI), a mesma tela drena os últimos
 segmentos que o engine escreveu depois do sinal e vira reunião encerrada no lugar.
 
-### Resumo da reunião
+### Resumo, nome e tags
 
-O resumo é gerado a partir da transcrição (a final, quando existe) por um **provedor
-plugável** — mesma forma dos backends de transcrição, em `fireball/summarizers/`. Trocar
-quem escreve o resumo não mexe em nada fora daquele pacote.
+Quando a gravação termina, um **provedor plugável** lê a transcrição e devolve três coisas de
+uma vez: o **nome** da reunião, as **tags** e o **resumo** em markdown. Mesma forma dos backends
+de transcrição, em `fireball/summarizers/`; trocar quem escreve não mexe em nada fora daquele
+pacote.
 
-Hoje há um provedor: `claude_code`, que chama o Claude Code instalado na máquina. Foi o
-primeiro porque não pede chave de API nem configuração — quem usa o Fireball para tomar
-nota com o Claude já tem o `claude` autenticado, e o custo é do plano de quem roda. Ele é
-invocado com `--output-format json`, e não com texto puro: em modo texto o Claude Code sai
-com código 0 mesmo falhando ("Not logged in · Please run /login" vira stdout como se fosse
-resposta), e só o JSON traz o `is_error` que permite saber a verdade. Também roda com
-`--bare` e sem ferramentas: aqui é transformação de texto, não uma sessão de trabalho.
+São três coisas num pedido só de propósito: as três saem da mesma leitura da transcrição, e
+pedi-las separadamente seria pagar a transcrição inteira três vezes — em plano, em token ou em
+minuto de modelo local. Por isso a resposta vem em JSON (`title`, `tags`, `summary`), e não em
+markdown puro. O preço é aguentar modelo que não obedece formato: a leitura da resposta aceita
+cerca de código em volta, texto antes e depois, quebra de linha crua dentro de string, e cai
+para "isto aqui é o resumo inteiro" quando não acha JSON nenhum — perder o nome e as tags é bem
+melhor que perder o resumo.
+
+**Reunião nasce sem nome.** O nome bom de uma reunião só existe depois dela, e quem está
+entrando numa chamada não quer parar para batizá-la; então o campo na tela de início é opcional
+e o provedor escreve o nome a partir do que foi dito. Quem já sabe o nome digita — e aí a IA não
+mexe: `name_source` guarda se o nome veio de gente ou de modelo, e um nome dado à mão nunca é
+trocado por um gerado. As tags, ao contrário, são substituídas a cada geração: como o resumo,
+elas são derivadas da transcrição, e manter tag de uma versão antiga ao lado das novas mostraria
+duas leituras da mesma reunião como se fossem uma.
+
+#### Os provedores
+
+| provedor | o que é | o que precisa |
+| --- | --- | --- |
+| `claude_code` | o Claude Code instalado na máquina | `claude` no PATH, com login feito |
+| `openai_api` | qualquer API compatível com OpenAI | URL, chave e id do modelo |
+
+`claude_code` foi o primeiro porque não pede chave nem configuração — quem usa o Fireball para
+tomar nota com o Claude já tem o `claude` autenticado, e o custo é do plano de quem roda. Ele é
+invocado com `--output-format json`, e não com texto puro: em modo texto o Claude Code sai com
+código 0 mesmo falhando ("Not logged in · Please run /login" vira stdout como se fosse resposta),
+e só o JSON traz o `is_error` que permite saber a verdade. Roda sem ferramentas: aqui é
+transformação de texto, não uma sessão de trabalho.
+
+`openai_api` não é "o provedor da OpenAI": é um provedor **sem dono**. "Compatível com OpenAI"
+virou o protocolo comum de fato — a própria OpenAI, OpenRouter, Groq, Together, Ollama,
+llama.cpp, vLLM e LM Studio falam `POST /v1/chat/completions` com o mesmo corpo — então quem
+escolhe de quem é o modelo é a configuração, com três campos: URL, chave e id do modelo. A
+chamada é feita com `urllib` da biblioteca padrão, sem SDK: é um JSON de ida e um de volta, e um
+SDK aqui seria uma dependência a mais para instalar e para quebrar, amarrando o Fireball ao
+dialeto de um fornecedor justamente no lugar cujo objetivo é não ter fornecedor.
+
+Duas coisas que essa liberdade custa, e como elas são pagas. O pedido vai com
+`response_format: json_object`, que nem todo servidor compatível aceita — uma recusa 4xx faz o
+pedido ser repetido uma vez sem o campo, e o prompt já pede JSON por escrito. E o erro que volta
+é traduzido para a frase que diz o que fazer: 401 fala da chave, 404 fala da URL e do modelo,
+5xx e 429 dizem que o problema é do outro lado e não da configuração.
 
 ```bash
 fireball summarize <meeting_id>              # provedor configurado
-fireball summarize <meeting_id> --provider claude_code
+fireball summarize <meeting_id> --provider openai_api
 ```
+
+#### Quando roda
+
+Sozinho, quando a gravação termina e de novo quando a transcrição final fica pronta (o
+`finalize` reescreve a transcrição, e o resumo antigo passa a ser sobre um texto que não existe
+mais). É o que faz uma reunião sem nome ganhar um sem ninguém pedir: nomear só no clique de
+*Gerar* deixaria o histórico cheio de "Sem nome" até alguém lembrar — e ninguém lembra.
+`auto_summarize: false` desliga isso e devolve tudo ao botão.
+
+Reunião simulada (`--fake`) **nunca** gera sozinha, e reunião sem nenhuma fala também não: o
+motor simulado existe para exercitar o pipeline sem chave de API, e um roteiro de teste virando
+chamada paga contraria justamente isso.
 
 Como o finalize, roda em **processo separado supervisionado pelo daemon** — pode demorar
 minutos e falhar de fora (sem login, sem rede), e nada disso pode parar o dono do estado. O
-estado dele mora em `summary_status` no meeting.json e **não** toca no `status` da reunião:
-resumo não é etapa do ciclo de vida, e uma reunião finalizada continua finalizada se o
-resumo falhar. Regerar apaga o anterior antes de começar — mostrar o resumo velho como se
-fosse o novo seria mentir.
+processo filho só escreve `summary.md` e `summary_result.json`; quem aplica o nome e as tags no
+`meeting.json` é o daemon, quando vê o job sair com código 0 — mesma regra de sempre, um dono só
+do estado. O estado da geração mora em `summary_status` e **não** toca no `status` da reunião:
+resumo não é etapa do ciclo de vida, e uma reunião finalizada continua finalizada se o resumo
+falhar. Regerar apaga o anterior antes de começar — mostrar o resumo velho como se fosse o novo
+seria mentir.
 
 O markdown que volta é renderizado montando nós do DOM, nunca `innerHTML`: o texto vem de um
 modelo de linguagem sobre uma transcrição, ou seja, de fora, e concatenar isso em HTML
@@ -405,7 +460,7 @@ deixaria a transcrição escrever marcação na janela.
 ### O que a tela ainda não tem
 
 O desenho da interface ainda prevê mais do que o daemon serve: a agenda que preenche a
-reunião antes de começar, e local/descrição/tags. Esses lugares existem na tela **como
+reunião antes de começar, e local/descrição. Esses lugares existem na tela **como
 estado vazio**, dizendo o que falta — a moldura tracejada é o sinal. É de propósito: um campo que
 mostra dado inventado, ou um botão que não faz nada, custa mais caro que um espaço que se
 assume incompleto.
@@ -413,8 +468,9 @@ assume incompleto.
 ### Configuração
 
 Backend é decisão de configuração, não de cada reunião: quem vai gravar quer clicar em
-"iniciar", não escolher motor de transcrição. Então a janela pergunta só o nome, e
-backend/idioma ficam na tela de configuração (⚙), em `~/.fireball/settings.json`:
+"iniciar", não escolher motor de transcrição. Então a janela pergunta só o nome — e nem isso é
+obrigatório, já que a IA escreve um depois —, e backend/idioma ficam na tela de configuração
+(⚙), em `~/.fireball/settings.json`:
 
 | chave | o que é | padrão |
 | --- | --- | --- |
@@ -422,11 +478,21 @@ backend/idioma ficam na tela de configuração (⚙), em `~/.fireball/settings.j
 | `transcribe_live` | transcrever durante a reunião, ou só gravar o áudio | `true` |
 | `final_backend` | motor da transcrição final, sobre o áudio inteiro | `whisper` |
 | `language` | idioma esperado da fala | `pt` |
-| `summary_provider` | quem escreve o resumo a partir da transcrição | `claude_code` |
+| `summary_provider` | quem escreve nome, tags e resumo a partir da transcrição | `claude_code` |
+| `auto_summarize` | gerar as três coisas sozinho quando a reunião termina | `true` |
+| `openai_base_url` | URL da API compatível com OpenAI (provedor `openai_api`) | vazio |
+| `openai_api_key` | chave dessa API | vazio |
+| `openai_model` | id do modelo nela | vazio |
 
 Os dois modos são configurados separado de propósito: é comum querer um motor local durante a
 reunião e `groq` no final. `groq` só aparece na transcrição final — em tempo real seria uma
 chamada de API paga a cada poucos segundos.
+
+Como o arquivo pode guardar a chave da API, ele é criado com permissão 600 — e nasce assim, em
+vez de virar 600 depois de escrito, o que deixaria uma janela com o segredo no disco sob o umask
+de todo mundo. Quem prefere não ter segredo em JSON deixa os campos vazios e usa
+`FIREBALL_OPENAI_BASE_URL`, `FIREBALL_OPENAI_API_KEY` e `FIREBALL_OPENAI_MODEL` no ambiente: a
+configuração vem primeiro, o ambiente entra quando o campo está vazio.
 
 Reunião começada pela janela é sempre gravação real (mic + sistema). O motor simulado existe
 pra testar o pipeline sem microfone — isso é trabalho de desenvolvimento, e mora na CLI
@@ -499,7 +565,7 @@ ln -s /home/rafaelt/Desktop/fireball/skills/fireball-meeting ~/.claude/skills/fi
 ## Testar o fluxo manualmente
 
 ```bash
-fireball start --name "Reunião de teste" --interval 1
+fireball start --interval 1     # sem --name: a reunião nasce sem nome
 # guarde o meeting_id retornado
 
 fireball transcript follow <meeting_id>   # roda em foreground, uma linha por segmento novo
@@ -511,6 +577,9 @@ fireball status <meeting_id>
 fireball stop                                         # sem argumento: para a reunião ativa
 fireball finalize <meeting_id>                        # --backend whisper|parakeet, padrão: o mesmo do start
 fireball transcript show <meeting_id>
+
+fireball summarize <meeting_id>                       # nome + tags + resumo (roda sozinho ao fim, exceto em --fake)
+fireball rename <meeting_id> "Nome que eu escolhi"    # nome dado à mão não é trocado pela IA
 ```
 
 ## Onde ficam os dados

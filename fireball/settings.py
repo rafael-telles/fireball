@@ -13,11 +13,15 @@ configuração que a janela mostra, sem cada cliente ter sua própria noção de
 padrão.
 
 O arquivo é JSON comum de propósito: sem sessão gráfica (servidor, ssh) editar
-na mão é o caminho, já que a tela de configuração não existe lá.
+na mão é o caminho, já que a tela de configuração não existe lá. Ele é escrito
+com permissão 600 porque pode guardar a chave da API de resumo — quem prefere
+não ter segredo em JSON põe a chave no ambiente, que tem precedência sobre o
+campo vazio (ver `fireball/summarizers/openai_api.py`).
 """
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from fireball import realtime, storage
@@ -34,7 +38,20 @@ DEFAULTS = {
     "language": realtime.DEFAULT_LANGUAGE,
     # quem escreve o resumo da reunião a partir da transcrição
     "summary_provider": "claude_code",
+    # gerar resumo, nome e tags sozinho quando a reunião termina. É o que faz
+    # "reunião nasce sem nome, a IA nomeia" acontecer sem ninguém clicar —
+    # sem isso a reunião ficaria sem nome até alguém lembrar de pedir.
+    "auto_summarize": True,
+    # provedor 'openai_api': qualquer API compatível com OpenAI. Vazio aqui
+    # não é erro — significa "ainda não configurado", ou "está no ambiente".
+    "openai_base_url": "",
+    "openai_api_key": "",
+    "openai_model": "",
 }
+
+# As chaves cujo valor vazio é uma resposta legítima ("não configurado"), e
+# não configuração estragada.
+TEXT_KEYS = ("openai_base_url", "openai_api_key", "openai_model")
 
 
 def settings_path():
@@ -47,8 +64,15 @@ def _coerce(key: str, value) -> Optional[object]:
         return value if value in REALTIME_BACKENDS else None
     if key == "final_backend":
         return value if value in BATCH_BACKENDS else None
-    if key == "transcribe_live":
+    if key in ("transcribe_live", "auto_summarize"):
         return bool(value)
+    if key == "openai_base_url":
+        url = str(value or "").strip().rstrip("/")
+        if not url:
+            return ""
+        return url if url.startswith(("http://", "https://")) else None
+    if key in TEXT_KEYS:
+        return str(value or "").strip()
     if key == "summary_provider":
         return value if value in SUMMARY_PROVIDERS else None
     if key == "language":
@@ -96,9 +120,34 @@ def save(**fields) -> dict:
                 raise ValueError(
                     f"Provedor de resumo inválido: '{raw}'. Use {list(SUMMARY_PROVIDERS)}."
                 )
+            if key == "openai_base_url":
+                raise ValueError(
+                    f"URL da API inválida: '{raw}'. Ela precisa começar com http:// ou https:// "
+                    "(ex.: https://api.openai.com/v1)."
+                )
             if key == "language":
                 raise ValueError("Idioma não pode ficar vazio (código curto, ex.: pt, en).")
             raise ValueError(f"Valor inválido para '{key}': {raw!r}.")
         values[key] = coerced
-    storage.write_json(settings_path(), values)
+    path = settings_path()
+    _restrict(path)
+    storage.write_json(path, values)
     return values
+
+
+def _restrict(path) -> None:
+    """Deixa o settings.json legível só pelo dono, **antes** de escrever nele.
+
+    Ele pode guardar a chave da API de resumo. Apertar a permissão depois da
+    escrita deixaria uma janela — curta, mas real — com o segredo no disco sob
+    o umask de todo mundo; por isso o arquivo é criado já com 600 quando ainda
+    não existe. Sistema de arquivos sem permissão POSIX não impede configurar:
+    o que não dá pra proteger, segue como está.
+    """
+    try:
+        if path.exists():
+            os.chmod(path, 0o600)
+        else:
+            os.close(os.open(path, os.O_CREAT | os.O_WRONLY, 0o600))
+    except OSError:
+        pass

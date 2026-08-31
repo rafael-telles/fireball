@@ -11,8 +11,11 @@ como ação.
 
 ## Iniciar uma reunião
 
-1. `fireball start --name "<nome da reunião>" --real` → retorna `meeting_id`, grava microfone e
+1. `fireball start --real` → retorna `meeting_id`, grava microfone e
    áudio do sistema de verdade e já transcreve ao vivo (local, sem chave de API) enquanto grava.
+   - **Não passe `--name`** a menos que o usuário tenha dito o nome da reunião. Sem ele a
+     reunião fica sem nome e o provedor de resumo escreve um (junto com as tags) quando a
+     gravação termina — e um nome dado à mão nunca é trocado depois.
    - `--backend whisper` (padrão, multi-idioma) ou `--backend parakeet` (Parakeet TDT
      fine-tunado em pt-BR — capturou mais conteúdo real em teste manual, prefira esse para
      reuniões em português se o modelo já estiver baixado, ver README).
@@ -61,23 +64,28 @@ como ação.
    inteiro de cada track, não em pedaços) com o mesmo backend usado ao vivo. Também aceita
    `--backend groq` (API paga, `whisper-large-v3-turbo`, requer `GROQ_API_KEY`) se o usuário
    preferir não depender do modelo local para a passada final.
-3. Compare a transcrição (`fireball transcript show <meeting_id>`, já reescrita pelo finalize) com as
+3. O nome, as tags e o resumo da reunião saem sozinhos assim que a transcrição final fica
+   pronta (`fireball summarize <meeting_id>` força de novo). Se a reunião ainda estiver sem
+   nome depois disso, o provedor de resumo não está configurado — diga isso ao usuário em vez
+   de inventar um nome com `fireball rename`.
+4. Compare a transcrição (`fireball transcript show <meeting_id>`, já reescrita pelo finalize) com as
    notas ao vivo (arquivo `notes.md`, dentro da pasta da reunião). Corrija imprecisões
    diretamente no arquivo de notas e resuma para o usuário o que mudou. Isso é automático, não
    precisa ser pedido.
-4. Revise a lista de ações pendentes (`fireball action list <meeting_id> --status pending`) com
+5. Revise a lista de ações pendentes (`fireball action list <meeting_id> --status pending`) com
    o usuário antes de encerrar.
-5. Se a reunião pertencer a um vault Tolaria, siga as convenções do `AGENTS.md` daquele vault
+6. Se a reunião pertencer a um vault Tolaria, siga as convenções do `AGENTS.md` daquele vault
    para arquivar a nota final (frontmatter, wikilinks, tipo).
 
 ## Onde ficam os arquivos
 
 Cada reunião mora em `~/.fireball/meetings/<meeting_id>/`:
 
-- `meeting.json` — metadados
+- `meeting.json` — metadados (inclusive `name`, `name_source` e `tags`)
 - `mic.wav` / `system.wav` / `meeting.wav` — áudio real (só em reuniões `--real`)
 - `transcript.ndjson` — transcrição em tempo real (fonte primária durante a reunião)
 - a transcrição é um arquivo só (`transcript.ndjson`): o `finalize` reescreve por cima dela
 - `notes.md` — notas ao vivo (a mesma fonte que a GUI reflete)
 - `actions.json` — ações pendentes/aprovadas/rejeitadas/executadas
+- `summary.md` — resumo gerado da transcrição
 - `checkpoint.json` — até onde o stream já foi processado

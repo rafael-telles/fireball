@@ -109,5 +109,8 @@ class TrayIcon(QSystemTrayIcon):
 
         status = active.get("status", "recording")
         self.setIcon(self._icons["stopping" if status == "stopping" else "recording"])
-        self.setToolTip(f"Fireball — {STATE_LABEL.get(status, status)}: {active['name']}")
+        # reunião gravando quase nunca tem nome ainda (quem nomeia é o resumo,
+        # depois); o rótulo genérico é melhor que um "None" na bandeja
+        name = (active.get("name") or "").strip() or "reunião sem nome"
+        self.setToolTip(f"Fireball — {STATE_LABEL.get(status, status)}: {name}")
         self._stop_action.setEnabled(status != "stopping")

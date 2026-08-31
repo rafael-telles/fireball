@@ -68,6 +68,7 @@ class _Handler(socketserver.StreamRequestHandler):
             "transcript_ack": core.transcript_ack,
             "list": core.list_meetings,
             "note": core.note,
+            "rename": core.rename_meeting,
             "action_add": core.action_add,
             "action_list": core.action_list,
             "action_set": core.action_set,

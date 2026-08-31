@@ -59,15 +59,19 @@ class Api:
     def save_settings(self, values: dict) -> dict:
         return self._call(self._core.update_settings, **values)
 
-    def start_meeting(self, name: str) -> dict:
-        """Começar reunião pela janela é uma decisão só: o nome.
+    def start_meeting(self, name: str = "") -> dict:
+        """Começar reunião pela janela é um clique: nem o nome é obrigatório.
+
+        Nome vazio é o caminho normal, não um campo esquecido — a reunião nasce
+        sem nome e o provedor de resumo escreve um quando ela acaba, junto com
+        as tags. Quem já sabe o nome digita, e aí a IA não mexe.
 
         `fake=False` fixo — o motor simulado existe pra testar o pipeline sem
         microfone, o que é trabalho de desenvolvimento (`fireball start
         --fake`), não escolha de quem abriu a janela pra gravar. Backend e
         idioma saem da configuração, no daemon.
         """
-        return self._call(self._core.start_meeting, name=name, fake=False)
+        return self._call(self._core.start_meeting, name=(name or "").strip() or None, fake=False)
 
     def stop_meeting(self, meeting_id: str) -> dict:
         # sem espera: a janela não pode congelar até o engine fechar os .wav;

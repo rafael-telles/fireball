@@ -38,7 +38,7 @@ class NoActiveMeeting(RuntimeError):
 
 
 def create_meeting(
-    name: str,
+    name: Optional[str],
     fake: bool,
     mic_device: Optional[str],
     system_device: Optional[str],
@@ -50,16 +50,29 @@ def create_meeting(
 
     Não sobe processo nenhum — quem faz isso é o daemon, que só promove para
     'recording' depois que o engine sobe de fato.
+
+    **Nome é opcional, e o padrão é não ter.** Quem começa uma reunião está
+    entrando nela: o nome bom só existe depois, quando se sabe do que ela foi.
+    Então a reunião nasce sem nome e o provedor de resumo escreve um a partir
+    da transcrição (ver `apply_summary_metadata`). Quem quiser nomear na hora
+    ainda pode — e aí a IA não mexe.
     """
+    name = (name or "").strip() or None
     meeting_dir = storage.new_meeting_dir(name)
     (meeting_dir / "notes.md").write_text(
-        f"# {name}\n\n_Notas ao vivo tomadas pelo Claude e por você._\n\n## Notas\n"
+        f"# {name or 'Notas da reunião'}\n\n_Notas ao vivo tomadas pelo Claude e por você._\n\n## Notas\n"
     )
     (meeting_dir / "transcript.ndjson").touch()
 
     meeting = {
         "id": meeting_dir.name,
         "name": name,
+        # quem escreveu o nome: 'user' quando veio de gente, 'ai' quando veio
+        # do provedor de resumo. É o que impede o resumo regerado de passar
+        # por cima de um nome que alguém digitou.
+        "name_source": "user" if name else None,
+        # tags geradas junto com o resumo (ver apply_summary_metadata)
+        "tags": [],
         "started_at": storage.now_iso(),
         "ended_at": None,
         "status": "starting",
@@ -446,11 +459,50 @@ def rename_meeting(meeting_id: str, name: str) -> dict:
 
     A pasta continua com o slug do nome original: o id é a identidade, e mexer
     nele quebraria todo caminho já gravado.
+
+    Renomear marca a reunião como nomeada por gente (`name_source: "user"`), e
+    isso é definitivo: regerar o resumo não desfaz. Um nome escolhido à mão
+    sendo trocado por um de modelo, sem ninguém pedir, seria perder trabalho de
+    quem estava na reunião.
     """
     name = name.strip()
     if not name:
         raise ValueError("O nome da reunião não pode ficar vazio.")
-    return write_meeting_fields(meeting_id, name=name)
+    return write_meeting_fields(meeting_id, name=name, name_source="user")
+
+
+def apply_summary_metadata(meeting_id: str) -> dict:
+    """Passa para o meeting.json o nome e as tags que saíram com o resumo.
+
+    Chamado **pelo daemon**, quando o job de resumo sai com código 0 — o
+    processo filho só escreve o resultado em `summary_result.json`, quem muda
+    estado é o dono dele.
+
+    Duas regras diferentes de propósito:
+
+    - **nome**: só entra se a reunião ainda não tem um dado por gente. Uma
+      reunião nasce sem nome justamente para este momento; se alguém já
+      digitou um, ele vale mais que qualquer sugestão de modelo.
+    - **tags**: substituem as anteriores. Elas são derivadas da transcrição,
+      como o resumo — manter tag de uma versão antiga ao lado das novas seria
+      mostrar duas leituras da mesma reunião como se fossem uma.
+    """
+    meeting_dir = storage.meeting_path(meeting_id)
+    result = storage.read_json(meeting_dir / "summary_result.json", {}) or {}
+    meeting = read_meeting(meeting_id)
+
+    fields = {}
+    tags = [tag for tag in (result.get("tags") or []) if tag]
+    if tags:
+        fields["tags"] = tags
+
+    title = (result.get("title") or "").strip()
+    named_by_user = bool((meeting.get("name") or "").strip()) and meeting.get("name_source") != "ai"
+    if title and not named_by_user:
+        fields["name"] = title
+        fields["name_source"] = "ai"
+
+    return write_meeting_fields(meeting_id, **fields) if fields else meeting
 
 
 def append_note(meeting_id: str, text: str, author: str, stamp: str) -> None:

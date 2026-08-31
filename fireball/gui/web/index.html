@@ -95,8 +95,12 @@
               <div class="start-head">
                 <span class="kicker accent">Nova reunião</span>
               </div>
-              <label class="lbl" for="name">Nome</label>
-              <input type="text" id="name" value="Reunião" />
+              <!-- Nome vazio é o caminho normal: o nome bom da reunião só
+                   existe depois dela, e quem está entrando numa chamada não
+                   quer parar pra batizá-la. Quem já sabe, digita — e aí a IA
+                   não mexe no que a pessoa escreveu. -->
+              <label class="lbl" for="name">Nome <span class="lbl-soft">(opcional)</span></label>
+              <input type="text" id="name" placeholder="A IA nomeia quando a reunião acabar" />
               <button class="btn primary block big" id="start-btn">Iniciar reunião</button>
               <div class="start-foot">
                 <span>Grava o microfone e o áudio do sistema.</span>
@@ -143,7 +147,7 @@
             <div class="scroll">
               <div class="ficha">
                 <div>
-                  <input type="text" class="rename" id="mv-rename" />
+                  <input type="text" class="rename" id="mv-rename" placeholder="Sem nome" />
                   <div class="rename-note" id="rename-note">clique para renomear</div>
                 </div>
 
@@ -157,9 +161,12 @@
                   <div class="value muted">— o Fireball não registra local de reunião</div>
                 </div>
 
+                <!-- Tags saem do mesmo pedido que escreve o resumo e o nome
+                     (uma leitura da transcrição, três respostas), então elas
+                     aparecem quando o resumo aparece. -->
                 <div class="field-group">
                   <div class="lbl">Tags</div>
-                  <div class="value muted">— ainda não há tags</div>
+                  <div class="value" id="mv-tags"></div>
                 </div>
 
                 <div class="field-group">
@@ -344,14 +351,54 @@
             </section>
 
             <section class="card">
-              <div class="card-title">Resumo</div>
+              <div class="card-title">Resumo, nome e tags</div>
               <p class="card-note">
-                Quem escreve o resumo da reunião a partir da transcrição. <code>claude_code</code>
-                usa o Claude Code instalado na máquina — não pede chave de API, mas precisa dele
-                autenticado (<code>claude</code> no PATH, com login feito).
+                O mesmo provedor escreve as três coisas de uma vez, a partir da transcrição.
+                <code>claude_code</code> usa o Claude Code instalado na máquina — não pede chave
+                de API, mas precisa dele autenticado (<code>claude</code> no PATH, com login
+                feito). <code>openai_api</code> é qualquer API compatível com OpenAI: a da
+                OpenAI, OpenRouter, Groq, Ollama, llama.cpp, LM Studio — você diz a URL, a chave
+                e o modelo.
               </p>
               <div class="lbl">Provedor</div>
               <select id="set-summary-provider"></select>
+
+              <!-- Só aparece com openai_api escolhido: campo de chave de API
+                   numa tela onde ele não é usado é convite a preencher errado. -->
+              <div class="subcard hidden" id="openai-fields">
+                <div class="lbl">URL da API</div>
+                <input type="text" id="set-openai-url" placeholder="https://api.openai.com/v1" spellcheck="false" />
+                <div class="field-note">
+                  A base, normalmente terminada em <code>/v1</code> — o <code>/chat/completions</code>
+                  entra sozinho. Servidor local costuma ser
+                  <code>http://localhost:11434/v1</code> (Ollama) ou <code>:1234/v1</code> (LM Studio).
+                </div>
+
+                <div class="lbl">Chave</div>
+                <input type="password" id="set-openai-key" placeholder="sk-…" spellcheck="false" autocomplete="off" />
+                <div class="field-note">
+                  Guardada em <code>~/.fireball/settings.json</code>, com permissão 600. Deixe
+                  vazia para usar <code>FIREBALL_OPENAI_API_KEY</code> do ambiente — ou quando o
+                  servidor é local e não pede chave.
+                </div>
+
+                <div class="lbl">Modelo</div>
+                <input type="text" id="set-openai-model" placeholder="gpt-4o-mini" spellcheck="false" />
+                <div class="field-note">O id exato como o servidor o chama.</div>
+              </div>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="set-auto-summarize" />
+                <span>Gerar sozinho quando a reunião terminar</span>
+              </label>
+              <p class="card-note tight">
+                Roda ao fim da gravação e de novo quando a transcrição final fica pronta (ela
+                reescreve a transcrição, e o resumo antigo passa a ser sobre um texto que não
+                existe mais). É o que faz uma reunião sem nome ganhar um sem ninguém pedir.
+                Desligado, o resumo só sai no botão <i>Gerar</i>. Reunião simulada
+                (<code>--fake</code>) nunca gera sozinha — ela existe pra testar o pipeline sem
+                gastar API.
+              </p>
             </section>
 
             <section class="card">

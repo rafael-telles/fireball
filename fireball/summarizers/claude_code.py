@@ -21,6 +21,10 @@ Detalhes que a invocação depende:
   parte do trabalho.
 - `cwd` na pasta da reunião, pelo mesmo motivo — o processo não tem por que
   enxergar o repositório de onde o daemon subiu.
+
+O pedido em si (nome, tags e resumo numa resposta só, em JSON) é o comum a
+todos os provedores e mora em `fireball/summarizers/prompt.py`; aqui só o
+transporte.
 """
 
 from __future__ import annotations
@@ -30,48 +34,18 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from fireball.summarizers import SummarizerUnavailable
+from fireball.summarizers import SummarizerFailed, SummarizerUnavailable
+from fireball.summarizers.prompt import build_prompt, parse_result
 
 # Um resumo de reunião longa pode demorar; mais que isso é sinal de que algo
 # travou, e o job ficaria pendurado sem ninguém para cobrar.
 TIMEOUT_S = 600
 
-PROMPT = """\
-Você está resumindo a transcrição de uma reunião gravada pelo Fireball.
-
-A transcrição chega pelo stdin, uma fala por linha, no formato `Falante: texto`.
-Ela vem de transcrição automática: espere erros de palavra, pontuação estranha
-e frases cortadas. Interprete pelo contexto e não cite trechos que não fazem
-sentido.
-
-Dois falantes são fixos e significam o seguinte:
-- "Você" é quem gravou (o microfone da máquina).
-- "Outros participantes" é todo o resto da sala junto — o áudio do sistema não
-  distingue quem fala do outro lado, então não invente nomes nem atribua uma
-  fala a alguém específico.
-
-Escreva em português do Brasil, em markdown, nesta estrutura:
-
-# <título curto que diga o assunto da reunião>
-
-<um parágrafo, no máximo três frases, dizendo o que a reunião resolveu>
-
-## Decisões
-- <o que ficou decidido; omita a seção inteira se nada foi decidido>
-
-## Em aberto
-- <o que ficou sem resposta; omita a seção inteira se não houver>
-
-Regras: não invente nada que não esteja na transcrição; se ela for curta ou
-não tiver conteúdo real, diga isso em uma frase em vez de preencher as seções.
-Responda só com o markdown do resumo, sem comentário antes ou depois.\
-"""
-
 
 class ClaudeCodeSummarizer:
     name = "claude_code"
 
-    def summarize(self, transcript: str, meeting: dict) -> str:
+    def summarize(self, transcript: str, meeting: dict) -> dict:
         binary = shutil.which("claude")
         if not binary:
             raise SummarizerUnavailable(
@@ -79,7 +53,6 @@ class ClaudeCodeSummarizer:
                 "(https://claude.com/claude-code) para gerar resumos com este provedor."
             )
 
-        name = meeting.get("name") or meeting.get("id") or "reunião"
         cmd = [
             binary,
             "-p",
@@ -87,7 +60,7 @@ class ClaudeCodeSummarizer:
             "json",
             "--allowed-tools",
             "",
-            f"{PROMPT}\n\nO nome dado a esta reunião foi: {name}",
+            build_prompt(meeting),
         ]
 
         # a pasta da reunião existe e é o contexto natural deste trabalho
@@ -118,10 +91,13 @@ class ClaudeCodeSummarizer:
                 f"Resposta inesperada do Claude Code (não era JSON): {head!r}"
             ) from exc
 
+        # dois JSON encaixados, e por motivos diferentes: o de fora é o
+        # envelope do Claude Code (é dele que sai o `is_error`), o de dentro é
+        # a resposta que pedimos no prompt.
         result = (payload.get("result") or "").strip()
         if payload.get("is_error"):
             # é aqui que cai o "Not logged in · Please run /login"
             raise SummarizerUnavailable(f"O Claude Code recusou: {result or 'erro sem mensagem'}")
         if not result:
-            raise SummarizerUnavailable("O Claude Code devolveu um resumo vazio.")
-        return result
+            raise SummarizerFailed("O Claude Code devolveu uma resposta vazia.")
+        return parse_result(result)

@@ -178,6 +178,15 @@ function segmentTime(seg) {
   return "";
 }
 
+// Reunião nasce sem nome — quem nomeia é o provedor de resumo, depois que ela
+// acaba. Até lá a tela diz "Sem nome", e não o id: o id é hora + slug genérico,
+// que não identifica reunião nenhuma para quem está lendo a lista.
+const NO_NAME = "Sem nome";
+
+function nameOf(meeting) {
+  return (meeting && meeting.name && String(meeting.name).trim()) || NO_NAME;
+}
+
 function speakerColor(name) {
   if (name === "Você") return "var(--accent)";
   if (name === "Outros participantes") return "var(--speaker)";
@@ -438,7 +447,8 @@ function metaLine(o) {
 function renderMeetingHeader() {
   const o = state.open;
   const m = o.meeting;
-  el("mv-name").textContent = m.name || o.id;
+  el("mv-name").textContent = nameOf(m);
+  el("mv-name").classList.toggle("unnamed", !m.name);
   el("mv-meta").textContent = metaLine(o);
 
   el("mv-elapsed").classList.toggle("hidden", !o.live);
@@ -475,7 +485,13 @@ function renderFicha() {
   const m = o.meeting;
 
   const rename = el("mv-rename");
-  if (document.activeElement !== rename) rename.value = m.name || o.id;
+  // vazio, não o id: o campo tem placeholder "Sem nome", e preencher com o id
+  // faria a pessoa apagá-lo antes de escrever o nome de verdade
+  if (document.activeElement !== rename) rename.value = m.name || "";
+  el("rename-note").textContent =
+    m.name_source === "ai" ? "nome escrito pela IA · clique para trocar" : "clique para renomear";
+
+  renderTags(m);
 
   const day = longDate(m.started_at);
   const from = timeLabel(m.started_at);
@@ -484,6 +500,25 @@ function renderFicha() {
     .filter(Boolean)
     .join(" · ");
   el("mv-path").textContent = o.path || "";
+}
+
+/** As tags da reunião — geradas junto com o resumo, não digitadas aqui. */
+function renderTags(meeting) {
+  const box = el("mv-tags");
+  const tags = meeting.tags || [];
+  box.innerHTML = "";
+  box.classList.toggle("muted", !tags.length);
+
+  if (!tags.length) {
+    box.textContent = "— saem junto com o resumo, na aba ao lado";
+    return;
+  }
+  for (const tag of tags) {
+    const chip = document.createElement("span");
+    chip.className = "tag";
+    chip.textContent = tag;
+    box.appendChild(chip);
+  }
 }
 
 function renderActions() {
@@ -592,6 +627,7 @@ async function openMeeting(id, row) {
     audio: null,
     summaryState: null,
     awaitingFinalize: false,
+    settling: 0, // ver `stillSettling`
     rate: 1,
   };
   state.notes.loadedFor = null;
@@ -620,6 +656,23 @@ function goHome() {
   loadHistory();
 }
 
+// Quantas voltas do polling uma reunião recém-encerrada continua sendo
+// relida. O daemon sobe o resumo no instante em que o engine sai, mas escrever
+// `status: "stopped"` e escrever `summary_status: "running"` são duas escritas,
+// e a janela pode ler entre uma e outra — sem essa folga, a leitura que caísse
+// no meio deixaria a tela parada em "Sem nome" para sempre. Depois delas, quem
+// segura o polling é o próprio `summary_status`.
+const SETTLE_TICKS = 5;
+
+function stillSettling(o) {
+  if (o.meeting.summary_status === "running") return true;
+  if (o.settling > 0) {
+    o.settling -= 1;
+    return true;
+  }
+  return false;
+}
+
 /** Reconcilia a reunião aberta com o que o daemon diz estar ativo. */
 async function syncOpenMeeting(activeDetail) {
   const o = state.open;
@@ -637,8 +690,11 @@ async function syncOpenMeeting(activeDetail) {
 
   if (!o.live) {
     // Não está viva, mas o status muda sozinho enquanto o `finalize` roda —
-    // sem isso o botão ficaria "Finalizando…" para sempre.
-    if (o.meeting.status === "finalizing" || o.awaitingFinalize) await refreshOpenMeeting();
+    // sem isso o botão ficaria "Finalizando…" para sempre. O mesmo vale para o
+    // resumo, que renomeia a reunião quando termina.
+    if (o.meeting.status === "finalizing" || o.awaitingFinalize || stillSettling(o)) {
+      await refreshOpenMeeting();
+    }
     return;
   }
 
@@ -646,6 +702,7 @@ async function syncOpenMeeting(activeDetail) {
   // pela CLI. Drena o que o engine escreveu depois do sinal antes de virar
   // histórico, senão as últimas falas nunca apareceriam.
   o.live = false;
+  o.settling = SETTLE_TICKS;
   await pollChat();
   await refreshOpenMeeting();
   // as bolhas foram criadas enquanto a reunião gravava, quando corrigir e
@@ -659,6 +716,7 @@ async function syncOpenMeeting(activeDetail) {
 async function refreshOpenMeeting() {
   const o = state.open;
   if (!o) return;
+  const wasSummarizing = o.meeting.summary_status === "running";
   try {
     const detail = await api("meeting_status", o.id);
     if (state.open !== o) return;
@@ -671,12 +729,21 @@ async function refreshOpenMeeting() {
       // acabou (bem ou mal): a transcrição pode ter sido reescrita por cima, e
       // os seq não são mais os mesmos — o chat incremental recomeça do zero
       o.awaitingFinalize = false;
+      // a transcrição nova dispara um resumo novo, que vai renomear a reunião
+      o.settling = SETTLE_TICKS;
       await loadAudio(); // o meeting.wav pode ter acabado de aparecer
       resetChat();
       await pollChat();
     }
     // o resumo roda em job próprio; quando ele acaba, a aba precisa saber
     if (o.summaryState && o.summaryState.status === "running") await loadSummary();
+    if (wasSummarizing && detail.meeting.summary_status !== "running") {
+      // o nome e as tags acabaram de mudar: a caixa do resumo e a linha desta
+      // reunião na barra lateral estão desatualizadas as duas
+      o.settling = 0;
+      await loadSummary();
+      loadHistory();
+    }
   } catch (err) {
     setBanner(errText(err));
   }
@@ -687,6 +754,11 @@ async function refreshOpenMeeting() {
 }
 
 // ----------------------------------------------- barra lateral/histórico
+
+function matchesSearch(row, needle) {
+  const hay = [row.name || "", row.id, ...(row.tags || [])].join(" ").toLowerCase();
+  return hay.includes(needle);
+}
 
 /** Em que bloco da barra lateral esta reunião cai. */
 function groupOf(iso) {
@@ -709,7 +781,8 @@ function sidebarRow(row) {
 
   const title = document.createElement("div");
   title.className = "sb-row-title";
-  title.textContent = row.name || row.id;
+  if (!row.name) title.classList.add("unnamed");
+  title.textContent = nameOf(row);
   button.appendChild(title);
 
   // Hoje o horário basta; mais antiga precisa do dia. Depois vem a duração —
@@ -733,7 +806,9 @@ function renderMeetingList() {
 
   const needle = state.filter.trim().toLowerCase();
   const rows = state.rows
-    .filter((r) => !needle || String(r.name || r.id).toLowerCase().includes(needle))
+    // busca também nas tags: quando a IA nomeia, é por elas que se acha um
+    // grupo de reuniões ("contratação") sem lembrar do nome de nenhuma
+    .filter((r) => !needle || matchesSearch(r, needle))
     // O daemon ordena pela pasta, cujo nome começa com a hora de criação — o
     // que quase sempre bate com started_at, mas não é a mesma coisa. Ordenar
     // aqui pelo campo que os títulos de grupo usam é o que garante que eles
@@ -786,7 +861,8 @@ function renderLiveCard() {
   card.classList.toggle("paused", paused);
   el("live-card-label").textContent = STATUS_LABEL[active.status] || String(active.status).toUpperCase();
   el("live-card-time").textContent = elapsedSince(active.started_at);
-  el("live-card-name").textContent = active.name || active.id;
+  el("live-card-name").textContent = nameOf(active);
+  el("live-card-name").classList.toggle("unnamed", !active.name);
   el("live-card-stop").disabled = active.status === "stopping";
   el("live-card-stop").textContent = active.status === "stopping" ? "Parando…" : "Parar";
 
@@ -798,7 +874,7 @@ function renderLiveCard() {
 function renderHome() {
   const active = state.active;
   el("home-kicker").textContent = active
-    ? `${active.status === "paused" ? "Pausada" : "Gravando agora"} · ${active.name || active.id}`
+    ? `${active.status === "paused" ? "Pausada" : "Gravando agora"} · ${nameOf(active)}`
     : "Ocioso · nada gravando";
   el("agenda-date").textContent = new Date().toLocaleDateString("pt-BR", {
     weekday: "short",
@@ -816,6 +892,10 @@ async function refreshStatus() {
     setBanner(errText(err));
     return;
   }
+
+  // Resumo rodando em alguma reunião significa nome e tags prestes a mudar —
+  // e é a lista, não a reunião aberta, que mostra os dois para todas elas.
+  if (state.rows.some((row) => row.summary_status === "running")) loadHistory();
 
   const detail = status.active;
   const wasActive = state.active && state.active.id;
@@ -1372,7 +1452,8 @@ function renderSummary() {
   const note = document.createElement("div");
   note.className = "slab-note";
   note.textContent =
-    "O resumo é gerado a partir da transcrição — a final, quando existe. Regerar substitui o anterior.";
+    "O resumo, o nome e as tags saem juntos da transcrição. Regerar substitui o resumo e as tags; " +
+    "o nome só é trocado se ninguém tiver dado um à mão.";
   box.append(title, note);
 }
 
@@ -1419,7 +1500,17 @@ function renderSettings() {
   fillSelect("set-final-backend", state.backends.final, s.final_backend);
   fillSelect("set-summary-provider", state.backends.summary, s.summary_provider);
   el("set-live-on").checked = s.transcribe_live;
+  el("set-auto-summarize").checked = s.auto_summarize;
+  el("set-openai-url").value = s.openai_base_url || "";
+  el("set-openai-key").value = s.openai_api_key || "";
+  el("set-openai-model").value = s.openai_model || "";
   el("set-language").value = s.language;
+  renderProviderFields();
+}
+
+/** Os campos da API só existem quando o provedor que os usa está escolhido. */
+function renderProviderFields() {
+  el("openai-fields").classList.toggle("hidden", el("set-summary-provider").value !== "openai_api");
 }
 
 async function loadSettings() {
@@ -1446,6 +1537,10 @@ async function onSaveSettings() {
       transcribe_live: el("set-live-on").checked,
       final_backend: el("set-final-backend").value,
       summary_provider: el("set-summary-provider").value,
+      auto_summarize: el("set-auto-summarize").checked,
+      openai_base_url: el("set-openai-url").value,
+      openai_api_key: el("set-openai-key").value,
+      openai_model: el("set-openai-model").value,
       language: el("set-language").value,
     });
     renderSettings(); // o daemon é quem diz o que ficou valendo
@@ -1467,14 +1562,16 @@ async function onSaveSettings() {
 // -------------------------------------------------------------- comandos
 
 async function onStart() {
-  const name = el("name").value.trim() || "Reunião";
+  // sem fallback para "Reunião": nome vazio é o pedido de que a IA nomeie
+  const name = el("name").value.trim();
   const button = el("start-btn");
   button.disabled = true;
   setAlert("start-error", "");
   try {
-    // só o nome: modo, backend e idioma são decididos fora daqui — ver
-    // `Api.start_meeting`
+    // só o nome (quando há um): modo, backend e idioma são decididos fora
+    // daqui — ver `Api.start_meeting`
     const meeting = await api("start_meeting", name);
+    el("name").value = ""; // o nome digitado era desta reunião, não da próxima
     state.autoOpened = meeting.id; // já vamos abrir aqui; o polling não repete
     await openMeeting(meeting.id);
     await refreshStatus();
@@ -1585,7 +1682,7 @@ async function onRename() {
   const input = el("mv-rename");
   const name = input.value.trim();
   if (!name || name === o.meeting.name) {
-    input.value = o.meeting.name || o.id;
+    input.value = o.meeting.name || "";
     return;
   }
   try {
@@ -1658,7 +1755,7 @@ async function boot() {
   rename.addEventListener("keydown", (event) => {
     if (event.key === "Enter") rename.blur();
     if (event.key === "Escape") {
-      rename.value = state.open ? state.open.meeting.name || state.open.id : "";
+      rename.value = state.open ? state.open.meeting.name || "" : "";
       rename.blur();
     }
   });
@@ -1686,6 +1783,9 @@ async function boot() {
   el("config-link").addEventListener("click", openSettings);
   el("settings-back").addEventListener("click", goHome);
   el("settings-save").addEventListener("click", onSaveSettings);
+  // trocar de provedor mostra/esconde os campos dele na hora, sem salvar:
+  // preencher URL e chave só faz sentido para quem já escolheu usá-los
+  el("set-summary-provider").addEventListener("change", renderProviderFields);
 
   await loadSettings();
   await loadHistory();
