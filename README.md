@@ -16,9 +16,10 @@ Sketch inicial. O que funciona:
     participantes da reunião estão falando, via monitor da saída padrão), gravando
     `mic.wav`, `system.wav` e uma mixagem `meeting.wav` por reunião — **e transcreve em
     tempo real de verdade**, local, sem chave de API (ver Backends de transcrição abaixo).
-- Transcrição final (`fireball finalize`) roda o backend escolhido sobre cada `.wav`
-  inteiro (mais preciso que o tempo real) e mescla mic/system por ordem de início — local
-  (whisper/parakeet) ou via API da Groq (`--backend groq`, só pra transcrição final).
+- Transcrição final (`fireball finalize`) roda o backend escolhido sobre cada track,
+  cortada pelo VAD em blocos de fala (mais preciso que o tempo real), e mescla mic/system
+  por ordem de início — local (whisper/parakeet) ou via API da Groq (`--backend groq`, só
+  pra transcrição final).
 - Skill (`skills/fireball/SKILL.md`) com as instruções de como o Claude deve agir como escrivão.
 - **Daemon** (`fireball.daemon`) — o processo dono do estado, que supervisiona as gravações,
   garante uma reunião por vez e **mostra o ícone na bandeja**: enquanto o Fireball está ligado,
@@ -219,6 +220,26 @@ fireball start --name "Reunião" --real --backend parakeet
 fireball start --name "Reunião" --real --no-transcribe      # só grava, sem transcrever ao vivo
 ```
 
+### A transcrição final também corta pelo VAD
+
+`finalize` não manda o `.wav` inteiro para o backend: passa o VAD antes e transcreve
+**bloco de fala** por bloco de fala, somando o início do bloco aos tempos que voltam.
+
+Mandar a track inteira dava timestamp errado. O Whisper estica um segmento por cima da
+pausa que veio antes dele — numa reunião de 43s, uma fala que acontece aos 24s voltou como
+`0 → 27.64`, e outra aos 37s voltou como `30 → 59.98`, passando da duração do arquivo. O
+texto estava certo; a posição, não. E como o merge das duas tracks ordena por `start`, a
+fala do outro participante subia para o topo da conversa. A transcrição ao vivo não tinha
+esse problema justamente porque ela já cortava pelo VAD antes de transcrever.
+
+O corte é **por bloco, não por fala**: falas separadas por menos de 1,5s continuam juntas,
+porque o contexto ao redor melhora a transcrição e porque assim o número de chamadas de API
+acompanha as pausas, não as frases. Só o silêncio longo é descartado — o que, de quebra,
+tira a alucinação em silêncio na origem, já que ele nunca chega ao modelo.
+
+Efeito colateral bem-vindo: o `parakeet`, que não devolve timestamp nenhum, passa a ter os
+tempos do bloco em vez de todo segmento ancorado no início da reunião.
+
 ### `groq` — transcrição final via API (só para `finalize`)
 
 Terceiro backend, **só para lote** (`BatchBackend`, não implementa tempo real — é uma API
@@ -238,7 +259,9 @@ final é `groq`); o ambiente entra quando esse campo está vazio, como no proved
 Testado com uma chamada de API real: em áudio majoritariamente silencioso, o modelo alucinou
 a mesma frase curta 3x, exatamente a cada 30s (janela interna do Whisper), com métricas de
 confiança "boas" — por isso `GroqBackend` filtra por energia (RMS) do trecho de áudio
-correspondente a cada segmento, não só pelas métricas do próprio modelo.
+correspondente a cada segmento, não só pelas métricas do próprio modelo. O corte por VAD
+acima cobre o mesmo caso mais cedo (o silêncio nem é enviado); o filtro fica como rede para
+quem chamar o backend direto, sem passar pelo `finalize`.
 
 ## Captura de áudio real (`--real`)
 

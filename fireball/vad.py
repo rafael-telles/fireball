@@ -140,3 +140,37 @@ class Endpointer:
         ready = self._utterances(speech_ranges)
         self._drop(len(self._buffer))
         return ready
+
+
+DEFAULT_BLOCK_GAP_S = 1.5
+DEFAULT_MAX_BLOCK_S = 600.0
+DEFAULT_BLOCK_PAD_S = 0.2
+
+
+def speech_blocks(
+    audio: "np.ndarray",
+    samplerate: int = 16000,
+    max_gap_s: float = DEFAULT_BLOCK_GAP_S,
+    max_block_s: float = DEFAULT_MAX_BLOCK_S,
+    pad_s: float = DEFAULT_BLOCK_PAD_S,
+) -> list[tuple[float, float]]:
+    """Trechos [início, fim) da track que contêm fala, em segundos.
+
+    Diferente do Endpointer, que isola *cada* fala para o loop ao vivo, aqui
+    falas vizinhas viram um bloco só: quebrar apenas onde há silêncio longo
+    preserva o contexto de que o Whisper precisa para transcrever bem, e
+    mantém o número de chamadas de API proporcional às pausas, não às frases.
+    """
+    _require_vad()
+    ranges = get_speech_timestamps(audio, VadOptions(), sampling_rate=samplerate)
+    duration = len(audio) / samplerate
+
+    blocks: list[list[float]] = []
+    for r in ranges:
+        start, end = r["start"] / samplerate, r["end"] / samplerate
+        if blocks and start - blocks[-1][1] <= max_gap_s and end - blocks[-1][0] <= max_block_s:
+            blocks[-1][1] = end
+        else:
+            blocks.append([start, end])
+
+    return [(max(0.0, s - pad_s), min(duration, e + pad_s)) for s, e in blocks]
