@@ -608,6 +608,11 @@ const SETTLE_TICKS = 5;
 
 function stillSettling(o) {
   if (o.meeting.summary_status === "running") return true;
+  // `o.meeting` só é relido por `refreshOpenMeeting`, que é o que esta função
+  // libera: pedir o resumo pelo botão não passa por lá, então sem olhar também
+  // o que o próprio pedido devolveu ninguém volta a ler a reunião, e a caixa
+  // fica em "Gerando…" até alguém trocar de aba.
+  if (o.summaryState && o.summaryState.status === "running") return true;
   if (o.settling > 0) {
     o.settling -= 1;
     return true;
