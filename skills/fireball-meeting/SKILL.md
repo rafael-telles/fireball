@@ -59,16 +59,13 @@ CLI do Fireball (venv dedicado, não está no PATH):
    discutido): edite a seção `## Notes` da nota `Meeting` no vault, acrescentando uma linha
    objetiva em português. **Não** chame `fireball note` — isso escreveria no `notes.md` do
    Fireball, que não é o que este fluxo usa como fonte da verdade.
-4. Se implicar uma ação concreta, registre como pendente:
-   `fireball action add <meeting_id> --title "<título>" --detail "<contexto>" --system <tolaria|linear|slack|...>`
-   e também acrescente uma linha em `## Action items` da nota, marcada como pendente:
-   `- [ ] <título> _(pendente de aprovação)_`. **Não execute a ação de verdade ainda.**
+4. Se implicar uma ação concreta, acrescente uma linha em `## Action items` da nota:
+   `- [ ] <título>`. **Não execute a ação de verdade** sem o usuário pedir.
 5. Depois de processar um lote de segmentos, confirme o checkpoint (permite retomar do ponto
    certo se a sessão cair no meio da reunião):
    `fireball transcript ack <meeting_id> <seq>`
-6. Quando o usuário aprovar uma ação pendente, execute-a com a tool apropriada, rode
-   `fireball action done <meeting_id> <action_id>` e atualize a linha correspondente em
-   `## Action items` para `- [x] <título>`.
+6. Quando o usuário mandar executar uma dessas ações, faça-a com a tool apropriada e atualize a
+   linha correspondente em `## Action items` para `- [x] <título>`.
 
 ## 3. Encerrar
 

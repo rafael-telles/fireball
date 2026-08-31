@@ -572,17 +572,6 @@ class DaemonCore:
             control.append_note(meeting_id, text, author, datetime.now().strftime("%H:%M"))
         return {"ok": True}
 
-    def action_add(self, meeting_id: str, title: str, detail: str = "", system: str = "tolaria") -> dict:
-        with self._lock:
-            return control.add_action(meeting_id, title, detail, system)
-
-    def action_list(self, meeting_id: str, status_filter: str = "all") -> list[dict]:
-        return control.list_actions(meeting_id, status_filter)
-
-    def action_set(self, meeting_id: str, action_id: str, status: str) -> dict:
-        with self._lock:
-            return control.set_action_status(meeting_id, action_id, status)
-
     def finalize(self, meeting_id: str, backend: Optional[str] = None, wait_timeout: float = 0.0) -> dict:
         # sem backend explícito vale o configurado para a transcrição final,
         # que não é necessariamente o do tempo real (é comum querer 'groq'

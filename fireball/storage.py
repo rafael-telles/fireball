@@ -9,7 +9,6 @@ Tudo baseado em arquivos, dentro de ~/.fireball (ou $FIREBALL_HOME):
                               reunião tem uma transcrição só
         summary.md            resumo gerado da transcrição (ver fireball.summary)
         notes.md              notas ao vivo (Claude + usuário)
-        actions.json          ações pendentes/aprovadas/rejeitadas/executadas
         checkpoint.json       até onde o stream já foi processado (resiliência)
         engine.log            stdout/stderr do motor de transcrição em background
 """

@@ -964,52 +964,6 @@ code {
   word-break: break-all;
 }
 
-.actions-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.action-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 13px;
-}
-
-.action-row .box {
-  width: 15px;
-  height: 15px;
-  border: 1.5px solid #4a4650;
-  border-radius: 4px;
-  flex: none;
-  margin-top: 2px;
-  font-size: 10px;
-  line-height: 12px;
-  text-align: center;
-}
-
-.action-row.done .box {
-  border-color: var(--ok);
-  background: #33d17a22;
-  color: var(--ok);
-}
-
-.action-row.done .action-title {
-  color: var(--faint);
-  text-decoration: line-through;
-}
-
-.action-detail {
-  font-size: 11.5px;
-  color: var(--faint);
-  margin-top: 3px;
-}
-
 /* ................................................ aba Transcrição */
 
 .source-switch {

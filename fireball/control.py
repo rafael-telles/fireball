@@ -87,7 +87,6 @@ def create_meeting(
     }
     storage.write_json(meeting_dir / "meeting.json", meeting)
     storage.write_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
-    storage.write_json(meeting_dir / "actions.json", [])
     return meeting
 
 
@@ -179,18 +178,15 @@ def delete_meeting(meeting_id: str) -> dict:
 
 
 def get_meeting_status(meeting_id: str) -> dict:
-    """Metadados + checkpoint + contagem de segmentos/ações pendentes."""
+    """Metadados + checkpoint + contagem de segmentos."""
     meeting_dir = storage.meeting_path(meeting_id)
     meeting = storage.read_json(meeting_dir / "meeting.json")
     checkpoint = storage.read_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
     segments = sum(1 for _ in storage.read_ndjson(meeting_dir / TRANSCRIPT_FILE))
-    actions = storage.read_json(meeting_dir / "actions.json", [])
-    pending = [a for a in actions if a["status"] == "pending"]
     return {
         "meeting": meeting,
         "checkpoint": checkpoint,
         "segments_total": segments,
-        "actions_pending": len(pending),
         # a ficha da reunião mostra a pasta e oferece abrir ela; quem sabe onde
         # os arquivos moram é este módulo, não a janela
         "path": str(meeting_dir),
@@ -510,37 +506,3 @@ def append_note(meeting_id: str, text: str, author: str, stamp: str) -> None:
     tag = "🤖" if author == "claude" else "🧑"
     with notes_path.open("a") as f:
         f.write(f"- `{stamp}` {tag} {text}\n")
-
-
-def add_action(meeting_id: str, title: str, detail: str, system: str) -> dict:
-    actions_path = storage.meeting_path(meeting_id) / "actions.json"
-    actions = storage.read_json(actions_path, [])
-    entry = {
-        "id": f"a{len(actions) + 1}",
-        "title": title,
-        "detail": detail,
-        "system": system,
-        "status": "pending",
-        "created_at": storage.now_iso(),
-    }
-    actions.append(entry)
-    storage.write_json(actions_path, actions)
-    return entry
-
-
-def list_actions(meeting_id: str, status_filter: str = "all") -> list[dict]:
-    actions = storage.read_json(storage.meeting_path(meeting_id) / "actions.json", [])
-    if status_filter != "all":
-        actions = [a for a in actions if a["status"] == status_filter]
-    return actions
-
-
-def set_action_status(meeting_id: str, action_id: str, new_status: str) -> dict:
-    actions_path = storage.meeting_path(meeting_id) / "actions.json"
-    actions = storage.read_json(actions_path, [])
-    for a in actions:
-        if a["id"] == action_id:
-            a["status"] = new_status
-            storage.write_json(actions_path, actions)
-            return a
-    raise KeyError(f"Ação '{action_id}' não encontrada na reunião '{meeting_id}'.")

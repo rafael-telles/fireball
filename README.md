@@ -10,7 +10,7 @@ Sketch inicial. O que funciona:
 
 - CLI completo (`fireball`) com dois motores:
   - `--fake` (padrão): transcrição **simulada**, para exercitar todo o fluxo (gravação →
-    transcrição ao vivo → notas → ações pendentes → transcrição final) sem depender de
+    transcrição ao vivo → notas → transcrição final) sem depender de
     microfone ou chaves de API.
   - `--real`: captura **de verdade** o microfone e o áudio do sistema (o que os outros
     participantes da reunião estão falando, via monitor da saída padrão), gravando
@@ -54,7 +54,7 @@ sem ícone nem ícone sem daemon. O ícone é a resposta visual à pergunta "iss
                           ┌───────────── daemon ─────────────┐
 fireball (CLI) ─ socket ─→│  estado (reunião ativa, lock)     │─→ engine (gravação/transcrição)
                           │  bandeja + janela (Qt)            │─→ finalize (transcrição final)
-fireball-gui  ─ socket ─→ │  meeting.json, notes.md, actions  │
+fireball-gui  ─ socket ─→ │  meeting.json, notes.md           │
    ("abre a janela")      └──────────────────────────────────┘
 ```
 
@@ -332,7 +332,7 @@ Abrir uma reunião dá três abas:
   digitar (e na hora de sair da aba, que o debounce sozinho perderia as últimas teclas). A
   barra de cima insere markdown de verdade no texto; o arquivo é markdown, e é o mesmo que a
   CLI e o Claude leem e escrevem.
-- **Resumo** — a ficha (nome, tags, dia e horário, participantes, ações, abrir a pasta) e o
+- **Resumo** — a ficha (nome, tags, dia e horário, participantes, abrir a pasta) e o
   **resumo gerado da transcrição**, com *Gerar*/*Regerar*. Nome e tags saem do mesmo pedido
   que escreve o resumo; clicar no nome renomeia à mão. Ver a seção própria abaixo.
 
@@ -604,8 +604,7 @@ fireball start --interval 1     # sem --name: a reunião nasce sem nome
 
 fireball transcript follow <meeting_id>   # roda em foreground, uma linha por segmento novo
 
-fireball note <meeting_id> "Decisão: usar Monitor para o loop ao vivo" 
-fireball action add <meeting_id> --title "Abrir ticket no Linear" --system linear
+fireball note <meeting_id> "Decisão: usar Monitor para o loop ao vivo"
 
 fireball status <meeting_id>
 fireball stop                                         # sem argumento: para a reunião ativa

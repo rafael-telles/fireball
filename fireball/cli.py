@@ -316,60 +316,8 @@ def rename(meeting_id, name):
 @click.argument("text")
 @click.option("--author", type=click.Choice(["claude", "user"]), default="claude")
 def note(meeting_id, text, author):
-    """Adiciona uma nota ao vivo ao arquivo da reunião (ação automática, sem aprovação)."""
+    """Adiciona uma nota ao vivo ao arquivo da reunião."""
     _echo(_call("note", meeting_id=meeting_id, text=text, author=author))
-
-
-@cli.group()
-def action():
-    """Gerencia ações pendentes de aprovação (internas ao vault ou em sistemas externos)."""
-
-
-@action.command(name="add")
-@click.argument("meeting_id")
-@click.option("--title", required=True)
-@click.option("--detail", default="")
-@click.option("--system", default="tolaria", help="Sistema alvo: tolaria, linear, slack, calendar, etc.")
-def action_add(meeting_id, title, detail, system):
-    """Registra uma ação como pendente. Não executa nada — só sinaliza a intenção."""
-    _echo(_call("action_add", meeting_id=meeting_id, title=title, detail=detail, system=system))
-
-
-@action.command(name="list")
-@click.argument("meeting_id")
-@click.option(
-    "--status",
-    "status_filter",
-    type=click.Choice(["pending", "approved", "rejected", "done", "all"]),
-    default="all",
-)
-def action_list(meeting_id, status_filter):
-    click.echo(
-        json.dumps(_call("action_list", meeting_id=meeting_id, status_filter=status_filter), ensure_ascii=False, indent=2)
-    )
-
-
-@action.command(name="approve")
-@click.argument("meeting_id")
-@click.argument("action_id")
-def action_approve(meeting_id, action_id):
-    """Aprova uma ação pendente. O Claude ainda precisa executá-la e chamar `action done`."""
-    _echo(_call("action_set", meeting_id=meeting_id, action_id=action_id, status="approved"))
-
-
-@action.command(name="reject")
-@click.argument("meeting_id")
-@click.argument("action_id")
-def action_reject(meeting_id, action_id):
-    _echo(_call("action_set", meeting_id=meeting_id, action_id=action_id, status="rejected"))
-
-
-@action.command(name="done")
-@click.argument("meeting_id")
-@click.argument("action_id")
-def action_done(meeting_id, action_id):
-    """Marca uma ação aprovada como executada de fato."""
-    _echo(_call("action_set", meeting_id=meeting_id, action_id=action_id, status="done"))
 
 
 # ------------------------------------------------------------------ finalize

@@ -521,49 +521,6 @@ function renderTags(meeting) {
   }
 }
 
-function renderActions() {
-  const list = el("actions-list");
-  const actions = (state.open && state.open.actions) || [];
-  list.innerHTML = "";
-  el("actions-count").textContent = actions.length ? `${actions.length} no total` : "";
-
-  if (!actions.length) {
-    const empty = document.createElement("div");
-    empty.className = "slab short";
-    const note = document.createElement("div");
-    note.className = "slab-note";
-    note.textContent =
-      "Nenhuma ação registrada. Quem cria ação hoje é o Claude durante a reunião (fireball action add).";
-    empty.appendChild(note);
-    list.appendChild(empty);
-    return;
-  }
-
-  for (const action of actions) {
-    const row = document.createElement("div");
-    row.className = "action-row" + (action.status === "done" ? " done" : "");
-
-    const box = document.createElement("div");
-    box.className = "box";
-    box.textContent = action.status === "done" ? "✓" : "";
-    row.appendChild(box);
-
-    const body = document.createElement("div");
-    const title = document.createElement("div");
-    title.className = "action-title";
-    title.textContent = action.title || action.id;
-    body.appendChild(title);
-    if (action.detail) {
-      const detail = document.createElement("div");
-      detail.className = "action-detail";
-      detail.textContent = action.detail;
-      body.appendChild(detail);
-    }
-    row.appendChild(body);
-    list.appendChild(row);
-  }
-}
-
 function showTab(name) {
   state.tab = name;
   for (const [key, id] of Object.entries(TABS)) el(id).classList.toggle("hidden", key !== name);
@@ -575,23 +532,10 @@ function showTab(name) {
     // desenha antes de ir buscar: sem isto a caixa fica em branco entre abrir
     // a aba e o resumo chegar, o que se lê como "não tem nada aqui"
     renderSummary();
-    loadActions();
     loadSummary();
   }
   // sair do editor sem esperar o debounce: trocar de aba é uma pausa
   if (name !== "notas") flushNotes();
-}
-
-async function loadActions() {
-  const o = state.open;
-  if (!o) return;
-  try {
-    o.actions = await api("actions", o.id);
-  } catch (err) {
-    o.actions = [];
-    setBanner(errText(err));
-  }
-  if (state.open === o) renderActions();
 }
 
 async function openMeeting(id, row) {
@@ -615,9 +559,7 @@ async function openMeeting(id, row) {
     id,
     meeting: detail.meeting,
     segments: detail.segments_total,
-    actionsPending: detail.actions_pending,
     path: detail.path,
-    actions: null,
     live,
     lastSeq: 0,
     lastSpeaker: null,
@@ -681,7 +623,6 @@ async function syncOpenMeeting(activeDetail) {
   if (activeDetail && activeDetail.meeting.id === o.id) {
     o.meeting = activeDetail.meeting;
     o.segments = activeDetail.segments_total;
-    o.actionsPending = activeDetail.actions_pending;
     o.live = true;
     renderMeetingHeader();
     renderFicha();
@@ -722,7 +663,6 @@ async function refreshOpenMeeting() {
     if (state.open !== o) return;
     o.meeting = detail.meeting;
     o.segments = detail.segments_total;
-    o.actionsPending = detail.actions_pending;
     o.path = detail.path;
     o.live = LIVE_STATUSES.has(detail.meeting.status);
     if (o.awaitingFinalize && detail.meeting.status !== "finalizing") {

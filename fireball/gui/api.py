@@ -152,9 +152,6 @@ class Api:
         """A aba Notas salvando o notes.md inteiro (o editor é a versão boa)."""
         return self._call(self._core.save_notes, meeting_id=meeting_id, text=text)
 
-    def actions(self, meeting_id: str) -> dict:
-        return self._call(self._core.action_list, meeting_id=meeting_id, status_filter="all")
-
     def rename_meeting(self, meeting_id: str, name: str) -> dict:
         return self._call(self._core.rename_meeting, meeting_id=meeting_id, name=name)
 
