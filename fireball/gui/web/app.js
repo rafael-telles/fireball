@@ -591,6 +591,7 @@ async function openMeeting(id, row) {
     warnings: [],
     audio: null,
     summaryState: null,
+    awaitingFinalize: false,
     rate: 1,
   };
   state.notes.loadedFor = null;
@@ -637,7 +638,7 @@ async function syncOpenMeeting(activeDetail) {
   if (!o.live) {
     // Não está viva, mas o status muda sozinho enquanto o `finalize` roda —
     // sem isso o botão ficaria "Finalizando…" para sempre.
-    if (o.meeting.status === "finalizing") await refreshOpenMeeting();
+    if (o.meeting.status === "finalizing" || o.awaitingFinalize) await refreshOpenMeeting();
     return;
   }
 
@@ -661,16 +662,16 @@ async function refreshOpenMeeting() {
   try {
     const detail = await api("meeting_status", o.id);
     if (state.open !== o) return;
-    const wasFinalizing = o.meeting.status === "finalizing";
     o.meeting = detail.meeting;
     o.segments = detail.segments_total;
     o.actionsPending = detail.actions_pending;
     o.path = detail.path;
     o.live = LIVE_STATUSES.has(detail.meeting.status);
-    if (wasFinalizing && detail.meeting.status === "finalized") {
-      // a transcrição foi reescrita por cima: os seq não são mais os mesmos,
-      // então o chat incremental precisa recomeçar do zero
-      await loadAudio();
+    if (o.awaitingFinalize && detail.meeting.status !== "finalizing") {
+      // acabou (bem ou mal): a transcrição pode ter sido reescrita por cima, e
+      // os seq não são mais os mesmos — o chat incremental recomeça do zero
+      o.awaitingFinalize = false;
+      await loadAudio(); // o meeting.wav pode ter acabado de aparecer
       resetChat();
       await pollChat();
     }
@@ -1564,8 +1565,14 @@ async function onFinalize() {
   button.disabled = true;
   setAlert("meeting-error", "");
   try {
-    o.meeting = await api("finalize", o.id);
-    renderMeetingHeader();
+    // o retorno é o resumo do job (segmentos, backend), não a reunião — quem
+    // diz como ela ficou é o meeting_status logo abaixo
+    await api("finalize", o.id);
+    // marca que estamos esperando: não dá pra depender de *flagrar* o status
+    // 'finalizing' num polling de 2s, porque um backend rápido termina entre
+    // duas voltas e a transcrição nova nunca apareceria na tela.
+    o.awaitingFinalize = true;
+    await refreshOpenMeeting();
   } catch (err) {
     setAlert("meeting-error", "Não foi possível finalizar", errText(err));
     button.disabled = false;

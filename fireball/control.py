@@ -327,6 +327,63 @@ def migrate_transcripts() -> list[str]:
     return migrated
 
 
+# ------------------------------------------------------------------ avisos
+
+# O engine grava esses arquivos quando algo deu errado mas a gravação seguiu
+# assim mesmo — são exatamente as falhas que passam despercebidas, porque
+# nada quebra na hora: você só descobre depois que faltou metade da reunião.
+WARNING_FILES = (
+    ("audio", "audio_warnings.log"),
+    ("transcricao", "transcribe_warnings.log"),
+)
+
+
+def read_warnings(meeting_id: str) -> list[dict]:
+    warnings = []
+    meeting_dir = storage.meeting_path(meeting_id)
+    for kind, filename in WARNING_FILES:
+        path = meeting_dir / filename
+        if not path.exists():
+            continue
+        text = path.read_text().strip()
+        if text:
+            warnings.append({"kind": kind, "file": filename, "text": text})
+    return warnings
+
+
+# ------------------------------------------------------------------ resumo
+
+
+def read_summary(meeting_id: str) -> Optional[dict]:
+    """O resumo gerado, com a procedência — ou None se ainda não houver."""
+    meeting_dir = storage.meeting_path(meeting_id)
+    path = meeting_dir / "summary.md"
+    if not path.exists():
+        return None
+    return {
+        "markdown": path.read_text(),
+        **storage.read_json(meeting_dir / "summary_result.json", {}),
+    }
+
+
+# ------------------------------------------------------------------- áudio
+
+
+def audio_info(meeting_id: str) -> dict:
+    """Onde está o áudio da reunião.
+
+    `meeting.wav` é a mistura de mic + sistema, escrita pelo engine ao terminar
+    de gravar. Quando o monitor do sistema não abriu, ela não existe — mas
+    mic.wav existe, e ouvir só o seu lado é melhor que não ouvir nada.
+    """
+    meeting_dir = storage.meeting_path(meeting_id)
+    for name, mixed in (("meeting.wav", True), ("mic.wav", False)):
+        path = meeting_dir / name
+        if path.exists():
+            return {"path": str(path), "exists": True, "size": path.stat().st_size, "mixed": mixed}
+    return {"path": None, "exists": False, "size": 0, "mixed": False}
+
+
 def meeting_summaries() -> list[dict]:
     """`list_meetings()` mais o que cada linha da lista da GUI precisa mostrar.
 
