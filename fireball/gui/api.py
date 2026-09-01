@@ -65,7 +65,7 @@ class Api:
         """Próximos eventos. `refresh=True` força um fetch novo no provedor."""
         return self._call(self._core.agenda, refresh=bool(refresh))
 
-    def start_meeting(self, name: str = "", event_id: str = "") -> dict:
+    def start_meeting(self, name: str = "", event_id: str = "", diarize: bool | None = None) -> dict:
         """Começar reunião pela janela é um clique: nem o nome é obrigatório.
 
         Nome vazio é o caminho normal, não um campo esquecido — a reunião nasce
@@ -85,6 +85,7 @@ class Api:
             name=(name or "").strip() or None,
             fake=False,
             event_id=(event_id or "").strip() or None,
+            diarize=None if diarize is None else bool(diarize),
         )
 
     def stop_meeting(self, meeting_id: str) -> dict:
@@ -180,7 +181,36 @@ class Api:
     def rename_meeting(self, meeting_id: str, name: str) -> dict:
         return self._call(self._core.rename_meeting, meeting_id=meeting_id, name=name)
 
-    def finalize(self, meeting_id: str) -> dict:
+    def set_diarization(self, meeting_id: str, diarize: bool) -> dict:
+        return self._call(self._core.set_diarization, meeting_id=meeting_id, diarize=bool(diarize))
+
+    def voices(self) -> dict:
+        return self._call(self._core.voice_profiles)
+
+    def enroll_voice(
+        self,
+        meeting_id: str,
+        speaker_key: str,
+        name: str,
+        email: str = "",
+        profile_id: str = "",
+    ) -> dict:
+        return self._call(
+            self._core.enroll_voice,
+            meeting_id=meeting_id,
+            speaker_key=speaker_key,
+            name=name,
+            email=email,
+            profile_id=profile_id or None,
+        )
+
+    def rename_voice(self, profile_id: str, name: str) -> dict:
+        return self._call(self._core.rename_voice, profile_id=profile_id, name=name)
+
+    def delete_voice(self, profile_id: str) -> dict:
+        return self._call(self._core.delete_voice, profile_id=profile_id)
+
+    def finalize(self, meeting_id: str, diarize: bool | None = None) -> dict:
         """Transcrição final pela janela.
 
         `wait_timeout=0` pelo mesmo motivo do stop: finalizar roda o motor
@@ -188,7 +218,12 @@ class Api:
         'finalizando' pelo polling em vez de congelar. Backend sai da
         configuração, resolvido no daemon.
         """
-        return self._call(self._core.finalize, meeting_id=meeting_id, wait_timeout=0.0)
+        return self._call(
+            self._core.finalize,
+            meeting_id=meeting_id,
+            diarize=diarize,
+            wait_timeout=0.0,
+        )
 
     def open_folder(self, meeting_id: str) -> dict:
         """Abre a pasta da reunião no gerenciador de arquivos do sistema.

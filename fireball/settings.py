@@ -34,6 +34,9 @@ DEFAULTS = {
     "realtime_backend": "whisper",
     # transcrever durante a reunião, ou só gravar o áudio e deixar tudo pro final
     "transcribe_live": True,
+    # separar pessoas nas duas tracks ao vivo e durante o finalize. Opt-in:
+    # Sortformer suporta até quatro vozes na sala e quatro no áudio do sistema.
+    "diarize_default": False,
     # motor da transcrição final, rodada sobre o áudio inteiro depois
     "final_backend": "whisper",
     # chave da Groq, usada só quando final_backend é "groq". Vazio aqui não é
@@ -76,7 +79,7 @@ def _coerce(key: str, value) -> Optional[object]:
         return value if value in REALTIME_BACKENDS else None
     if key == "final_backend":
         return value if value in BATCH_BACKENDS else None
-    if key in ("transcribe_live", "auto_summarize"):
+    if key in ("transcribe_live", "auto_summarize", "diarize_default"):
         return bool(value)
     if key == "openai_base_url":
         url = str(value or "").strip().rstrip("/")

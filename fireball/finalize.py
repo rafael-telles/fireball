@@ -24,10 +24,11 @@ from typing import Optional
 
 import numpy as np
 
-from fireball import realtime, storage, vad
-from fireball.backends import get_batch_backend
+from fireball import realtime, storage, vad, voices
+from fireball.backends import BackendUnavailable, get_batch_backend, get_diarization_backend
 
 TRACK_SPEAKERS = (("mic", "Você"), ("system", "Outros participantes"))
+DIARIZED_PREFIXES = {"mic": "Sala", "system": "Remoto"}
 
 
 def _read_track(wav_path: Path) -> tuple["np.ndarray", int]:
@@ -80,6 +81,45 @@ def _transcribe_track(batch_backend, wav_path: Path, language: str) -> list[dict
     return segments
 
 
+def _transcribe_turns(
+    batch_backend,
+    wav_path: Path,
+    language: str,
+    turns: list[dict],
+    track: str,
+    speaker_prefix: str,
+    assignments: dict[str, dict],
+) -> list[dict]:
+    """Recorta turnos diarizados antes do ASR (necessário para o Parakeet)."""
+    audio, samplerate = _read_track(wav_path)
+    segments: list[dict] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        turn_path = Path(tmp) / "turn.wav"
+        for turn in turns:
+            start = max(0.0, float(turn["start"]))
+            end = min(len(audio) / samplerate, float(turn["end"]))
+            if end <= start:
+                continue
+            _write_wav(audio[int(start * samplerate) : int(end * samplerate)], samplerate, turn_path)
+            speaker_id = int(turn["speaker_id"])
+            speaker_key = f"{track}:{speaker_id}"
+            assignment = assignments.get(speaker_key)
+            speaker = assignment["name"] if assignment else f"{speaker_prefix} {speaker_id + 1}"
+            for seg in batch_backend.transcribe_file(turn_path, language):
+                segments.append(
+                    {
+                        **_placed(seg, start, end),
+                        "speaker": speaker,
+                        "track": track,
+                        "speaker_id": speaker_id,
+                        "speaker_key": speaker_key,
+                        "voice_profile_id": assignment.get("profile_id") if assignment else None,
+                        "speaker_confidence": assignment.get("confidence") if assignment else None,
+                    }
+                )
+    return segments
+
+
 def run_finalize(meeting_dir: Path, backend: Optional[str] = None) -> dict:
     """Roda o backend de lote sobre cada track e mescla mic/system por ordem de
     início. Devolve (e grava) o resumo do que foi produzido."""
@@ -103,13 +143,56 @@ def run_finalize(meeting_dir: Path, backend: Optional[str] = None) -> dict:
     batch_backend = get_batch_backend(backend_name)
 
     tracks = storage.read_json(meeting_dir / "audio_tracks.json", {})
+    track_paths = {
+        key: meeting_dir / f"{key}.wav"
+        for key, _speaker in TRACK_SPEAKERS
+        if key in tracks and (meeting_dir / f"{key}.wav").exists()
+    }
+
+    diarized: dict[str, list[dict]] | None = None
+    assignments: dict[str, dict] = {}
+    diarization_warning = None
+    if meeting.get("diarize"):
+        try:
+            diarized = get_diarization_backend().diarize_files(track_paths)
+            storage.write_json(meeting_dir / "diarization.json", diarized)
+            (meeting_dir / "diarization_warnings.log").unlink(missing_ok=True)
+            try:
+                assignments = voices.identify_diarized_tracks(meeting_dir, diarized)
+                (meeting_dir / "voice_warnings.log").unlink(missing_ok=True)
+            except BackendUnavailable as exc:
+                assignments = voices.load_labels(meeting_dir)
+                (meeting_dir / "voice_warnings.log").write_text(str(exc) + "\n")
+        except BackendUnavailable as exc:
+            diarization_warning = str(exc)
+            (meeting_dir / "diarization.json").unlink(missing_ok=True)
+            (meeting_dir / "diarization_warnings.log").write_text(diarization_warning + "\n")
+    else:
+        (meeting_dir / "diarization.json").unlink(missing_ok=True)
+        (meeting_dir / "diarization_warnings.log").unlink(missing_ok=True)
+
     entries = []
     for key, speaker in TRACK_SPEAKERS:
-        wav_path = meeting_dir / f"{key}.wav"
-        if key not in tracks or not wav_path.exists():
+        wav_path = track_paths.get(key)
+        if wav_path is None:
             continue
-        for seg in _transcribe_track(batch_backend, wav_path, language):
-            entries.append({"start": seg["start"], "end": seg["end"], "speaker": speaker, "text": seg["text"]})
+        if diarized is not None:
+            entries.extend(
+                _transcribe_turns(
+                    batch_backend,
+                    wav_path,
+                    language,
+                    diarized.get(key, []),
+                    key,
+                    DIARIZED_PREFIXES[key],
+                    assignments,
+                )
+            )
+        else:
+            for seg in _transcribe_track(batch_backend, wav_path, language):
+                entries.append(
+                    {"start": seg["start"], "end": seg["end"], "speaker": speaker, "text": seg["text"]}
+                )
 
     entries.sort(key=lambda e: e["start"] if e["start"] is not None else 0.0)
 
@@ -122,12 +205,37 @@ def run_finalize(meeting_dir: Path, backend: Optional[str] = None) -> dict:
                 "end": entry["end"],
                 "speaker": entry["speaker"],
                 "text": entry["text"],
+                **{
+                    field: entry[field]
+                    for field in (
+                        "track",
+                        "speaker_id",
+                        "speaker_key",
+                        "voice_profile_id",
+                        "speaker_confidence",
+                    )
+                    if field in entry and entry[field] is not None
+                },
             },
         )
-    return _write_result(meeting_dir, new_path, len(entries), backend_name)
+    return _write_result(
+        meeting_dir,
+        new_path,
+        len(entries),
+        backend_name,
+        diarized=diarized is not None,
+        diarization_warning=diarization_warning,
+    )
 
 
-def _write_result(meeting_dir: Path, new_path: Path, segments: int, backend: str) -> dict:
+def _write_result(
+    meeting_dir: Path,
+    new_path: Path,
+    segments: int,
+    backend: str,
+    diarized: bool = False,
+    diarization_warning: Optional[str] = None,
+) -> dict:
     """Troca a transcrição pela recém-produzida e registra o resultado.
 
     A troca só acontece se saiu alguma coisa: um backend que devolveu zero
@@ -146,6 +254,8 @@ def _write_result(meeting_dir: Path, new_path: Path, segments: int, backend: str
         "segments": segments,
         "backend": backend,
         "replaced": replaced,
+        "diarized": diarized,
+        "diarization_warning": diarization_warning,
     }
     storage.write_json(meeting_dir / "finalize_result.json", result)
     return result

@@ -791,6 +791,14 @@ select.mini {
   margin-bottom: 14px;
 }
 
+.start-card .checkbox-row {
+  margin-bottom: 14px;
+}
+
+.start-card .checkbox-row input {
+  margin-bottom: 0;
+}
+
 .start-foot {
   display: flex;
   align-items: center;
@@ -1137,6 +1145,23 @@ select.mini {
   padding: 0 4px;
 }
 
+.msg-speaker.voice-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.msg-speaker.voice-link:hover,
+.msg-speaker.voice-link:focus-visible {
+  text-decoration-style: solid;
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
 .bubble {
   background: var(--bubble);
   border: 1px solid var(--border);
@@ -1449,6 +1474,19 @@ select.mini {
   white-space: nowrap;
 }
 
+.voice-name-input {
+  min-width: 0;
+  flex: 1;
+  width: auto;
+  padding: 6px 8px;
+}
+
+.voice-samples {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* O padrão é o que roda quando ninguém escolhe: a lista diz qual é sem exigir
    que se olhe o <select> acima dela. */
 .prompt-row.is-default .prompt-name::after {
@@ -1528,6 +1566,7 @@ dialog::backdrop {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  margin: 0;
 }
 
 /* O corpo é o que rola: cabeçalho e ações ficam presos, senão o Salvar sairia

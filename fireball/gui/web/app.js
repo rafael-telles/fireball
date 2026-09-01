@@ -41,10 +41,8 @@ const STATUS_SHORT = {
   failed: "falhou",
 };
 
-// Cor do nome de quem fala. Os dois falantes reais de hoje são fixos: "Você" é
-// o microfone daqui e herda o acento da marca, "Outros participantes" é o
-// monitor do sistema e fica no azul. São só esses dois enquanto não houver
-// diarização, e é essa oposição que faz a conversa ser legível de relance.
+// Sem diarização, "Você" e "Outros participantes" representam as duas tracks.
+// Na final diarizada, Sala N continua do lado local e Remoto N do lado oposto.
 //
 // A paleta abaixo é para nomes além desses dois (o roteiro simulado do
 // `--fake`, e a diarização quando chegar). Nenhum tom avermelhado aqui de
@@ -65,6 +63,8 @@ const state = {
   settings: null, // preferências vindas do daemon (backends, idioma)
   backends: { realtime: [], final: [], summary: [], calendar: [] },
   prompts: { list: [], default: null, instructions: "" }, // prompts salvos, o padrão, e o texto embutido
+  voices: [],
+  enrollingSpeaker: null,
   editingPrompt: null, // id em edição, ou "" para um prompt novo; null = editor fechado
   agenda: null, // última resposta de agenda() — status, events, error
   rows: [], // histórico como veio do daemon, mais recentes primeiro
@@ -87,6 +87,7 @@ const SETTINGS_TABS = {
   transcricao: "set-pane-transcricao",
   resumo: "set-pane-resumo",
   agenda: "set-pane-agenda",
+  vozes: "set-pane-vozes",
 };
 
 function showView(name) {
@@ -207,6 +208,11 @@ function speakerColor(name) {
   return SPEAKER_COLORS[hash % SPEAKER_COLORS.length];
 }
 
+function isLocalSpeaker(name, seg = null) {
+  if (seg && (seg.track === "mic" || String(seg.speaker_key || "").startsWith("mic:"))) return true;
+  return name === "Você" || name.startsWith("Sala ");
+}
+
 // ------------------------------------------------------------------ chat
 
 function isNearBottom(node) {
@@ -222,14 +228,23 @@ function chatMessage(seg, previousSpeaker) {
   const wrap = document.createElement("div");
   wrap.className = "msg";
   wrap.dataset.seq = seg.seq;
-  if (speaker === "Você") wrap.classList.add("mine");
+  if (isLocalSpeaker(speaker, seg)) wrap.classList.add("mine");
   if (groupStart) wrap.classList.add("group-start");
 
   if (groupStart) {
-    const name = document.createElement("div");
+    // Vale ao vivo: o daemon guarda só o perfil e o rótulo enquanto o motor
+    // escreve a transcrição. Finalizando, não — o arquivo está sendo trocado.
+    const canEnroll = seg.speaker_key && state.open?.meeting.status !== "finalizing";
+    const name = document.createElement(canEnroll ? "button" : "div");
     name.className = "msg-speaker";
     name.textContent = speaker;
     name.style.setProperty("--speaker-color", speakerColor(speaker));
+    if (canEnroll) {
+      name.classList.add("voice-link");
+      name.title = "Confirmar quem é esta voz";
+      name.setAttribute("aria-label", `Confirmar identidade de ${speaker}`);
+      name.addEventListener("click", () => openVoiceDialog(seg));
+    }
     wrap.appendChild(name);
   }
 
@@ -517,6 +532,15 @@ function renderFicha() {
     .filter(Boolean)
     .join(" · ");
   el("mv-path").textContent = o.path || "";
+
+  const diarize = el("mv-diarize");
+  diarize.checked = Boolean(m.diarize);
+  diarize.disabled = o.live || m.status === "finalizing";
+  el("mv-diarize-note").textContent = m.diarize
+    ? o.live
+      ? "Ao vivo: Sala 1–4 e Remoto 1–4. A finalização refina os rótulos."
+      : "Na próxima transcrição final: Sala 1–4 e Remoto 1–4."
+    : "Desligada: mantém Você e Outros participantes.";
 }
 
 /** Local, descrição e convidados do evento de agenda — ou o estado vazio. */
@@ -568,9 +592,11 @@ function renderEventFields(meeting) {
   }
 
   const note = el("mv-people-note");
-  note.textContent = attendees.length
-    ? "Convidados do evento de agenda. O áudio do sistema continua sem diarização."
-    : "O monitor do sistema não distingue quem fala do outro lado — um falante genérico até haver diarização.";
+  note.textContent = meeting.diarize
+    ? "A diarização separa vozes ao vivo e na transcrição final; convidados da agenda não são identificados automaticamente."
+    : attendees.length
+      ? "Convidados do evento de agenda. As tracks continuam agrupadas por origem."
+      : "Ative a diarização para separar vozes na sala e na chamada.";
 }
 
 function personRow(initial, kind, name, detail) {
@@ -768,6 +794,7 @@ async function refreshOpenMeeting() {
       await loadAudio(); // o meeting.wav pode ter acabado de aparecer
       resetChat();
       await pollChat();
+      loadWarnings();
     }
     // o resumo roda em job próprio; quando ele acaba, a aba precisa saber
     if (o.summaryState && o.summaryState.status === "running") await loadSummary();
@@ -1177,6 +1204,8 @@ async function loadWarnings() {
 const WARNING_TITLE = {
   audio: "A captura de áudio não saiu completa",
   transcricao: "A transcrição ao vivo falhou",
+  diarizacao: "A separação de falantes não foi aplicada",
+  voz: "O reconhecimento de voz não foi aplicado",
 };
 
 function renderWarnings() {
@@ -1654,7 +1683,9 @@ function renderConfigSummary() {
   const s = state.settings;
   if (!s) return;
   const live = s.transcribe_live ? `ao vivo: ${s.realtime_backend}` : "sem transcrição ao vivo";
-  el("config-summary-text").textContent = `${live} · final: ${s.final_backend} · ${s.language}`;
+  const diarize = s.diarize_default ? "diarização padrão ligada" : "diarização opcional";
+  el("config-summary-text").textContent = `${live} · final: ${s.final_backend} · ${diarize} · ${s.language}`;
+  el("start-diarize").checked = Boolean(s.diarize_default);
 }
 
 function renderPromptList() {
@@ -1696,6 +1727,166 @@ function openPromptEditor(promptId) {
   setAlert("prompt-error", "");
   el("prompt-dialog").showModal();
   el("prompt-name").focus();
+}
+
+// ------------------------------------------------------- perfis de voz
+
+async function loadVoices() {
+  state.voices = await api("voices");
+  renderVoices();
+}
+
+function renderVoices() {
+  const list = el("voice-list");
+  const empty = el("voice-empty");
+  if (!list || !empty) return;
+  list.innerHTML = "";
+  empty.classList.toggle("hidden", state.voices.length > 0);
+
+  for (const voice of state.voices) {
+    const row = document.createElement("div");
+    row.className = "prompt-row";
+    const input = document.createElement("input");
+    input.className = "voice-name-input";
+    input.value = voice.name;
+    input.setAttribute("aria-label", `Nome de ${voice.name}`);
+    row.appendChild(input);
+
+    const detail = document.createElement("span");
+    detail.className = "voice-samples";
+    detail.textContent = `${voice.samples} amostra${voice.samples === 1 ? "" : "s"}`;
+    row.appendChild(detail);
+
+    const save = document.createElement("button");
+    save.className = "btn outline small";
+    save.textContent = "Salvar";
+    save.addEventListener("click", async () => {
+      try {
+        await api("rename_voice", voice.id, input.value);
+        await loadVoices();
+      } catch (err) {
+        setAlert("settings-error", "Não foi possível renomear a voz", errText(err));
+      }
+    });
+    row.appendChild(save);
+
+    const remove = document.createElement("button");
+    remove.className = "btn outline small danger";
+    remove.textContent = "Apagar";
+    remove.addEventListener("click", async () => {
+      if (remove.dataset.confirm !== "yes") {
+        remove.dataset.confirm = "yes";
+        remove.textContent = "Confirmar";
+        setTimeout(() => {
+          if (remove.isConnected) {
+            remove.dataset.confirm = "";
+            remove.textContent = "Apagar";
+          }
+        }, 6000);
+        return;
+      }
+      try {
+        await api("delete_voice", voice.id);
+        await loadVoices();
+      } catch (err) {
+        setAlert("settings-error", "Não foi possível apagar a voz", errText(err));
+      }
+    });
+    row.appendChild(remove);
+    list.appendChild(row);
+  }
+}
+
+async function openVoiceDialog(seg) {
+  const o = state.open;
+  if (!o || !seg.speaker_key || o.meeting.status === "finalizing") return;
+  state.enrollingSpeaker = seg;
+  setAlert("voice-error", "");
+  try {
+    await loadVoices();
+  } catch (err) {
+    setAlert("meeting-error", "Não foi possível carregar as vozes", errText(err));
+    return;
+  }
+
+  el("voice-speaker-label").textContent =
+    `${seg.speaker}: confirme a pessoa para cadastrar esta voz.`;
+  const select = el("voice-candidate");
+  select.innerHTML = "";
+  select.appendChild(new Option("Digite um nome ou escolha uma sugestão", ""));
+  for (const voice of state.voices) {
+    const option = new Option(`${voice.name} — voz já cadastrada`, `profile:${voice.id}`);
+    option.dataset.name = voice.name;
+    option.dataset.email = (voice.emails && voice.emails[0]) || "";
+    select.appendChild(option);
+  }
+  const attendees = (o.meeting.event && o.meeting.event.attendees) || [];
+  for (const [index, person] of attendees.entries()) {
+    const name = person.name || person.email;
+    if (!name) continue;
+    const option = new Option(`${name} — convidado`, `attendee:${index}`);
+    option.dataset.name = person.name || person.email || "";
+    option.dataset.email = person.email || "";
+    select.appendChild(option);
+  }
+  el("voice-name").value = seg.voice_profile_id
+    ? (state.voices.find((voice) => voice.id === seg.voice_profile_id) || {}).name || seg.speaker
+    : "";
+  const existing = state.voices.find((voice) => voice.id === seg.voice_profile_id);
+  if (existing) select.value = `profile:${existing.id}`;
+  el("voice-email").value = (existing && existing.emails && existing.emails[0]) || "";
+  el("voice-dialog").showModal();
+  el("voice-name").focus();
+}
+
+function closeVoiceDialog() {
+  state.enrollingSpeaker = null;
+  el("voice-dialog").close();
+}
+
+function onVoiceCandidateChange() {
+  const option = el("voice-candidate").selectedOptions[0];
+  if (!option || !option.value) return;
+  el("voice-name").value = option.dataset.name || "";
+  el("voice-email").value = option.dataset.email || "";
+}
+
+async function onSaveVoice() {
+  const o = state.open;
+  const seg = state.enrollingSpeaker;
+  if (!o || !seg) return;
+  const option = el("voice-candidate").selectedOptions[0];
+  const profileId = option && option.value.startsWith("profile:")
+    ? option.value.slice("profile:".length)
+    : "";
+  const button = el("voice-save");
+  button.disabled = true;
+  setAlert("voice-error", "");
+  try {
+    await api(
+      "enroll_voice",
+      o.id,
+      seg.speaker_key,
+      el("voice-name").value,
+      el("voice-email").value,
+      profileId,
+    );
+    closeVoiceDialog();
+    await loadVoices();
+    // o nome vale para as falas já na tela, então o chat recomeça do zero
+    resetChat();
+    await pollChat();
+    if (!o.live) {
+      // fora do ar vivo o daemon regera o resumo com o nome novo
+      o.settling = SETTLE_TICKS;
+      await refreshOpenMeeting();
+      if (state.tab === "resumo") await loadSummary();
+    }
+  } catch (err) {
+    setAlert("voice-error", "Não foi possível cadastrar esta voz", errText(err));
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function closePromptEditor() {
@@ -1767,6 +1958,7 @@ function renderSettings() {
   renderPromptList();
   fillSelect("set-calendar-provider", calendarProviderOptions(), s.calendar_provider || "");
   el("set-live-on").checked = s.transcribe_live;
+  el("set-diarize-default").checked = s.diarize_default;
   el("set-auto-summarize").checked = s.auto_summarize;
   el("set-openai-url").value = s.openai_base_url || "";
   el("set-openai-key").value = s.openai_api_key || "";
@@ -1787,7 +1979,7 @@ function renderProviderFields() {
 async function loadSettings() {
   state.backends = await window.pywebview.api.backend_options();
   state.settings = await api("get_settings");
-  await loadPrompts();
+  await Promise.all([loadPrompts(), loadVoices()]);
   renderConfigSummary();
 }
 
@@ -1797,6 +1989,7 @@ function showSettingsTab(name) {
   for (const tab of document.querySelectorAll(".set-tab")) {
     tab.classList.toggle("selected", tab.dataset.setTab === name);
   }
+  el("settings-save").classList.toggle("hidden", name === "vozes");
 }
 
 async function openSettings() {
@@ -1805,7 +1998,7 @@ async function openSettings() {
   el("settings-note").textContent = "";
   closePromptEditor(); // edição pendente não atravessa uma saída da tela
   showSettingsTab(state.settingsTab);
-  await loadPrompts();
+  await Promise.all([loadPrompts(), loadVoices()]);
   renderSettings(); // sempre do estado conhecido, nunca do que ficou na tela
   showView("settings");
 }
@@ -1818,6 +2011,7 @@ async function onSaveSettings() {
     state.settings = await api("save_settings", {
       realtime_backend: el("set-live-backend").value,
       transcribe_live: el("set-live-on").checked,
+      diarize_default: el("set-diarize-default").checked,
       final_backend: el("set-final-backend").value,
       summary_provider: el("set-summary-provider").value,
       summary_prompt: el("set-summary-prompt").value,
@@ -1859,7 +2053,7 @@ async function onStart() {
   try {
     // só o nome (quando há um): modo, backend e idioma são decididos fora
     // daqui — ver `Api.start_meeting`
-    const meeting = await api("start_meeting", name);
+    const meeting = await api("start_meeting", name, "", el("start-diarize").checked);
     el("name").value = ""; // o nome digitado era desta reunião, não da próxima
     state.autoOpened = meeting.id; // já vamos abrir aqui; o polling não repete
     await openMeeting(meeting.id);
@@ -1874,7 +2068,7 @@ async function onStart() {
 async function onStartFromEvent(eventId) {
   setAlert("start-error", "");
   try {
-    const meeting = await api("start_meeting", "", eventId);
+    const meeting = await api("start_meeting", "", eventId, el("start-diarize").checked);
     state.autoOpened = meeting.id;
     await openMeeting(meeting.id);
     await refreshStatus();
@@ -1965,7 +2159,7 @@ async function onFinalize() {
   try {
     // o retorno é o resumo do job (segmentos, backend), não a reunião — quem
     // diz como ela ficou é o meeting_status logo abaixo
-    await api("finalize", o.id);
+    await api("finalize", o.id, Boolean(o.meeting.diarize));
     // marca que estamos esperando: não dá pra depender de *flagrar* o status
     // 'finalizing' num polling de 2s, porque um backend rápido termina entre
     // duas voltas e a transcrição nova nunca apareceria na tela.
@@ -1974,6 +2168,22 @@ async function onFinalize() {
   } catch (err) {
     setAlert("meeting-error", "Não foi possível finalizar", errText(err));
     button.disabled = false;
+  }
+}
+
+async function onDiarizeChange(event) {
+  const o = state.open;
+  if (!o) return;
+  const checkbox = event.currentTarget;
+  checkbox.disabled = true;
+  try {
+    o.meeting = await api("set_diarization", o.id, checkbox.checked);
+    renderFicha();
+  } catch (err) {
+    checkbox.checked = Boolean(o.meeting.diarize);
+    setAlert("meeting-error", "Não foi possível mudar a diarização", errText(err));
+  } finally {
+    checkbox.disabled = o.live || o.meeting.status === "finalizing";
   }
 }
 
@@ -2024,6 +2234,7 @@ async function boot() {
   el("start-btn").addEventListener("click", onStart);
   el("stop-btn").addEventListener("click", onStop);
   el("finalize-btn").addEventListener("click", onFinalize);
+  el("mv-diarize").addEventListener("change", onDiarizeChange);
   el("open-folder").addEventListener("click", onOpenFolder);
   el("delete-btn").addEventListener("click", onDelete);
   el("pause-btn").addEventListener("click", (event) => {
@@ -2108,6 +2319,24 @@ async function boot() {
   el("prompt-dialog").addEventListener("click", (event) => {
     if (event.target === el("prompt-dialog")) closePromptEditor();
   });
+  el("voice-candidate").addEventListener("change", onVoiceCandidateChange);
+  el("voice-save").addEventListener("click", onSaveVoice);
+  el("voice-cancel").addEventListener("click", closeVoiceDialog);
+  el("voice-close").addEventListener("click", closeVoiceDialog);
+  el("voice-dialog").addEventListener("close", () => {
+    state.enrollingSpeaker = null;
+  });
+  el("voice-dialog").addEventListener("click", (event) => {
+    if (event.target === el("voice-dialog")) closeVoiceDialog();
+  });
+  for (const id of ["voice-name", "voice-email"]) {
+    el(id).addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onSaveVoice();
+      }
+    });
+  }
   el("set-final-backend").addEventListener("change", renderProviderFields);
 
   await loadSettings();

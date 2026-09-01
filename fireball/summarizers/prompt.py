@@ -48,11 +48,15 @@ por transcrição automática: espere erros de palavra, pontuação estranha e
 frases cortadas. Interprete pelo contexto e não cite trechos que não fazem
 sentido.
 
-Dois falantes são fixos e significam o seguinte:
-- "Você" é quem gravou (o microfone da máquina).
-- "Outros participantes" é todo o resto da sala junto — o áudio do sistema não
-  distingue quem fala do outro lado, então não invente nomes nem atribua uma
-  fala a alguém específico.
+Os rótulos de falante significam o seguinte:
+- Sem diarização, "Você" é toda a track do microfone e "Outros participantes"
+  é toda a track do áudio do sistema. Cada uma pode conter mais de uma pessoa.
+- Com diarização, "Sala N" separa vozes captadas pelo microfone daqui e
+  "Remoto N" separa vozes vindas do áudio do sistema.
+- Os números são identidades anônimas desta gravação, não nomes. Não invente
+  nomes nem associe convidados da agenda a uma voz sem evidência explícita.
+- Quando aparece o nome de uma pessoa no lugar de "Sala N"/"Remoto N", ele
+  veio de um perfil de voz cadastrado e pode ser usado no resumo.
 
 Responda **só com um objeto JSON**, sem cerca de código e sem nenhum texto
 antes ou depois, com exatamente estas três chaves:

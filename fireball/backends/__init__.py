@@ -9,6 +9,7 @@ BATCH_BACKENDS abaixo.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional, Protocol
 
 
@@ -36,8 +37,36 @@ class BatchBackend(Protocol):
     def transcribe_file(self, wav_path, language: str) -> list[dict]: ...
 
 
+class DiarizationBackend(Protocol):
+    """Separa pessoas em uma ou mais tracks, sem transcrever o conteúdo."""
+
+    name: str
+
+    def diarize_files(self, tracks: dict[str, Path]) -> dict[str, list[dict]]: ...
+
+
+class StreamingDiarizationBackend(Protocol):
+    """Mantém o modelo carregado e abre um estado independente por track."""
+
+    name: str
+
+    def open_stream(self): ...
+
+    def close(self) -> None: ...
+
+
+class SpeakerEmbeddingBackendProtocol(Protocol):
+    """Converte fala de uma única pessoa em um vetor normalizado."""
+
+    name: str
+    model: str
+
+    def embed(self, audio, samplerate: int = 16000): ...
+
+
 REALTIME_BACKENDS = ("whisper", "parakeet")
 BATCH_BACKENDS = ("whisper", "parakeet", "groq")
+DIARIZATION_BACKENDS = ("sortformer",)
 
 
 def get_realtime_backend(name: str) -> RealtimeBackend:
@@ -72,3 +101,27 @@ def get_batch_backend(name: str) -> BatchBackend:
 
         return GroqBackend()
     raise BackendUnavailable(f"Backend de transcrição desconhecido: '{name}'. Use {BATCH_BACKENDS}.")
+
+
+def get_diarization_backend(name: str = "sortformer") -> DiarizationBackend:
+    if name == "sortformer":
+        from fireball.backends.sortformer_backend import SortformerBackend
+
+        return SortformerBackend()
+    raise BackendUnavailable(f"Backend de diarização desconhecido: '{name}'. Use {DIARIZATION_BACKENDS}.")
+
+
+def get_streaming_diarization_backend(name: str = "sortformer") -> StreamingDiarizationBackend:
+    if name == "sortformer":
+        from fireball.backends.sortformer_backend import StreamingSortformerBackend
+
+        return StreamingSortformerBackend()
+    raise BackendUnavailable(f"Backend de diarização desconhecido: '{name}'. Use {DIARIZATION_BACKENDS}.")
+
+
+def get_speaker_embedding_backend(name: str = "speakeronnx") -> SpeakerEmbeddingBackendProtocol:
+    if name == "speakeronnx":
+        from fireball.backends.speaker_backend import SpeakerEmbeddingBackend
+
+        return SpeakerEmbeddingBackend()
+    raise BackendUnavailable(f"Backend de reconhecimento de voz desconhecido: '{name}'.")

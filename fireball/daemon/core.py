@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-from fireball import control, prompts, settings, storage
+from fireball import control, prompts, settings, storage, voices
 from fireball.calendars import CalendarUnavailable, get_calendar_provider
 from fireball.daemon import protocol
 
@@ -116,6 +116,7 @@ class DaemonCore:
         self._recording: Optional[Job] = None
         self._finalizing: dict[str, Job] = {}
         self._summarizing: dict[str, Job] = {}
+        self._resummarize_after: set[str] = set()
         self._started_at = storage.now_iso()
         self._shutting_down = False
         # preenchido pela casca gráfica (fireball.gui.shell) quando ela sobe;
@@ -170,6 +171,7 @@ class DaemonCore:
     def _await_job(self, job: Job) -> None:
         code = job.wait()
         transcript_changed = False
+        resummarize = False
         with self._lock:
             job.exit_code = code
             if job.kind == "engine":
@@ -178,6 +180,7 @@ class DaemonCore:
                 status = "stopped" if (job.stopping or code in (0, None)) else "crashed"
                 control.update_meeting(job.meeting_id, status=status, exit_code=code)
                 transcript_changed = status == "stopped"
+                self._persist_speaker_labels(job.meeting_id)
                 if self._recording is job:
                     self._recording = None
             elif job.kind == "finalize":
@@ -199,12 +202,32 @@ class DaemonCore:
                 )
                 if self._summarizing.get(job.meeting_id) is job:
                     del self._summarizing[job.meeting_id]
+                    if job.meeting_id in self._resummarize_after:
+                        self._resummarize_after.remove(job.meeting_id)
+                        resummarize = True
             job.done.set()
 
         # fora do lock e depois do `done`: quem esperava a gravação fechar não
         # tem por que esperar também o resumo subir.
-        if transcript_changed:
+        if resummarize:
+            try:
+                self.summarize(job.meeting_id)
+            except Exception as exc:  # noqa: BLE001 — a supervisão não pode morrer
+                print(f"[daemon] resumo atualizado de {job.meeting_id} não subiu: {exc}", flush=True)
+        elif transcript_changed:
             self._auto_summarize(job.meeting_id)
+
+    def _persist_speaker_labels(self, meeting_id: str) -> None:
+        """Fixa na transcrição os nomes dados durante a gravação.
+
+        Só aqui, com o engine já fora: enquanto ele escrevia, os nomes valiam
+        na leitura. Falhar não pode derrubar a supervisão — os nomes continuam
+        no `speaker_labels.json` e a leitura segue mostrando-os.
+        """
+        try:
+            control.apply_speaker_labels(meeting_id)
+        except Exception as exc:  # noqa: BLE001 — supervisão não morre por isto
+            print(f"[daemon] nomes de voz de {meeting_id} não gravados: {exc}", flush=True)
 
     def _apply_summary_metadata(self, meeting_id: str) -> None:
         """Leva o nome e as tags do resumo para o meeting.json.
@@ -313,6 +336,7 @@ class DaemonCore:
         mic_device: Optional[str] = None,
         system_device: Optional[str] = None,
         transcribe: Optional[bool] = None,
+        diarize: Optional[bool] = None,
         backend: Optional[str] = None,
         language: Optional[str] = None,
         event_id: Optional[str] = None,
@@ -332,6 +356,7 @@ class DaemonCore:
         """
         prefs = settings.load()
         transcribe = prefs["transcribe_live"] if transcribe is None else transcribe
+        diarize = prefs["diarize_default"] if diarize is None else diarize
         backend = backend or prefs["realtime_backend"]
         language = language or prefs["language"]
 
@@ -358,6 +383,7 @@ class DaemonCore:
                 mic_device=mic_device,
                 system_device=system_device,
                 transcribe=transcribe,
+                diarize=diarize,
                 backend=backend,
                 language=language,
                 event=event,
@@ -371,6 +397,7 @@ class DaemonCore:
                 mic_device=mic_device,
                 system_device=system_device,
                 transcribe=transcribe,
+                diarize=diarize,
                 backend=backend,
                 language=language,
             )
@@ -816,12 +843,107 @@ class DaemonCore:
         with self._lock:
             return control.rename_meeting(meeting_id, name)
 
+    def set_diarization(self, meeting_id: str, diarize: bool) -> dict:
+        """Muda o opt-in depois da gravação; durante ela o engine já está configurado."""
+        with self._lock:
+            meeting = control.read_meeting(meeting_id)
+            if meeting.get("status") in control.LIVE_STATUSES:
+                raise control.MeetingBusy(
+                    "A diarização ao vivo é escolhida ao iniciar. Pare a reunião antes de mudar "
+                    "a opção para a transcrição final."
+                )
+            if meeting_id in self._finalizing:
+                raise control.MeetingBusy("Não dá para mudar a diarização durante a transcrição final.")
+            return control.write_meeting_fields(meeting_id, diarize=bool(diarize))
+
+    def voice_profiles(self) -> list[dict]:
+        return voices.public_profiles()
+
+    def enroll_voice(
+        self,
+        meeting_id: str,
+        speaker_key: str,
+        name: str,
+        email: str = "",
+        profile_id: Optional[str] = None,
+    ) -> dict:
+        """Confirma uma pessoa para um slot e guarda só seu embedding.
+
+        Vale durante a reunião: o cadastro só escreve o perfil e o
+        `speaker_labels.json`, nunca a transcrição — enquanto o engine grava,
+        ele é o dono daquele arquivo. Os nomes entram na leitura (ver
+        `control.read_transcript`) e são gravados quando a gravação termina.
+        """
+        with self._lock:
+            if meeting_id in self._finalizing:
+                raise control.MeetingBusy("Não dá para cadastrar uma voz durante a transcrição final.")
+            track, sep, raw_id = speaker_key.partition(":")
+            if not sep:
+                raise voices.VoiceEnrollmentError("Locutor inválido.")
+            try:
+                speaker_id = int(raw_id)
+            except ValueError as exc:
+                raise voices.VoiceEnrollmentError("Locutor inválido.") from exc
+            meeting_dir = storage.meeting_path(meeting_id)
+
+        embedding, model = voices.prepare_enrollment(meeting_dir, track, speaker_id)
+
+        with self._lock:
+            if meeting_id in self._finalizing:
+                raise control.MeetingBusy("A transcrição final começou durante o cadastro; tente novamente.")
+            profile = voices.save_profile(
+                name=name,
+                email=email,
+                profile_id=profile_id,
+                embedding=embedding,
+                model=model,
+            )
+            assignment = {
+                "profile_id": profile["id"],
+                "name": profile["name"],
+                "source": "manual",
+                "confidence": 1.0,
+            }
+            voices.save_label(meeting_dir, speaker_key, assignment)
+            result = {
+                "profile": profile,
+                "speaker_key": speaker_key,
+                "assignment": assignment,
+            }
+            live = control.read_meeting(meeting_id).get("status") in control.LIVE_STATUSES
+            if live:
+                # a transcrição (e o resumo dela) esperam a gravação acabar
+                return result
+            control.assign_speaker(meeting_id, speaker_key, result["assignment"])
+            if meeting_id in self._summarizing:
+                self._resummarize_after.add(meeting_id)
+                summarize_now = False
+            else:
+                summarize_now = True
+        if summarize_now:
+            self._auto_summarize(meeting_id)
+        return result
+
+    def rename_voice(self, profile_id: str, name: str) -> dict:
+        with self._lock:
+            return voices.rename_profile(profile_id, name)
+
+    def delete_voice(self, profile_id: str) -> dict:
+        with self._lock:
+            return voices.delete_profile(profile_id)
+
     def note(self, meeting_id: str, text: str, author: str = "claude") -> dict:
         with self._lock:
             control.append_note(meeting_id, text, author, datetime.now().strftime("%H:%M"))
         return {"ok": True}
 
-    def finalize(self, meeting_id: str, backend: Optional[str] = None, wait_timeout: float = 0.0) -> dict:
+    def finalize(
+        self,
+        meeting_id: str,
+        backend: Optional[str] = None,
+        diarize: Optional[bool] = None,
+        wait_timeout: float = 0.0,
+    ) -> dict:
         # sem backend explícito vale o configurado para a transcrição final,
         # que não é necessariamente o do tempo real (é comum querer 'groq'
         # aqui e um motor local durante a reunião).
@@ -834,6 +956,8 @@ class DaemonCore:
                 )
             if meeting_id in self._finalizing:
                 raise control.MeetingBusy(f"A reunião '{meeting_id}' já está sendo finalizada.")
+            if diarize is not None:
+                meeting = control.write_meeting_fields(meeting_id, diarize=bool(diarize))
 
             # limpa o resumo da finalização anterior: se esta falhar, não
             # podemos devolver os números da tentativa passada como se fossem

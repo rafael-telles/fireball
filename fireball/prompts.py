@@ -2,7 +2,7 @@
 
 Um "prompt", aqui, **não** é o pedido inteiro que vai para o modelo — é só o
 miolo dele, as instruções de o que o resumo deve dizer e em que forma. O
-contrato (de onde vem a transcrição, o que significam os dois falantes, e o
+contrato (de onde vem a transcrição, o que significam os rótulos de falante, e o
 JSON com `title`/`tags`/`summary`) fica fora do alcance de quem escreve
 prompt, em `fireball.summarizers.prompt`. Por isso qualquer prompt salvo
 continua rendendo nome e tags: nenhum deles pode esquecer de pedi-los.

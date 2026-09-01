@@ -18,6 +18,9 @@ que está sendo dito em tempo real através do CLI `fireball` e decide o que ano
    - `--backend whisper` (padrão, multi-idioma) ou `--backend parakeet` (Parakeet TDT
      fine-tunado em pt-BR — capturou mais conteúdo real em teste manual, prefira esse para
      reuniões em português se o modelo já estiver baixado, ver README).
+   - Só passe `--diarize` se o usuário pedir separação de falantes para esta
+     reunião. É opt-in: usa `Sala N` / `Remoto N` ao vivo e refina os rótulos
+     novamente na passada final.
    - Use `--fake` só para testar o resto do fluxo com uma transcrição simulada, sem gravar
      áudio nenhum.
    - Se nenhum backend estiver instalado, a gravação continua normalmente mas
@@ -62,6 +65,12 @@ que está sendo dito em tempo real através do CLI `fireball` e decide o que ano
    inteiro de cada track, não em pedaços) com o mesmo backend usado ao vivo. Também aceita
    `--backend groq` (API paga, `whisper-large-v3-turbo`, requer `GROQ_API_KEY`) se o usuário
    preferir não depender do modelo local para a passada final.
+   - Se a reunião foi iniciada com `--diarize` (ou o usuário pedir agora), a
+     final separa `Sala 1`…`Sala 4` no microfone e `Remoto 1`…`Remoto 4` no
+     áudio do sistema. Se um perfil de voz cadastrado casar com confiança, o
+     nome confirmado aparece no lugar do rótulo; os demais continuam anônimos.
+   - Com mais de quatro vozes no mesmo lado, prefira refazer com
+     `--no-diarize` se os rótulos ficarem misturados.
 3. O nome, as tags e o resumo da reunião saem sozinhos assim que a transcrição final fica
    pronta (`fireball summarize <meeting_id>` força de novo). Se a reunião ainda estiver sem
    nome depois disso, o provedor de resumo não está configurado — diga isso ao usuário em vez

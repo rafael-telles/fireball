@@ -162,6 +162,11 @@ def devices():
     help="No modo --real, roda transcrição em tempo real local em paralelo à gravação. Padrão: o configurado.",
 )
 @click.option(
+    "--diarize/--no-diarize",
+    default=None,
+    help="Separa até 4 vozes da sala e 4 remotas ao vivo e na final. Padrão: o configurado.",
+)
+@click.option(
     "--backend",
     type=click.Choice(list(REALTIME_BACKENDS)),
     default=None,
@@ -174,7 +179,7 @@ def devices():
     default=None,
     help="Id de um evento da agenda (`fireball agenda`): a reunião nasce com nome, local, descrição e convidados desse evento.",
 )
-def start(name, fake, interval, mic_device, system_device, transcribe, backend, language, event_id):
+def start(name, fake, interval, mic_device, system_device, transcribe, diarize, backend, language, event_id):
     """Inicia uma nova reunião. O daemon cria a pasta e sobe o engine de
     gravação/transcrição, que ele mesmo supervisiona. Falha se já houver uma
     reunião gravando — só uma por vez.
@@ -201,6 +206,7 @@ def start(name, fake, interval, mic_device, system_device, transcribe, backend, 
         mic_device=mic_device,
         system_device=system_device,
         transcribe=transcribe,
+        diarize=diarize,
         backend=backend,
         language=language,
         event_id=event_id,
@@ -357,12 +363,17 @@ def note(meeting_id, text, author):
     default=None,
     help="Backend pra transcrição final. Padrão: o configurado para a transcrição final.",
 )
+@click.option(
+    "--diarize/--no-diarize",
+    default=None,
+    help="Override da diarização desta reunião; fica salvo para próximas finalizações.",
+)
 @click.option("--wait/--no-wait", default=True, help="Espera a transcrição final terminar.")
 @click.option("--timeout", default=3600.0, type=float, help="Tempo máximo de espera, em segundos.")
-def finalize(meeting_id, backend, wait, timeout):
+def finalize(meeting_id, backend, diarize, wait, timeout):
     """Roda a transcrição final (mais precisa) do áudio completo, por track
-    (mic = 'Você', system = 'Outros participantes'), mesclando por ordem de
-    início.
+    e mescla por ordem de início. Com diarização, as tracks viram Sala N e
+    Remoto N; sem ela, continuam Você e Outros participantes.
 
     O daemon roda isso num processo separado e supervisiona: o status vai pra
     'finalizing' e depois 'finalized' (ou 'finalize_failed'). A reconciliação
@@ -373,6 +384,7 @@ def finalize(meeting_id, backend, wait, timeout):
         "finalize",
         meeting_id=meeting_id,
         backend=backend,
+        diarize=diarize,
         wait_timeout=timeout if wait else 0.0,
         timeout=timeout + 30.0,
     )
@@ -394,9 +406,10 @@ def finalize(meeting_id, backend, wait, timeout):
 @click.option("--mic-device", default=None)
 @click.option("--system-device", default=None)
 @click.option("--transcribe/--no-transcribe", default=True)
+@click.option("--diarize/--no-diarize", default=False)
 @click.option("--backend", type=click.Choice(list(REALTIME_BACKENDS)), default="whisper")
 @click.option("--language", default=realtime.DEFAULT_LANGUAGE)
-def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcribe, backend, language):
+def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcribe, diarize, backend, language):
     """Processo de gravação. Subido e supervisionado pelo daemon — não chame na mão."""
     meeting_dir = storage.meeting_path(meeting_id)
     if fake:
@@ -407,6 +420,7 @@ def _engine_cmd(meeting_id, fake, interval, mic_device, system_device, transcrib
             mic_device=mic_device,
             system_device=system_device,
             transcribe_live=transcribe,
+            diarize=diarize,
             backend_name=backend,
             language=language,
         )
