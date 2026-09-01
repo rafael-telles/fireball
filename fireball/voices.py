@@ -85,7 +85,7 @@ def _clean_profile(raw) -> Optional[dict]:
     if not vectors or any(v.ndim != 1 or len(v) != len(vectors[0]) for v in vectors):
         return None
     centroid = _centroid(vectors)
-    emails = sorted({str(email).strip().lower() for email in raw.get("emails", []) if str(email).strip()})
+    emails = _normalize_emails(raw.get("emails", []))
     return {
         "id": profile_id,
         "name": name,
@@ -96,6 +96,14 @@ def _clean_profile(raw) -> Optional[dict]:
         "created_at": raw.get("created_at") or storage.now_iso(),
         "updated_at": raw.get("updated_at") or storage.now_iso(),
     }
+
+
+def _normalize_emails(raw) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        raw = [part.strip() for part in raw.replace(";", ",").split(",")]
+    return sorted({str(email).strip().lower() for email in raw if str(email).strip()})
 
 
 def _centroid(vectors: list["np.ndarray"]) -> "np.ndarray":
@@ -155,7 +163,7 @@ def save_profile(
     vector = vector / norm
 
     profile = None
-    normalized_email = str(email or "").strip().lower()
+    extra = _normalize_emails(email)
     if profile_id:
         profile = get_profile(profile_id)
 
@@ -179,7 +187,7 @@ def save_profile(
     profile.update(
         {
             "name": name,
-            "emails": sorted(set(profile["emails"] + ([normalized_email] if normalized_email else []))),
+            "emails": sorted(set(profile["emails"] + extra)),
             "embeddings": [item.tolist() for item in vectors],
             "centroid": _centroid(vectors).tolist(),
             "updated_at": now,
@@ -189,12 +197,14 @@ def save_profile(
     return next(item for item in public_profiles() if item["id"] == profile["id"])
 
 
-def rename_profile(profile_id: str, name: str) -> dict:
+def rename_profile(profile_id: str, name: str, emails=None) -> dict:
     profile = get_profile(profile_id)
     name = " ".join(str(name or "").split())[:80]
     if not name:
         raise VoiceEnrollmentError("Informe o nome da pessoa.")
     profile["name"] = name
+    if emails is not None:
+        profile["emails"] = _normalize_emails(emails)
     profile["updated_at"] = storage.now_iso()
     _write_private_json(_profile_path(profile_id), profile)
     return next(item for item in public_profiles() if item["id"] == profile_id)

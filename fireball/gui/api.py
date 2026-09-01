@@ -204,8 +204,8 @@ class Api:
             profile_id=profile_id or None,
         )
 
-    def rename_voice(self, profile_id: str, name: str) -> dict:
-        return self._call(self._core.rename_voice, profile_id=profile_id, name=name)
+    def rename_voice(self, profile_id: str, name: str, emails=None) -> dict:
+        return self._call(self._core.rename_voice, profile_id=profile_id, name=name, emails=emails)
 
     def delete_voice(self, profile_id: str) -> dict:
         return self._call(self._core.delete_voice, profile_id=profile_id)

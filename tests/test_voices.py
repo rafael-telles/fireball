@@ -60,6 +60,25 @@ class VoiceTests(unittest.TestCase):
         self.assertNotIn("embeddings", profile)
         self.assertNotIn("centroid", profile)
 
+    def test_rename_replaces_emails(self):
+        profile = voices.save_profile(
+            "Ana",
+            np.array([1.0, 0.0, 0.0], dtype=np.float32),
+            model="test-model",
+            email="ana@example.com",
+        )
+        updated = voices.rename_profile(
+            profile["id"],
+            "Ana Costa",
+            emails=["ANA@example.com", "ana.costa@empresa.com"],
+        )
+        self.assertEqual(updated["name"], "Ana Costa")
+        self.assertEqual(updated["emails"], ["ana.costa@empresa.com", "ana@example.com"])
+        cleared = voices.rename_profile(profile["id"], "Ana Costa", emails=[])
+        self.assertEqual(cleared["emails"], [])
+        same = voices.rename_profile(profile["id"], "Ana")
+        self.assertEqual(same["emails"], [])
+
     def test_match_requires_threshold_and_margin(self):
         ana = voices.save_profile(
             "Ana", np.array([1.0, 0.0, 0.0]), model="test-model"

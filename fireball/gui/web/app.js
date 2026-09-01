@@ -65,6 +65,8 @@ const state = {
   prompts: { list: [], default: null, instructions: "" }, // prompts salvos, o padrão, e o texto embutido
   voices: [],
   enrollingSpeaker: null,
+  editingVoice: null, // id do perfil aberto no diálogo de edição
+  editingVoiceEmails: [],
   editingPrompt: null, // id em edição, ou "" para um prompt novo; null = editor fechado
   agenda: null, // última resposta de agenda() — status, events, error
   rows: [], // histórico como veio do daemon, mais recentes primeiro
@@ -1746,29 +1748,31 @@ function renderVoices() {
   for (const voice of state.voices) {
     const row = document.createElement("div");
     row.className = "prompt-row";
-    const input = document.createElement("input");
-    input.className = "voice-name-input";
-    input.value = voice.name;
-    input.setAttribute("aria-label", `Nome de ${voice.name}`);
-    row.appendChild(input);
+
+    const meta = document.createElement("div");
+    meta.className = "voice-meta";
+    const name = document.createElement("span");
+    name.className = "prompt-name";
+    name.textContent = voice.name;
+    meta.appendChild(name);
+    const emails = document.createElement("span");
+    emails.className = "voice-emails";
+    emails.textContent = (voice.emails && voice.emails.length)
+      ? voice.emails.join(" · ")
+      : "sem e-mail";
+    meta.appendChild(emails);
+    row.appendChild(meta);
 
     const detail = document.createElement("span");
     detail.className = "voice-samples";
     detail.textContent = `${voice.samples} amostra${voice.samples === 1 ? "" : "s"}`;
     row.appendChild(detail);
 
-    const save = document.createElement("button");
-    save.className = "btn outline small";
-    save.textContent = "Salvar";
-    save.addEventListener("click", async () => {
-      try {
-        await api("rename_voice", voice.id, input.value);
-        await loadVoices();
-      } catch (err) {
-        setAlert("settings-error", "Não foi possível renomear a voz", errText(err));
-      }
-    });
-    row.appendChild(save);
+    const edit = document.createElement("button");
+    edit.className = "btn outline small";
+    edit.textContent = "Editar";
+    edit.addEventListener("click", () => openVoiceEditor(voice.id));
+    row.appendChild(edit);
 
     const remove = document.createElement("button");
     remove.className = "btn outline small danger";
@@ -1794,6 +1798,115 @@ function renderVoices() {
     });
     row.appendChild(remove);
     list.appendChild(row);
+  }
+}
+
+function knownEmails() {
+  const seen = new Map();
+  const add = (email, name) => {
+    const key = String(email || "").trim().toLowerCase();
+    if (!key.includes("@")) return;
+    if (!seen.has(key)) seen.set(key, { email: key, name: (name || "").trim() });
+  };
+  for (const event of (state.agenda && state.agenda.events) || []) {
+    for (const person of event.attendees || []) add(person.email, person.name);
+  }
+  for (const voice of state.voices) {
+    for (const email of voice.emails || []) add(email, voice.name);
+  }
+  return [...seen.values()].sort((a, b) => a.email.localeCompare(b.email));
+}
+
+function renderVoiceEmailEditor() {
+  const box = el("voice-edit-emails");
+  const pick = el("voice-edit-pick");
+  if (!box || !pick) return;
+  box.innerHTML = "";
+  const selected = state.editingVoiceEmails;
+  if (!selected.length) {
+    const empty = document.createElement("span");
+    empty.className = "voice-emails";
+    empty.textContent = "Nenhum e-mail ainda.";
+    box.appendChild(empty);
+  }
+  for (const email of selected) {
+    const chip = document.createElement("div");
+    chip.className = "email-chip";
+    const label = document.createElement("span");
+    label.textContent = email;
+    chip.appendChild(label);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.title = "Remover";
+    remove.setAttribute("aria-label", `Remover ${email}`);
+    remove.textContent = "×";
+    remove.addEventListener("click", () => {
+      state.editingVoiceEmails = selected.filter((item) => item !== email);
+      renderVoiceEmailEditor();
+    });
+    chip.appendChild(remove);
+    box.appendChild(chip);
+  }
+
+  pick.innerHTML = "";
+  pick.appendChild(new Option("Escolher da agenda…", ""));
+  for (const person of knownEmails()) {
+    if (selected.includes(person.email)) continue;
+    const label = person.name ? `${person.name} — ${person.email}` : person.email;
+    pick.appendChild(new Option(label, person.email));
+  }
+}
+
+function addVoiceEmail(raw) {
+  const email = String(raw || "").trim().toLowerCase();
+  setAlert("voice-edit-error", "");
+  if (!email) return;
+  if (!email.includes("@") || email.includes(" ")) {
+    setAlert("voice-edit-error", "Informe um e-mail válido");
+    return;
+  }
+  if (!state.editingVoiceEmails.includes(email)) {
+    state.editingVoiceEmails = [...state.editingVoiceEmails, email].sort();
+  }
+  el("voice-edit-email").value = "";
+  el("voice-edit-pick").value = "";
+  renderVoiceEmailEditor();
+}
+
+async function openVoiceEditor(voiceId) {
+  const voice = state.voices.find((item) => item.id === voiceId);
+  if (!voice) return;
+  state.editingVoice = voice.id;
+  state.editingVoiceEmails = [...(voice.emails || [])];
+  setAlert("voice-edit-error", "");
+  el("voice-edit-dialog-title").textContent = `Editar "${voice.name}"`;
+  el("voice-edit-name").value = voice.name;
+  renderVoiceEmailEditor();
+  el("voice-edit-dialog").showModal();
+  el("voice-edit-name").focus();
+}
+
+function closeVoiceEditor() {
+  state.editingVoice = null;
+  state.editingVoiceEmails = [];
+  const dialog = el("voice-edit-dialog");
+  if (dialog.open) dialog.close();
+}
+
+async function onSaveVoiceProfile() {
+  const profileId = state.editingVoice;
+  if (!profileId) return;
+  const button = el("voice-edit-save");
+  button.disabled = true;
+  setAlert("voice-edit-error", "");
+  try {
+    await api("rename_voice", profileId, el("voice-edit-name").value, state.editingVoiceEmails);
+    closeVoiceEditor();
+    await loadVoices();
+  } catch (err) {
+    setAlert("voice-edit-error", "Não foi possível salvar a voz", errText(err));
+  } finally {
+    button.disabled = false;
   }
 }
 
@@ -2337,6 +2450,32 @@ async function boot() {
       }
     });
   }
+  el("voice-edit-save").addEventListener("click", onSaveVoiceProfile);
+  el("voice-edit-cancel").addEventListener("click", closeVoiceEditor);
+  el("voice-edit-close").addEventListener("click", closeVoiceEditor);
+  el("voice-edit-add").addEventListener("click", () => addVoiceEmail(el("voice-edit-email").value));
+  el("voice-edit-pick").addEventListener("change", () => {
+    if (el("voice-edit-pick").value) addVoiceEmail(el("voice-edit-pick").value);
+  });
+  el("voice-edit-dialog").addEventListener("close", () => {
+    state.editingVoice = null;
+    state.editingVoiceEmails = [];
+  });
+  el("voice-edit-dialog").addEventListener("click", (event) => {
+    if (event.target === el("voice-edit-dialog")) closeVoiceEditor();
+  });
+  el("voice-edit-name").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onSaveVoiceProfile();
+    }
+  });
+  el("voice-edit-email").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addVoiceEmail(el("voice-edit-email").value);
+    }
+  });
   el("set-final-backend").addEventListener("change", renderProviderFields);
 
   await loadSettings();

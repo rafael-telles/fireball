@@ -924,9 +924,9 @@ class DaemonCore:
             self._auto_summarize(meeting_id)
         return result
 
-    def rename_voice(self, profile_id: str, name: str) -> dict:
+    def rename_voice(self, profile_id: str, name: str, emails=None) -> dict:
         with self._lock:
-            return voices.rename_profile(profile_id, name)
+            return voices.rename_profile(profile_id, name, emails=emails)
 
     def delete_voice(self, profile_id: str) -> dict:
         with self._lock:

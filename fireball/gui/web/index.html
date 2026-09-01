@@ -481,7 +481,7 @@
               <p class="card-note">
                 O Fireball guarda somente embeddings biométricos locais, nunca cópias de áudio.
                 Cadastre uma pessoa clicando em <code>Sala N</code> ou <code>Remoto N</code>
-                depois de finalizar uma reunião diarizada.
+                depois de finalizar uma reunião diarizada. Edite nome e e-mails aqui depois.
               </p>
               <div class="prompt-list" id="voice-list"></div>
               <div class="field-note" id="voice-empty">Nenhuma voz cadastrada.</div>
@@ -561,6 +561,40 @@
         <span class="dialog-spacer"></span>
         <button class="btn outline" id="voice-cancel">Cancelar</button>
         <button class="btn primary" id="voice-save">Cadastrar voz</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="voice-edit-dialog" aria-labelledby="voice-edit-dialog-title">
+    <div class="dialog-card">
+      <div class="dialog-head">
+        <h2 class="dialog-title" id="voice-edit-dialog-title">Editar voz</h2>
+        <button class="btn outline icon" id="voice-edit-close" title="Fechar" aria-label="Fechar">✕</button>
+      </div>
+      <div class="dialog-body">
+        <label class="lbl" for="voice-edit-name">Nome</label>
+        <input type="text" id="voice-edit-name" placeholder="Nome da pessoa" />
+        <label class="lbl" for="voice-edit-pick">E-mails</label>
+        <div class="email-chips" id="voice-edit-emails"></div>
+        <div class="email-add-row">
+          <select id="voice-edit-pick">
+            <option value="">Escolher da agenda…</option>
+          </select>
+        </div>
+        <div class="email-add-row">
+          <input type="email" id="voice-edit-email" placeholder="pessoa@empresa.com" />
+          <button class="btn outline small" type="button" id="voice-edit-add">Adicionar</button>
+        </div>
+        <div class="field-note">
+          Os e-mails ligam a voz a convidados da agenda. Dá para escolher um da lista
+          ou escrever outro. Vários endereços valem para a mesma pessoa.
+        </div>
+        <div class="alert bad hidden" id="voice-edit-error"></div>
+      </div>
+      <div class="dialog-actions">
+        <span class="dialog-spacer"></span>
+        <button class="btn outline" id="voice-edit-cancel">Cancelar</button>
+        <button class="btn primary" id="voice-edit-save">Salvar</button>
       </div>
     </div>
   </dialog>
