@@ -41,6 +41,9 @@ CLI do Fireball (venv dedicado, não está no PATH):
 
    ## Agenda
 
+   _(Se a reunião nasceu de um evento — `fireball start --event` ou clique na
+   home — a pauta/descrição do calendário pode ir aqui.)_
+
    ## Notes
 
    ## Action items

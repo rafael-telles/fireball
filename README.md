@@ -40,9 +40,6 @@ O que **não** está implementado ainda:
 
 - Diarização de verdade para "Outros participantes" (hoje é só *um* falante genérico —
   o monitor do sistema não distingue quem está falando do outro lado).
-- Na GUI, os lugares que o desenho reserva e o daemon ainda não alimenta — eles aparecem na
-  tela como estado vazio, dizendo o que falta em vez de mostrar dado inventado: agenda
-  (não lemos calendário) e local/descrição da reunião.
 - Anotar pela bandeja, e escolher outro device de captura quando o microfone falha (hoje
   o aviso aparece, mas a troca é por flag na CLI).
 
@@ -422,10 +419,10 @@ melhor que perder o resumo.
 **Reunião nasce sem nome.** O nome bom de uma reunião só existe depois dela, e quem está
 entrando numa chamada não quer parar para batizá-la; então o campo na tela de início é opcional
 e o provedor escreve o nome a partir do que foi dito. Quem já sabe o nome digita — e aí a IA não
-mexe: `name_source` guarda se o nome veio de gente ou de modelo, e um nome dado à mão nunca é
-trocado por um gerado. As tags, ao contrário, são substituídas a cada geração: como o resumo,
-elas são derivadas da transcrição, e manter tag de uma versão antiga ao lado das novas mostraria
-duas leituras da mesma reunião como se fossem uma.
+mexe: `name_source` guarda se o nome veio de gente (`user`), da agenda (`calendar`) ou de
+modelo (`ai`), e qualquer fonte que não seja `ai` fica protegida. As tags, ao contrário, são
+substituídas a cada geração: como o resumo, elas são derivadas da transcrição, e manter tag de
+uma versão antiga ao lado das novas mostraria duas leituras da mesma reunião como se fossem uma.
 
 #### Os provedores
 
@@ -555,26 +552,40 @@ O markdown que volta é renderizado montando nós do DOM, nunca `innerHTML`: o t
 modelo de linguagem sobre uma transcrição, ou seja, de fora, e concatenar isso em HTML
 deixaria a transcrição escrever marcação na janela.
 
-### O que a tela ainda não tem
+### Agenda
 
-O desenho da interface ainda prevê mais do que o daemon serve: a agenda que preenche a
-reunião antes de começar, e local/descrição. Esses lugares existem na tela **como
-estado vazio**, dizendo o que falta — a moldura tracejada é o sinal. É de propósito: um campo que
-mostra dado inventado, ou um botão que não faz nada, custa mais caro que um espaço que se
-assume incompleto.
+A home tem uma lista **Próximas na agenda**. Com um provedor configurado, cada linha é um
+evento dos próximos ~24h; clicar inicia a reunião já com nome, local, descrição e convidados
+gravados no `meeting.json` (chave aninhada `event`, `name_source: "calendar"`). Isso também
+preenche Local / Descrição / Participantes na aba Resumo, e o contexto do evento entra na
+parte fixa do pedido de resumo — a pauta que quem marcou já digitou, antes da conversa
+começar.
+
+Como transcrição e resumo, a agenda é **plugável** (`fireball/calendars/`). O provedor de
+hoje é o `gog`: shell-out no [gogcli](https://github.com/steipete/gogcli) já autenticado na
+máquina — mesma jogada do `claude_code`, zero segredo no Fireball. Sem provedor (padrão), a
+home mostra o estado vazio e nenhum binário é chamado.
+
+O daemon cacheia a resposta em `~/.fireball/agenda.json` (TTL ~2 min, permissão 0600) e faz
+stale-while-revalidate numa thread: o poll de 2s da GUI não reconsulta o calendário a cada
+tick. CLI: `fireball agenda [--refresh]` e `fireball start --event <id>`.
+
+Fora desta fatia (de propósito): vincular reunião já em andamento a um evento, escrever de
+volta no Google, e iniciar gravação sozinho quando o evento começa.
 
 ### Configuração
 
 Backend é decisão de configuração, não de cada reunião: quem vai gravar quer clicar em
 "iniciar", não escolher motor de transcrição. Então a janela pergunta só o nome — e nem isso é
-obrigatório, já que a IA escreve um depois —, e backend/idioma ficam na tela de configuração
-(⚙), em `~/.fireball/settings.json`.
+obrigatório, já que a IA escreve um depois —, e backend/idioma/agenda ficam na tela de
+configuração (⚙), em `~/.fireball/settings.json`.
 
-A tela tem **duas abas**, e a divisão é a das duas metades do Fireball: **Transcrição** (motor
-ao vivo, motor final, idioma) e **Resumo** (provedor, chaves, prompts). O idioma fica na
-primeira porque é o que o motor espera *ouvir* — o resumo sai em português de qualquer jeito,
-e isso está na parte fixa do pedido, não no prompt. O **Salvar é um só**, fora das abas:
-esconder uma aba não apaga o que está nos campos dela.
+A tela tem **três abas**, e a divisão é a das partes do Fireball: **Transcrição** (motor ao
+vivo, motor final, chave da Groq, idioma), **Resumo** (provedor, chaves, prompts) e **Agenda**
+(provedor de calendário e a conta dele). O idioma fica na primeira porque é o que o motor
+espera *ouvir* — o resumo sai em português de qualquer jeito, e isso está na parte fixa do
+pedido, não no prompt. O **Salvar é um só**, fora das abas: esconder uma aba não apaga o que
+está nos campos dela.
 
 | chave | o que é | padrão |
 | --- | --- | --- |
@@ -589,6 +600,8 @@ esconder uma aba não apaga o que está nos campos dela.
 | `openai_base_url` | URL da API compatível com OpenAI (provedor `openai_api`) | vazio |
 | `openai_api_key` | chave dessa API | vazio |
 | `openai_model` | id do modelo nela | vazio |
+| `calendar_provider` | quem lê a agenda (`gog`, ou vazio = desligado) | vazio |
+| `gog_account` | e-mail passado ao gog como `--account` | vazio |
 
 Os dois modos são configurados separado de propósito: é comum querer um motor local durante a
 reunião e `groq` no final. `groq` só aparece na transcrição final — em tempo real seria uma

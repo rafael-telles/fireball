@@ -63,9 +63,10 @@ const state = {
   open: null, // reunião aberta na tela da reunião (ativa ou passada)
   autoOpened: null, // id já aberto sozinho, pra não reabrir depois de sair
   settings: null, // preferências vindas do daemon (backends, idioma)
-  backends: { realtime: [], final: [] },
+  backends: { realtime: [], final: [], summary: [], calendar: [] },
   prompts: { list: [], default: null, instructions: "" }, // prompts salvos, o padrão, e o texto embutido
   editingPrompt: null, // id em edição, ou "" para um prompt novo; null = editor fechado
+  agenda: null, // última resposta de agenda() — status, events, error
   rows: [], // histórico como veio do daemon, mais recentes primeiro
   filter: "", // busca da barra lateral
   tab: "transcricao",
@@ -82,7 +83,11 @@ const TABS = { resumo: "pane-resumo", transcricao: "pane-transcricao", notas: "p
 // As duas telas têm abas, e as da configuração são `.set-tab` de propósito:
 // com a mesma classe, o listener de `.tab` trocaria também a aba da reunião
 // aberta atrás — pedindo notas e resumo dela sem ninguém ter clicado nisso.
-const SETTINGS_TABS = { transcricao: "set-pane-transcricao", resumo: "set-pane-resumo" };
+const SETTINGS_TABS = {
+  transcricao: "set-pane-transcricao",
+  resumo: "set-pane-resumo",
+  agenda: "set-pane-agenda",
+};
 
 function showView(name) {
   state.view = name;
@@ -496,9 +501,14 @@ function renderFicha() {
   // faria a pessoa apagá-lo antes de escrever o nome de verdade
   if (document.activeElement !== rename) rename.value = m.name || "";
   el("rename-note").textContent =
-    m.name_source === "ai" ? "nome escrito pela IA · clique para trocar" : "clique para renomear";
+    m.name_source === "ai"
+      ? "nome escrito pela IA · clique para trocar"
+      : m.name_source === "calendar"
+        ? "nome da agenda · clique para trocar"
+        : "clique para renomear";
 
   renderTags(m);
+  renderEventFields(m);
 
   const day = longDate(m.started_at);
   const from = timeLabel(m.started_at);
@@ -507,6 +517,78 @@ function renderFicha() {
     .filter(Boolean)
     .join(" · ");
   el("mv-path").textContent = o.path || "";
+}
+
+/** Local, descrição e convidados do evento de agenda — ou o estado vazio. */
+function renderEventFields(meeting) {
+  const event = meeting.event || null;
+  const location = el("mv-location");
+  const loc = event && (event.location || event.conference_url);
+  if (loc) {
+    location.textContent = event.location || event.conference_url;
+    location.classList.remove("muted");
+  } else {
+    location.textContent = event
+      ? "— sem local neste evento"
+      : "— o Fireball não registra local de reunião";
+    location.classList.add("muted");
+  }
+
+  const descBox = el("mv-description");
+  descBox.innerHTML = "";
+  if (event && event.description) {
+    const body = document.createElement("div");
+    body.className = "value event-description";
+    body.textContent = event.description;
+    descBox.appendChild(body);
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "slab short";
+    const note = document.createElement("div");
+    note.className = "slab-note";
+    note.textContent = event
+      ? "Este evento de agenda não tinha descrição."
+      : "A reunião não guarda descrição — o campo vem do evento de agenda.";
+    empty.appendChild(note);
+    descBox.appendChild(empty);
+  }
+
+  const people = el("mv-people");
+  people.innerHTML = "";
+  people.appendChild(personRow("V", "mine", "Você", "microfone"));
+  people.appendChild(personRow("O", "other", "Outros participantes", "áudio do sistema"));
+
+  const attendees = (event && event.attendees) || [];
+  for (const person of attendees) {
+    if (person.self) continue; // "Você" já está na lista
+    const label = person.name || person.email || "?";
+    const initial = (label.trim()[0] || "?").toUpperCase();
+    const detail = person.email && person.name ? person.email : person.organizer ? "organizador" : "convidado";
+    people.appendChild(personRow(initial, "guest", label, detail));
+  }
+
+  const note = el("mv-people-note");
+  note.textContent = attendees.length
+    ? "Convidados do evento de agenda. O áudio do sistema continua sem diarização."
+    : "O monitor do sistema não distingue quem fala do outro lado — um falante genérico até haver diarização.";
+}
+
+function personRow(initial, kind, name, detail) {
+  const row = document.createElement("div");
+  row.className = "person";
+  const avatar = document.createElement("span");
+  avatar.className = `avatar ${kind}`;
+  avatar.textContent = initial;
+  const text = document.createElement("span");
+  const b = document.createElement("b");
+  b.textContent = name;
+  const i = document.createElement("i");
+  i.textContent = detail;
+  text.appendChild(b);
+  text.appendChild(i);
+  row.appendChild(avatar);
+  row.appendChild(text);
+  return row;
 }
 
 /** As tags da reunião — geradas junto com o resumo, não digitadas aqui. */
@@ -833,6 +915,110 @@ function renderHome() {
     day: "numeric",
     month: "long",
   });
+  renderAgenda();
+}
+
+/** Preenche #agenda-list a partir de state.agenda. */
+function renderAgenda() {
+  const box = el("agenda-list");
+  box.innerHTML = "";
+  const agenda = state.agenda;
+  const busy = Boolean(state.active);
+
+  if (!agenda || agenda.status === "off") {
+    box.appendChild(
+      agendaSlab(
+        "Sem integração com agenda",
+        "Escolha um provedor em Configurações → Agenda para ler o calendário e iniciar a reunião a partir de um evento."
+      )
+    );
+    return;
+  }
+  if (agenda.status === "loading") {
+    box.appendChild(agendaSlab("Carregando agenda…", "Consultando o calendário."));
+    return;
+  }
+  if (agenda.status === "error") {
+    box.appendChild(
+      agendaSlab("Não foi possível ler a agenda", agenda.error || "Erro desconhecido.")
+    );
+    return;
+  }
+  const events = agenda.events || [];
+  if (!events.length) {
+    box.appendChild(
+      agendaSlab("Nada nas próximas horas", "Não há eventos na janela que o Fireball consulta.")
+    );
+    return;
+  }
+
+  const list = document.createElement("div");
+  list.className = "agenda-list";
+  for (const event of events) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "agenda-row";
+    row.disabled = busy;
+    row.title = busy
+      ? "Já tem uma reunião em andamento"
+      : `Iniciar gravação: ${event.title || "evento"}`;
+
+    const when = document.createElement("span");
+    when.className = "agenda-when";
+    when.textContent = timeLabel(event.start) || "—";
+
+    const mid = document.createElement("span");
+    const title = document.createElement("div");
+    title.className = "agenda-title";
+    title.textContent = event.title || "(sem título)";
+    mid.appendChild(title);
+    if (event.location) {
+      const loc = document.createElement("div");
+      loc.className = "agenda-loc";
+      loc.textContent = event.location;
+      mid.appendChild(loc);
+    }
+
+    const go = document.createElement("span");
+    go.className = "agenda-go";
+    go.textContent = "Iniciar";
+
+    row.appendChild(when);
+    row.appendChild(mid);
+    row.appendChild(go);
+    row.addEventListener("click", () => onStartFromEvent(event.id));
+    list.appendChild(row);
+  }
+  box.appendChild(list);
+}
+
+function agendaSlab(title, note) {
+  const empty = document.createElement("div");
+  empty.className = "slab";
+  const t = document.createElement("div");
+  t.className = "slab-title";
+  t.textContent = title;
+  const n = document.createElement("div");
+  n.className = "slab-note";
+  n.textContent = note;
+  empty.appendChild(t);
+  empty.appendChild(n);
+  return empty;
+}
+
+async function refreshAgenda(force) {
+  try {
+    state.agenda = await api("agenda", Boolean(force));
+  } catch (err) {
+    state.agenda = {
+      provider: "",
+      status: "error",
+      fetched_at: null,
+      error: errText(err),
+      events: [],
+    };
+  }
+  if (state.view === "home") renderAgenda();
 }
 
 async function refreshStatus() {
@@ -854,6 +1040,9 @@ async function refreshStatus() {
   state.active = detail ? detail.meeting : null;
   renderLiveCard();
   renderHome();
+
+  // agenda junto do poll: o daemon cacheia, então isto não shella o gog a cada 2s
+  if (state.view === "home") refreshAgenda(false);
 
   await syncOpenMeeting(detail);
 
@@ -1564,6 +1753,11 @@ function promptOptions() {
   return state.prompts.list.map((p) => [p.id, p.name]);
 }
 
+function calendarProviderOptions() {
+  // "" = desligado: instalação limpa não shella nada até a pessoa escolher
+  return [["", "Desligado"], ...(state.backends.calendar || []).map((name) => [name, name])];
+}
+
 function renderSettings() {
   const s = state.settings;
   fillSelect("set-live-backend", state.backends.realtime, s.realtime_backend);
@@ -1571,12 +1765,14 @@ function renderSettings() {
   fillSelect("set-summary-provider", state.backends.summary, s.summary_provider);
   fillSelect("set-summary-prompt", promptOptions(), s.summary_prompt);
   renderPromptList();
+  fillSelect("set-calendar-provider", calendarProviderOptions(), s.calendar_provider || "");
   el("set-live-on").checked = s.transcribe_live;
   el("set-auto-summarize").checked = s.auto_summarize;
   el("set-openai-url").value = s.openai_base_url || "";
   el("set-openai-key").value = s.openai_api_key || "";
   el("set-openai-model").value = s.openai_model || "";
   el("set-groq-key").value = s.groq_api_key || "";
+  el("set-gog-account").value = s.gog_account || "";
   el("set-language").value = s.language;
   renderProviderFields();
 }
@@ -1585,6 +1781,7 @@ function renderSettings() {
 function renderProviderFields() {
   el("openai-fields").classList.toggle("hidden", el("set-summary-provider").value !== "openai_api");
   el("groq-fields").classList.toggle("hidden", el("set-final-backend").value !== "groq");
+  el("gog-fields").classList.toggle("hidden", el("set-calendar-provider").value !== "gog");
 }
 
 async function loadSettings() {
@@ -1629,10 +1826,14 @@ async function onSaveSettings() {
       openai_api_key: el("set-openai-key").value,
       openai_model: el("set-openai-model").value,
       groq_api_key: el("set-groq-key").value,
+      calendar_provider: el("set-calendar-provider").value,
+      gog_account: el("set-gog-account").value,
       language: el("set-language").value,
     });
     renderSettings(); // o daemon é quem diz o que ficou valendo
     renderConfigSummary();
+    // provedor/conta mudaram: a lista da home precisa refletir já
+    refreshAgenda(true);
     const note = el("settings-note");
     note.textContent = "salvo";
     note.classList.add("on");
@@ -1667,6 +1868,18 @@ async function onStart() {
     setAlert("start-error", "Não foi possível iniciar a reunião", errText(err));
   } finally {
     button.disabled = false;
+  }
+}
+
+async function onStartFromEvent(eventId) {
+  setAlert("start-error", "");
+  try {
+    const meeting = await api("start_meeting", "", eventId);
+    state.autoOpened = meeting.id;
+    await openMeeting(meeting.id);
+    await refreshStatus();
+  } catch (err) {
+    setAlert("start-error", "Não foi possível iniciar a partir do evento", errText(err));
   }
 }
 
@@ -1874,6 +2087,7 @@ async function boot() {
   // trocar de provedor mostra/esconde os campos dele na hora, sem salvar:
   // preencher URL e chave só faz sentido para quem já escolheu usá-los
   el("set-summary-provider").addEventListener("change", renderProviderFields);
+  el("set-calendar-provider").addEventListener("change", renderProviderFields);
   for (const tab of document.querySelectorAll(".set-tab")) {
     tab.addEventListener("click", () => showSettingsTab(tab.dataset.setTab));
   }
@@ -1898,6 +2112,7 @@ async function boot() {
 
   await loadSettings();
   await loadHistory();
+  await refreshAgenda(false);
   renderHome();
   await refreshStatus();
 

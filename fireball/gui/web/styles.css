@@ -377,6 +377,77 @@ code {
   color: var(--faint);
 }
 
+/* Lista da home: um evento por linha, clicável para iniciar a reunião
+   já com o snapshot do calendário. Sem cartão — a linha é a interação. */
+.agenda-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.agenda-row {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr auto;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.agenda-row:hover,
+.agenda-row:focus-visible {
+  background: var(--surface);
+  outline: none;
+}
+
+.agenda-row:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.agenda-when {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.agenda-title {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agenda-loc {
+  font-size: 11.5px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 10rem;
+}
+
+.agenda-go {
+  font-size: 11px;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.agenda-row:hover .agenda-go,
+.agenda-row:focus-visible .agenda-go {
+  opacity: 1;
+}
+
 /* ------------------------------------------------------------------ app */
 
 .app {
@@ -956,6 +1027,19 @@ select.mini {
   background: #7aa2f722;
   border: 1px solid #7aa2f766;
   color: var(--speaker);
+}
+
+.avatar.guest {
+  background: #9ece6a22;
+  border: 1px solid #9ece6a66;
+  color: #9ece6a;
+}
+
+.event-description {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
 }
 
 .note {

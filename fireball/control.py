@@ -45,6 +45,8 @@ def create_meeting(
     transcribe: bool,
     backend: str,
     language: str,
+    event: Optional[dict] = None,
+    name_source: Optional[str] = None,
 ) -> dict:
     """Cria a pasta da reunião e o meeting.json inicial (status 'starting').
 
@@ -56,8 +58,15 @@ def create_meeting(
     Então a reunião nasce sem nome e o provedor de resumo escreve um a partir
     da transcrição (ver `apply_summary_metadata`). Quem quiser nomear na hora
     ainda pode — e aí a IA não mexe.
+
+    Começar a partir de um evento de agenda é o outro caminho: o daemon passa
+    o snapshot em `event` e o título vira o nome com `name_source: "calendar"`.
+    Qualquer fonte que não seja `"ai"` fica protegida do resumo (ver
+    `apply_summary_metadata`).
     """
     name = (name or "").strip() or None
+    if name_source is None:
+        name_source = "user" if name else None
     meeting_dir = storage.new_meeting_dir(name)
     (meeting_dir / "notes.md").write_text(
         f"# {name or 'Notas da reunião'}\n\n_Notas ao vivo tomadas pelo Claude e por você._\n\n## Notas\n"
@@ -67,10 +76,11 @@ def create_meeting(
     meeting = {
         "id": meeting_dir.name,
         "name": name,
-        # quem escreveu o nome: 'user' quando veio de gente, 'ai' quando veio
-        # do provedor de resumo. É o que impede o resumo regerado de passar
-        # por cima de um nome que alguém digitou.
-        "name_source": "user" if name else None,
+        # quem escreveu o nome: 'user' quando veio de gente, 'calendar'
+        # quando veio do evento, 'ai' quando veio do provedor de resumo.
+        # É o que impede o resumo regerado de passar por cima de um nome
+        # que alguém digitou ou que a agenda já tinha.
+        "name_source": name_source,
         # tags geradas junto com o resumo (ver apply_summary_metadata)
         "tags": [],
         "started_at": storage.now_iso(),
@@ -85,6 +95,10 @@ def create_meeting(
         "backend": backend if not fake else None,
         "language": language if not fake else None,
     }
+    if event:
+        # snapshot datado do evento externo — local, descrição e convidados
+        # moram aqui, não espalhados no topo do meeting.json
+        meeting["event"] = event
     storage.write_json(meeting_dir / "meeting.json", meeting)
     storage.write_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
     return meeting
