@@ -38,8 +38,8 @@ Sketch inicial. O que funciona:
 
 O que **não** está implementado ainda:
 
-- Diarização de verdade para "Outros participantes" (hoje é só *um* falante genérico —
-  o monitor do sistema não distingue quem está falando do outro lado).
+- Reconhecimento de pessoas pelo nome. A diarização ao vivo e a passada final
+  já separam até quatro vozes na sala e quatro no áudio do sistema, com rótulos anônimos.
 - Anotar pela bandeja, e escolher outro device de captura quando o microfone falha (hoje
   o aviso aparece, mas a troca é por flag na CLI).
 
@@ -218,6 +218,42 @@ fireball start --name "Reunião" --real --backend whisper    # padrão
 fireball start --name "Reunião" --real --backend parakeet
 fireball start --name "Reunião" --real --no-transcribe      # só grava, sem transcrever ao vivo
 ```
+
+### Diarização opcional com Sortformer
+
+A diarização é opt-in por reunião. Durante a gravação, o Fireball mantém dois
+estados streaming do Sortformer; na transcrição final, processa `mic.wav` e
+`system.wav` novamente com mais contexto:
+
+- microfone: `Sala 1` … `Sala 4`;
+- áudio do sistema: `Remoto 1` … `Remoto 4`.
+
+Isso cobre reuniões híbridas com várias pessoas dividindo o microfone. O limite
+é de quatro vozes **por track**; a quinta pode ser agrupada silenciosamente com
+outra pessoa. Os rótulos não reconhecem nomes e não são estáveis entre reuniões.
+
+O backend usa o runtime nativo oficial
+[NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp), sem PyTorch:
+
+```bash
+curl -fsSL https://github.com/NVIDIA/NeMo-Speech.cpp/raw/main/scripts/install.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+nemo-speech --version
+```
+
+O runtime baixa o Sortformer quantizado na primeira execução. Para usar um
+modelo local específico, defina `FIREBALL_SORTFORMER_MODEL=/caminho/modelo.gguf`.
+
+```bash
+fireball start --real --backend parakeet --diarize
+fireball finalize <meeting_id> --diarize
+fireball finalize <meeting_id> --no-diarize  # refaz com Você/Outros participantes
+```
+
+Se `nemo-speech` não estiver disponível, a gravação e a transcrição não falham:
+o Fireball registra `diarization_warnings.log` e volta aos rótulos por track.
+Os rótulos ao vivo podem atrasar cerca de 1–2 segundos e ser corrigidos pela
+passada final, que usa uma geometria mais precisa.
 
 ### A transcrição final também corta pelo VAD
 
@@ -469,7 +505,7 @@ fireball summarize <meeting_id> --provider openai_api
 O pedido que vai para o provedor tem três partes, e **só a do meio se edita**:
 
 ```
-HEAD   de onde vem a transcrição, o que significam os dois falantes,
+HEAD   de onde vem a transcrição, o que significam os rótulos de falante,
        e o JSON com title/tags/summary          ← fixo
 ─────────────────────────────────────────────────────────────────
        o que o resumo deve dizer e em que forma ← o prompt
@@ -591,6 +627,7 @@ está nos campos dela.
 | --- | --- | --- |
 | `realtime_backend` | motor da transcrição ao vivo (a que alimenta o chat) | `whisper` |
 | `transcribe_live` | transcrever durante a reunião, ou só gravar o áudio | `true` |
+| `diarize_default` | ativar Sortformer por padrão em reuniões novas | `false` |
 | `final_backend` | motor da transcrição final, sobre o áudio inteiro | `whisper` |
 | `groq_api_key` | chave da Groq, usada só pelo backend `groq` | vazio |
 | `language` | idioma esperado da fala | `pt` |

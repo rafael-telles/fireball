@@ -41,10 +41,8 @@ const STATUS_SHORT = {
   failed: "falhou",
 };
 
-// Cor do nome de quem fala. Os dois falantes reais de hoje são fixos: "Você" é
-// o microfone daqui e herda o acento da marca, "Outros participantes" é o
-// monitor do sistema e fica no azul. São só esses dois enquanto não houver
-// diarização, e é essa oposição que faz a conversa ser legível de relance.
+// Sem diarização, "Você" e "Outros participantes" representam as duas tracks.
+// Na final diarizada, Sala N continua do lado local e Remoto N do lado oposto.
 //
 // A paleta abaixo é para nomes além desses dois (o roteiro simulado do
 // `--fake`, e a diarização quando chegar). Nenhum tom avermelhado aqui de
@@ -207,6 +205,10 @@ function speakerColor(name) {
   return SPEAKER_COLORS[hash % SPEAKER_COLORS.length];
 }
 
+function isLocalSpeaker(name) {
+  return name === "Você" || name.startsWith("Sala ");
+}
+
 // ------------------------------------------------------------------ chat
 
 function isNearBottom(node) {
@@ -222,7 +224,7 @@ function chatMessage(seg, previousSpeaker) {
   const wrap = document.createElement("div");
   wrap.className = "msg";
   wrap.dataset.seq = seg.seq;
-  if (speaker === "Você") wrap.classList.add("mine");
+  if (isLocalSpeaker(speaker)) wrap.classList.add("mine");
   if (groupStart) wrap.classList.add("group-start");
 
   if (groupStart) {
@@ -517,6 +519,15 @@ function renderFicha() {
     .filter(Boolean)
     .join(" · ");
   el("mv-path").textContent = o.path || "";
+
+  const diarize = el("mv-diarize");
+  diarize.checked = Boolean(m.diarize);
+  diarize.disabled = o.live || m.status === "finalizing";
+  el("mv-diarize-note").textContent = m.diarize
+    ? o.live
+      ? "Ao vivo: Sala 1–4 e Remoto 1–4. A finalização refina os rótulos."
+      : "Na próxima transcrição final: Sala 1–4 e Remoto 1–4."
+    : "Desligada: mantém Você e Outros participantes.";
 }
 
 /** Local, descrição e convidados do evento de agenda — ou o estado vazio. */
@@ -568,9 +579,11 @@ function renderEventFields(meeting) {
   }
 
   const note = el("mv-people-note");
-  note.textContent = attendees.length
-    ? "Convidados do evento de agenda. O áudio do sistema continua sem diarização."
-    : "O monitor do sistema não distingue quem fala do outro lado — um falante genérico até haver diarização.";
+  note.textContent = meeting.diarize
+    ? "A diarização separa vozes ao vivo e na transcrição final; convidados da agenda não são identificados automaticamente."
+    : attendees.length
+      ? "Convidados do evento de agenda. As tracks continuam agrupadas por origem."
+      : "Ative a diarização para separar vozes na sala e na chamada.";
 }
 
 function personRow(initial, kind, name, detail) {
@@ -768,6 +781,7 @@ async function refreshOpenMeeting() {
       await loadAudio(); // o meeting.wav pode ter acabado de aparecer
       resetChat();
       await pollChat();
+      loadWarnings();
     }
     // o resumo roda em job próprio; quando ele acaba, a aba precisa saber
     if (o.summaryState && o.summaryState.status === "running") await loadSummary();
@@ -1177,6 +1191,7 @@ async function loadWarnings() {
 const WARNING_TITLE = {
   audio: "A captura de áudio não saiu completa",
   transcricao: "A transcrição ao vivo falhou",
+  diarizacao: "A separação de falantes não foi aplicada",
 };
 
 function renderWarnings() {
@@ -1654,7 +1669,9 @@ function renderConfigSummary() {
   const s = state.settings;
   if (!s) return;
   const live = s.transcribe_live ? `ao vivo: ${s.realtime_backend}` : "sem transcrição ao vivo";
-  el("config-summary-text").textContent = `${live} · final: ${s.final_backend} · ${s.language}`;
+  const diarize = s.diarize_default ? "diarização padrão ligada" : "diarização opcional";
+  el("config-summary-text").textContent = `${live} · final: ${s.final_backend} · ${diarize} · ${s.language}`;
+  el("start-diarize").checked = Boolean(s.diarize_default);
 }
 
 function renderPromptList() {
@@ -1767,6 +1784,7 @@ function renderSettings() {
   renderPromptList();
   fillSelect("set-calendar-provider", calendarProviderOptions(), s.calendar_provider || "");
   el("set-live-on").checked = s.transcribe_live;
+  el("set-diarize-default").checked = s.diarize_default;
   el("set-auto-summarize").checked = s.auto_summarize;
   el("set-openai-url").value = s.openai_base_url || "";
   el("set-openai-key").value = s.openai_api_key || "";
@@ -1818,6 +1836,7 @@ async function onSaveSettings() {
     state.settings = await api("save_settings", {
       realtime_backend: el("set-live-backend").value,
       transcribe_live: el("set-live-on").checked,
+      diarize_default: el("set-diarize-default").checked,
       final_backend: el("set-final-backend").value,
       summary_provider: el("set-summary-provider").value,
       summary_prompt: el("set-summary-prompt").value,
@@ -1859,7 +1878,7 @@ async function onStart() {
   try {
     // só o nome (quando há um): modo, backend e idioma são decididos fora
     // daqui — ver `Api.start_meeting`
-    const meeting = await api("start_meeting", name);
+    const meeting = await api("start_meeting", name, "", el("start-diarize").checked);
     el("name").value = ""; // o nome digitado era desta reunião, não da próxima
     state.autoOpened = meeting.id; // já vamos abrir aqui; o polling não repete
     await openMeeting(meeting.id);
@@ -1874,7 +1893,7 @@ async function onStart() {
 async function onStartFromEvent(eventId) {
   setAlert("start-error", "");
   try {
-    const meeting = await api("start_meeting", "", eventId);
+    const meeting = await api("start_meeting", "", eventId, el("start-diarize").checked);
     state.autoOpened = meeting.id;
     await openMeeting(meeting.id);
     await refreshStatus();
@@ -1965,7 +1984,7 @@ async function onFinalize() {
   try {
     // o retorno é o resumo do job (segmentos, backend), não a reunião — quem
     // diz como ela ficou é o meeting_status logo abaixo
-    await api("finalize", o.id);
+    await api("finalize", o.id, Boolean(o.meeting.diarize));
     // marca que estamos esperando: não dá pra depender de *flagrar* o status
     // 'finalizing' num polling de 2s, porque um backend rápido termina entre
     // duas voltas e a transcrição nova nunca apareceria na tela.
@@ -1974,6 +1993,22 @@ async function onFinalize() {
   } catch (err) {
     setAlert("meeting-error", "Não foi possível finalizar", errText(err));
     button.disabled = false;
+  }
+}
+
+async function onDiarizeChange(event) {
+  const o = state.open;
+  if (!o) return;
+  const checkbox = event.currentTarget;
+  checkbox.disabled = true;
+  try {
+    o.meeting = await api("set_diarization", o.id, checkbox.checked);
+    renderFicha();
+  } catch (err) {
+    checkbox.checked = Boolean(o.meeting.diarize);
+    setAlert("meeting-error", "Não foi possível mudar a diarização", errText(err));
+  } finally {
+    checkbox.disabled = o.live || o.meeting.status === "finalizing";
   }
 }
 
@@ -2024,6 +2059,7 @@ async function boot() {
   el("start-btn").addEventListener("click", onStart);
   el("stop-btn").addEventListener("click", onStop);
   el("finalize-btn").addEventListener("click", onFinalize);
+  el("mv-diarize").addEventListener("change", onDiarizeChange);
   el("open-folder").addEventListener("click", onOpenFolder);
   el("delete-btn").addEventListener("click", onDelete);
   el("pause-btn").addEventListener("click", (event) => {

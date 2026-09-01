@@ -313,6 +313,7 @@ class DaemonCore:
         mic_device: Optional[str] = None,
         system_device: Optional[str] = None,
         transcribe: Optional[bool] = None,
+        diarize: Optional[bool] = None,
         backend: Optional[str] = None,
         language: Optional[str] = None,
         event_id: Optional[str] = None,
@@ -332,6 +333,7 @@ class DaemonCore:
         """
         prefs = settings.load()
         transcribe = prefs["transcribe_live"] if transcribe is None else transcribe
+        diarize = prefs["diarize_default"] if diarize is None else diarize
         backend = backend or prefs["realtime_backend"]
         language = language or prefs["language"]
 
@@ -358,6 +360,7 @@ class DaemonCore:
                 mic_device=mic_device,
                 system_device=system_device,
                 transcribe=transcribe,
+                diarize=diarize,
                 backend=backend,
                 language=language,
                 event=event,
@@ -371,6 +374,7 @@ class DaemonCore:
                 mic_device=mic_device,
                 system_device=system_device,
                 transcribe=transcribe,
+                diarize=diarize,
                 backend=backend,
                 language=language,
             )
@@ -816,12 +820,31 @@ class DaemonCore:
         with self._lock:
             return control.rename_meeting(meeting_id, name)
 
+    def set_diarization(self, meeting_id: str, diarize: bool) -> dict:
+        """Muda o opt-in depois da gravação; durante ela o engine já está configurado."""
+        with self._lock:
+            meeting = control.read_meeting(meeting_id)
+            if meeting.get("status") in control.LIVE_STATUSES:
+                raise control.MeetingBusy(
+                    "A diarização ao vivo é escolhida ao iniciar. Pare a reunião antes de mudar "
+                    "a opção para a transcrição final."
+                )
+            if meeting_id in self._finalizing:
+                raise control.MeetingBusy("Não dá para mudar a diarização durante a transcrição final.")
+            return control.write_meeting_fields(meeting_id, diarize=bool(diarize))
+
     def note(self, meeting_id: str, text: str, author: str = "claude") -> dict:
         with self._lock:
             control.append_note(meeting_id, text, author, datetime.now().strftime("%H:%M"))
         return {"ok": True}
 
-    def finalize(self, meeting_id: str, backend: Optional[str] = None, wait_timeout: float = 0.0) -> dict:
+    def finalize(
+        self,
+        meeting_id: str,
+        backend: Optional[str] = None,
+        diarize: Optional[bool] = None,
+        wait_timeout: float = 0.0,
+    ) -> dict:
         # sem backend explícito vale o configurado para a transcrição final,
         # que não é necessariamente o do tempo real (é comum querer 'groq'
         # aqui e um motor local durante a reunião).
@@ -834,6 +857,8 @@ class DaemonCore:
                 )
             if meeting_id in self._finalizing:
                 raise control.MeetingBusy(f"A reunião '{meeting_id}' já está sendo finalizada.")
+            if diarize is not None:
+                meeting = control.write_meeting_fields(meeting_id, diarize=bool(diarize))
 
             # limpa o resumo da finalização anterior: se esta falhar, não
             # podemos devolver os números da tentativa passada como se fossem

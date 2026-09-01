@@ -43,6 +43,7 @@ def create_meeting(
     mic_device: Optional[str],
     system_device: Optional[str],
     transcribe: bool,
+    diarize: bool,
     backend: str,
     language: str,
     event: Optional[dict] = None,
@@ -92,6 +93,7 @@ def create_meeting(
         "mic_device": mic_device,
         "system_device": system_device,
         "transcribe_live": transcribe if not fake else None,
+        "diarize": diarize if not fake else False,
         "backend": backend if not fake else None,
         "language": language if not fake else None,
     }
@@ -111,6 +113,7 @@ def engine_command(
     mic_device: Optional[str],
     system_device: Optional[str],
     transcribe: bool,
+    diarize: bool,
     backend: str,
     language: str,
 ) -> list[str]:
@@ -132,6 +135,7 @@ def engine_command(
     if not fake:
         cmd += [
             "--transcribe" if transcribe else "--no-transcribe",
+            "--diarize" if diarize else "--no-diarize",
             "--backend",
             backend,
             "--language",
@@ -361,6 +365,7 @@ def migrate_transcripts() -> list[str]:
 WARNING_FILES = (
     ("audio", "audio_warnings.log"),
     ("transcricao", "transcribe_warnings.log"),
+    ("diarizacao", "diarization_warnings.log"),
 )
 
 

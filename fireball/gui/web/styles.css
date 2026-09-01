@@ -791,6 +791,14 @@ select.mini {
   margin-bottom: 14px;
 }
 
+.start-card .checkbox-row {
+  margin-bottom: 14px;
+}
+
+.start-card .checkbox-row input {
+  margin-bottom: 0;
+}
+
 .start-foot {
   display: flex;
   align-items: center;

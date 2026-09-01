@@ -93,6 +93,10 @@
                    não mexe no que a pessoa escreveu. -->
               <label class="lbl" for="name">Nome <span class="lbl-soft">(opcional)</span></label>
               <input type="text" id="name" placeholder="A IA nomeia quando a reunião acabar" />
+              <label class="checkbox-row start-diarize">
+                <input type="checkbox" id="start-diarize" />
+                <span>Separar falantes ao vivo e na transcrição final</span>
+              </label>
               <button class="btn primary block big" id="start-btn">Iniciar reunião</button>
               <div class="start-foot">
                 <span>Grava o microfone e o áudio do sistema.</span>
@@ -165,9 +169,17 @@
                   <div class="lbl">Participantes</div>
                   <div class="people" id="mv-people"></div>
                   <div class="note" id="mv-people-note">
-                    O monitor do sistema não distingue quem fala do outro lado — um falante
-                    genérico até haver diarização.
+                    Ative a diarização para separar vozes na sala e na chamada ao vivo e na transcrição final.
                   </div>
+                </div>
+
+                <div class="field-group">
+                  <div class="lbl">Diarização</div>
+                  <label class="checkbox-row">
+                    <input type="checkbox" id="mv-diarize" />
+                    <span>Separar até 4 vozes na sala e 4 na chamada</span>
+                  </label>
+                  <div class="note" id="mv-diarize-note"></div>
                 </div>
               </div>
             </div>
@@ -326,6 +338,13 @@
               </p>
               <div class="lbl">Backend</div>
               <select id="set-final-backend"></select>
+              <label class="checkbox-row">
+                <input type="checkbox" id="set-diarize-default" />
+                <span>Ativar diarização por padrão em reuniões novas</span>
+              </label>
+              <p class="card-note tight">
+                Usa Sortformer ao vivo e novamente na passada final. Pode ser ligado ou desligado em cada reunião.
+              </p>
 
               <!-- Só aparece com groq escolhido: campo de chave de API numa
                    tela onde ele não é usado é convite a preencher errado. -->
@@ -408,7 +427,7 @@
               <p class="card-note">
                 Um prompt diz <b>o que o resumo deve conter e em que forma</b>. O resto do pedido
                 é sempre o mesmo e não se edita: de onde vem a transcrição, o que significam os
-                dois falantes, e o JSON com <code>title</code>, <code>tags</code> e
+                os rótulos de falante, e o JSON com <code>title</code>, <code>tags</code> e
                 <code>summary</code> — é isso que faz qualquer prompt continuar rendendo nome e
                 tags para a reunião.
               </p>

@@ -19,7 +19,11 @@ from pathlib import Path
 from typing import Optional
 
 from fireball import audio, realtime, storage
-from fireball.backends import BackendUnavailable, get_realtime_backend
+from fireball.backends import (
+    BackendUnavailable,
+    get_realtime_backend,
+    get_streaming_diarization_backend,
+)
 
 FAKE_SCRIPT = [
     ("Rafael", "Bom dia pessoal, vamos começar a sincronização do projeto Fireball."),
@@ -80,6 +84,7 @@ def run_real_engine(
     mic_device: Optional[str] = None,
     system_device: Optional[str] = None,
     transcribe_live: bool = True,
+    diarize: bool = False,
     backend_name: str = "whisper",
     language: str = realtime.DEFAULT_LANGUAGE,
 ) -> None:
@@ -185,10 +190,21 @@ def run_real_engine(
     if transcribe_live:
         try:
             backend = get_realtime_backend(backend_name)
+            diarization_backend = None
+            if diarize:
+                try:
+                    diarization_backend = get_streaming_diarization_backend()
+                    (meeting_dir / "diarization_warnings.log").unlink(missing_ok=True)
+                except BackendUnavailable as exc:
+                    (meeting_dir / "diarization_warnings.log").write_text(str(exc) + "\n")
             transcribe_thread = threading.Thread(
                 target=realtime.run_realtime_transcription,
                 args=(meeting_dir, lambda: not state["running"], backend),
-                kwargs={"samplerate": rate, "language": language},
+                kwargs={
+                    "diarization_backend": diarization_backend,
+                    "samplerate": rate,
+                    "language": language,
+                },
                 daemon=True,
             )
             transcribe_thread.start()

@@ -15,10 +15,11 @@ from typing import Callable
 import numpy as np
 
 from fireball import storage
-from fireball.backends import RealtimeBackend
+from fireball.backends import BackendUnavailable, RealtimeBackend
 from fireball.vad import Endpointer
 
 SPEAKER_LABELS = {"mic": "Você", "system": "Outros participantes"}
+DIARIZED_PREFIXES = {"mic": "Sala", "system": "Remoto"}
 DEFAULT_LANGUAGE = "pt"
 
 
@@ -49,6 +50,7 @@ def run_realtime_transcription(
     meeting_dir: Path,
     stop_flag: Callable[[], bool],
     backend: RealtimeBackend,
+    diarization_backend=None,
     samplerate: int = 16000,
     language: str = DEFAULT_LANGUAGE,
     poll_seconds: float = 0.3,
@@ -64,6 +66,19 @@ def run_realtime_transcription(
 
     readers = {key: TrackReader(meeting_dir / f"{key}.pcm") for key in SPEAKER_LABELS}
     endpointers = {key: Endpointer(samplerate=samplerate) for key in SPEAKER_LABELS}
+    try:
+        diarization_streams = (
+            {key: diarization_backend.open_stream() for key in SPEAKER_LABELS}
+            if diarization_backend is not None
+            else None
+        )
+    except BackendUnavailable as exc:
+        (meeting_dir / "diarization_warnings.log").write_text(str(exc) + "\n")
+        if diarization_backend is not None:
+            diarization_backend.close()
+        diarization_backend = None
+        diarization_streams = None
+    pending = {key: [] for key in SPEAKER_LABELS}
 
     def _emit(speaker: str, text: str, start: float, end: float) -> None:
         nonlocal seq
@@ -87,28 +102,89 @@ def run_realtime_transcription(
         )
         seq_path.write_text(str(seq))
 
-    def _process(key: str, utterances: list) -> bool:
-        progressed = False
-        for utterance in utterances:
+    def _transcribe(key: str, utterance, turns: list[dict]) -> None:
+        if not turns:
             text = backend.transcribe_chunk(utterance.audio, samplerate, language)
             if text:
                 _emit(SPEAKER_LABELS[key], text, utterance.start, utterance.end)
+            return
+
+        for turn in turns:
+            start = max(utterance.start, float(turn["start"]))
+            end = min(utterance.end, float(turn["end"]))
+            if end - start < 0.2:
+                continue
+            first = int((start - utterance.start) * samplerate)
+            last = int((end - utterance.start) * samplerate)
+            text = backend.transcribe_chunk(utterance.audio[first:last], samplerate, language)
+            if text:
+                speaker = f"{DIARIZED_PREFIXES[key]} {int(turn['speaker_id']) + 1}"
+                _emit(speaker, text, start, end)
+
+    def _process(key: str, utterances: list, force: bool = False) -> bool:
+        progressed = False
+        pending[key].extend(utterances)
+        stream = diarization_streams[key] if diarization_streams is not None else None
+        while pending[key]:
+            utterance = pending[key][0]
+            # O Sortformer rotula em blocos de 1,6 s e pode ficar alguns frames
+            # atrás da captura. Seguramos a fala até o modelo alcançar seu fim,
+            # em vez de publicá-la cedo com o locutor errado.
+            if stream is not None and not force and stream.labeled_until + 0.01 < utterance.end:
+                break
+            turns = stream.turns(utterance.start, utterance.end) if stream is not None else []
+            pending[key].pop(0)
+            _transcribe(key, utterance, turns)
             progressed = True
         return progressed
 
-    while True:
-        stopping = stop_flag()
-        made_progress = False
-        for key, reader in readers.items():
-            chunk = reader.read_new()
-            if chunk is not None and len(chunk) > 0:
-                made_progress = True
-                _process(key, endpointers[key].push(chunk))
+    def _disable_diarization(exc: BackendUnavailable) -> None:
+        nonlocal diarization_backend, diarization_streams
+        (meeting_dir / "diarization_warnings.log").write_text(str(exc) + "\n")
+        if diarization_backend is not None:
+            diarization_backend.close()
+        diarization_backend = None
+        diarization_streams = None
 
-        if stopping:
-            for key, ep in endpointers.items():
-                _process(key, ep.flush())
-            break
+    try:
+        while True:
+            stopping = stop_flag()
+            made_progress = False
+            for key, reader in readers.items():
+                chunk = reader.read_new()
+                if chunk is not None and len(chunk) > 0:
+                    made_progress = True
+                    if diarization_streams is not None:
+                        try:
+                            diarization_streams[key].push(chunk, samplerate)
+                        except BackendUnavailable as exc:
+                            _disable_diarization(exc)
+                    utterances = endpointers[key].push(chunk)
+                    try:
+                        _process(key, utterances)
+                    except BackendUnavailable as exc:
+                        _disable_diarization(exc)
+                        _process(key, [])
+                elif pending[key]:
+                    try:
+                        _process(key, [])
+                    except BackendUnavailable as exc:
+                        _disable_diarization(exc)
+                        _process(key, [])
 
-        if not made_progress:
-            time.sleep(poll_seconds)
+            if stopping:
+                if diarization_streams is not None:
+                    try:
+                        for stream in diarization_streams.values():
+                            stream.finish()
+                    except BackendUnavailable as exc:
+                        _disable_diarization(exc)
+                for key, ep in endpointers.items():
+                    _process(key, ep.flush(), force=True)
+                break
+
+            if not made_progress:
+                time.sleep(poll_seconds)
+    finally:
+        if diarization_backend is not None:
+            diarization_backend.close()
