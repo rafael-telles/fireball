@@ -20,6 +20,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from fireball import tools
 from fireball.backends import BackendUnavailable
 
 
@@ -56,7 +57,7 @@ def _resolve_native_runtime(executable: str, model: str) -> tuple[Path, Path]:
     caminho local, então usamos o próprio índice do runtime para resolver (e,
     na primeira execução, baixar) o Sortformer padrão.
     """
-    binary = shutil.which(executable)
+    binary = tools.find_binary(executable)
     if not binary:
         raise BackendUnavailable(
             "Diarização ao vivo pedida, mas o runtime 'nemo-speech' não está instalado."
@@ -285,7 +286,7 @@ class SortformerBackend:
     name = "sortformer"
 
     def __init__(self, executable: str = "nemo-speech", model: str = DEFAULT_MODEL):
-        self.executable = shutil.which(executable)
+        self.executable = tools.find_binary(executable)
         if not self.executable:
             raise BackendUnavailable(
                 "Diarização pedida, mas o runtime 'nemo-speech' não está instalado. "

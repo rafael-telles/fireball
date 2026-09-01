@@ -30,10 +30,10 @@ transporte.
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
+from fireball import tools
 from fireball.summarizers import SummarizerFailed, SummarizerUnavailable
 from fireball.summarizers.prompt import build_prompt, parse_result
 
@@ -46,10 +46,11 @@ class ClaudeCodeSummarizer:
     name = "claude_code"
 
     def summarize(self, transcript: str, meeting: dict, instructions: str = "") -> dict:
-        binary = shutil.which("claude")
+        binary = tools.find_binary("claude")
         if not binary:
             raise SummarizerUnavailable(
-                "O comando 'claude' não foi encontrado no PATH. Instale o Claude Code "
+                "O comando 'claude' não foi encontrado — nem no PATH, nem nos "
+                "diretórios de instalação usuais. Instale o Claude Code "
                 "(https://claude.com/claude-code) para gerar resumos com este provedor."
             )
 

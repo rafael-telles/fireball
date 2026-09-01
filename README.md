@@ -635,6 +635,15 @@ hoje é o `gog`: shell-out no [gogcli](https://github.com/steipete/gogcli) já a
 máquina — mesma jogada do `claude_code`, zero segredo no Fireball. Sem provedor (padrão), a
 home mostra o estado vazio e nenhum binário é chamado.
 
+Achar esse binário não é `shutil.which` e ponto (`fireball/tools.py`): a janela normalmente
+sobe de um clique no lançador do desktop, que não é shell de login — não passa pelo `~/.zshrc`
+nem pelo `brew shellenv` —, e um `gog` instalado pelo Homebrew deixa de existir para o `which`.
+O sintoma é o pior tipo: a home diz que não conseguiu ler a agenda enquanto o `gog` responde
+normalmente no terminal. Então a busca é PATH primeiro (quem exportou, exportou de propósito) e
+depois os diretórios de instalação usuais — `~/.local/bin`, Homebrew, `~/.cargo/bin`, … A regra
+vale igual para o `claude` e o `nemo-speech`. Instalação fora do previsto: `FIREBALL_PATH` no
+ambiente, consultada antes dos padrões.
+
 O daemon cacheia a resposta em `~/.fireball/agenda.json` (TTL ~2 min, permissão 0600) e faz
 stale-while-revalidate numa thread: o poll de 2s da GUI não reconsulta o calendário a cada
 tick. CLI: `fireball agenda [--refresh]` e `fireball start --event <id>`.

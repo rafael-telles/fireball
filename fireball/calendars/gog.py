@@ -24,12 +24,11 @@ que a gente reconhece pelo nome porque a pessoa precisa resolver:
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from datetime import datetime
 from typing import Optional
 
-from fireball import settings
+from fireball import settings, tools
 from fireball.calendars import CalendarFailed, CalendarUnavailable
 
 TIMEOUT_S = 30
@@ -43,10 +42,11 @@ class GogCalendar:
     name = "gog"
 
     def upcoming(self, since: datetime, until: datetime, limit: int = 8) -> list[dict]:
-        binary = shutil.which("gog")
+        binary = tools.find_binary("gog")
         if not binary:
             raise CalendarUnavailable(
-                "O comando 'gog' não foi encontrado no PATH. Instale o gogcli "
+                "O comando 'gog' não foi encontrado — nem no PATH, nem nos "
+                "diretórios de instalação usuais. Instale o gogcli "
                 "(https://github.com/steipete/gogcli) e autentique com "
                 "`gog auth add <email>`."
             )
