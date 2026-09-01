@@ -67,6 +67,18 @@ class FakeStreamingDiarizer:
         self.closed = True
 
 
+class FakeVoiceRecognizer:
+    def observe(self, track, speaker_id, _audio, _samplerate):
+        if track == "system" and speaker_id == 0:
+            return {
+                "profile_id": "ana",
+                "name": "Ana",
+                "source": "voice",
+                "confidence": 0.91,
+            }
+        return None
+
+
 class DiarizationTests(unittest.TestCase):
     def test_engine_command_propagates_live_diarization(self):
         command = control.engine_command(
@@ -137,7 +149,8 @@ class DiarizationTests(unittest.TestCase):
 
     @patch("fireball.finalize.get_diarization_backend", return_value=FakeDiarizer())
     @patch("fireball.finalize.get_batch_backend", return_value=FakeAsr())
-    def test_finalize_diarizes_room_and_remote_separately(self, _asr, _diarizer):
+    @patch("fireball.finalize.voices.identify_diarized_tracks", return_value={})
+    def test_finalize_diarizes_room_and_remote_separately(self, _voices, _asr, _diarizer):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             self._meeting(root)
@@ -148,6 +161,33 @@ class DiarizationTests(unittest.TestCase):
             self.assertTrue(result["diarized"])
             self.assertEqual([item["speaker"] for item in transcript], ["Sala 1", "Remoto 1"])
             self.assertTrue((root / "diarization.json").exists())
+
+    @patch("fireball.finalize.get_diarization_backend", return_value=FakeDiarizer())
+    @patch("fireball.finalize.get_batch_backend", return_value=FakeAsr())
+    @patch(
+        "fireball.finalize.voices.identify_diarized_tracks",
+        return_value={
+            "mic:0": {
+                "profile_id": "rafael",
+                "name": "Rafael",
+                "source": "voice",
+                "confidence": 0.93,
+            }
+        },
+    )
+    def test_finalize_writes_recognized_identity(self, _voices, _asr, _diarizer):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._meeting(root)
+
+            finalize.run_finalize(root)
+            transcript = list(storage.read_ndjson(root / "transcript.ndjson"))
+            local = next(item for item in transcript if item["track"] == "mic")
+
+            self.assertEqual(local["speaker"], "Rafael")
+            self.assertEqual(local["speaker_key"], "mic:0")
+            self.assertEqual(local["voice_profile_id"], "rafael")
+            self.assertEqual(local["speaker_confidence"], 0.93)
 
     @patch(
         "fireball.finalize.get_diarization_backend",
@@ -200,6 +240,38 @@ class DiarizationTests(unittest.TestCase):
                 ["Sala 1", "Sala 2", "Remoto 1", "Remoto 2"],
             )
             self.assertTrue(diarizer.closed)
+
+    def test_realtime_uses_recognized_name_and_keeps_speaker_key(self):
+        class FakeEndpointer:
+            def __init__(self, samplerate):
+                self.samplerate = samplerate
+
+            def push(self, audio):
+                return [vad.Utterance(audio=audio, start=0.0, end=len(audio) / self.samplerate)]
+
+            def flush(self):
+                return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            samples = np.ones(16000 * 2, dtype=np.int16)
+            (root / "mic.pcm").write_bytes(samples.tobytes())
+            (root / "system.pcm").write_bytes(samples.tobytes())
+
+            with patch("fireball.realtime.Endpointer", FakeEndpointer):
+                realtime.run_realtime_transcription(
+                    root,
+                    stop_flag=lambda: True,
+                    backend=FakeRealtimeAsr(),
+                    diarization_backend=FakeStreamingDiarizer(),
+                    voice_recognizer=FakeVoiceRecognizer(),
+                )
+
+            transcript = list(storage.read_ndjson(root / "transcript.ndjson"))
+            recognized = next(item for item in transcript if item["speaker"] == "Ana")
+            self.assertEqual(recognized["speaker_key"], "system:0")
+            self.assertEqual(recognized["voice_profile_id"], "ana")
+            self.assertEqual(recognized["speaker_confidence"], 0.91)
 
 
 if __name__ == "__main__":

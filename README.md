@@ -230,7 +230,7 @@ estados streaming do Sortformer; na transcrição final, processa `mic.wav` e
 
 Isso cobre reuniões híbridas com várias pessoas dividindo o microfone. O limite
 é de quatro vozes **por track**; a quinta pode ser agrupada silenciosamente com
-outra pessoa. Os rótulos não reconhecem nomes e não são estáveis entre reuniões.
+outra pessoa. Os números não são estáveis entre reuniões.
 
 O backend usa o runtime nativo oficial
 [NeMo-Speech.cpp](https://github.com/NVIDIA/NeMo-Speech.cpp), sem PyTorch:
@@ -254,6 +254,39 @@ Se `nemo-speech` não estiver disponível, a gravação e a transcrição não f
 o Fireball registra `diarization_warnings.log` e volta aos rótulos por track.
 Os rótulos ao vivo podem atrasar cerca de 1–2 segundos e ser corrigidos pela
 passada final, que usa uma geometria mais precisa.
+
+### Reconhecimento de voz
+
+Clique em `Sala N` ou `Remoto N` na transcrição e confirme a pessoa. A agenda
+oferece sugestões, mas nunca associa um convidado sem esse clique.
+
+Vale **durante a reunião**, assim que houver uns cinco segundos de fala daquele
+locutor: o cadastro lê o `.pcm` que está sendo gravado e recorta os turnos pelo
+próprio `transcript.ndjson`, sem esperar a transcrição final. Enquanto a
+gravação corre, o nome é aplicado na leitura (o arquivo tem um dono só, o
+motor) e gravado quando ela termina; as falas seguintes já saem nomeadas, e as
+que já estavam na tela aparecem renomeadas na mesma hora. O único momento em
+que o clique fica indisponível é durante a transcrição final, que está
+reescrevendo o arquivo.
+
+O Fireball reúne de 5 a 30 segundos dos turnos daquele slot, extrai um embedding
+com WeSpeaker ResNet34 via ONNX e guarda somente o vetor em
+`~/.fireball/voices/` (diretório `0700`, arquivos `0600`). Nenhum clipe de áudio
+é copiado para o perfil. Instale o backend com:
+
+```bash
+pip install -e '.[voice]'
+```
+
+Nas próximas reuniões diarizadas, o reconhecimento roda ao vivo depois de
+acumular fala suficiente e roda novamente na finalização. Só troca o rótulo
+quando o melhor perfil passa um limiar conservador e fica claramente à frente
+do segundo; sem confiança, mantém `Sala N`/`Remoto N`. Reconhecimentos
+automáticos nunca atualizam o perfil — apenas novos cadastros confirmados.
+
+Os perfis podem ser renomeados ou apagados em **Configurações › Vozes**. Apagar
+um perfil impede reconhecimentos futuros, mas não reescreve nomes já gravados
+em transcrições antigas.
 
 ### A transcrição final também corta pelo VAD
 

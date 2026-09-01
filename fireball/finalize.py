@@ -24,7 +24,7 @@ from typing import Optional
 
 import numpy as np
 
-from fireball import realtime, storage, vad
+from fireball import realtime, storage, vad, voices
 from fireball.backends import BackendUnavailable, get_batch_backend, get_diarization_backend
 
 TRACK_SPEAKERS = (("mic", "Você"), ("system", "Outros participantes"))
@@ -86,7 +86,9 @@ def _transcribe_turns(
     wav_path: Path,
     language: str,
     turns: list[dict],
+    track: str,
     speaker_prefix: str,
+    assignments: dict[str, dict],
 ) -> list[dict]:
     """Recorta turnos diarizados antes do ASR (necessário para o Parakeet)."""
     audio, samplerate = _read_track(wav_path)
@@ -99,9 +101,22 @@ def _transcribe_turns(
             if end <= start:
                 continue
             _write_wav(audio[int(start * samplerate) : int(end * samplerate)], samplerate, turn_path)
-            speaker = f"{speaker_prefix} {int(turn['speaker_id']) + 1}"
+            speaker_id = int(turn["speaker_id"])
+            speaker_key = f"{track}:{speaker_id}"
+            assignment = assignments.get(speaker_key)
+            speaker = assignment["name"] if assignment else f"{speaker_prefix} {speaker_id + 1}"
             for seg in batch_backend.transcribe_file(turn_path, language):
-                segments.append({**_placed(seg, start, end), "speaker": speaker})
+                segments.append(
+                    {
+                        **_placed(seg, start, end),
+                        "speaker": speaker,
+                        "track": track,
+                        "speaker_id": speaker_id,
+                        "speaker_key": speaker_key,
+                        "voice_profile_id": assignment.get("profile_id") if assignment else None,
+                        "speaker_confidence": assignment.get("confidence") if assignment else None,
+                    }
+                )
     return segments
 
 
@@ -135,12 +150,19 @@ def run_finalize(meeting_dir: Path, backend: Optional[str] = None) -> dict:
     }
 
     diarized: dict[str, list[dict]] | None = None
+    assignments: dict[str, dict] = {}
     diarization_warning = None
     if meeting.get("diarize"):
         try:
             diarized = get_diarization_backend().diarize_files(track_paths)
             storage.write_json(meeting_dir / "diarization.json", diarized)
             (meeting_dir / "diarization_warnings.log").unlink(missing_ok=True)
+            try:
+                assignments = voices.identify_diarized_tracks(meeting_dir, diarized)
+                (meeting_dir / "voice_warnings.log").unlink(missing_ok=True)
+            except BackendUnavailable as exc:
+                assignments = voices.load_labels(meeting_dir)
+                (meeting_dir / "voice_warnings.log").write_text(str(exc) + "\n")
         except BackendUnavailable as exc:
             diarization_warning = str(exc)
             (meeting_dir / "diarization.json").unlink(missing_ok=True)
@@ -161,7 +183,9 @@ def run_finalize(meeting_dir: Path, backend: Optional[str] = None) -> dict:
                     wav_path,
                     language,
                     diarized.get(key, []),
+                    key,
                     DIARIZED_PREFIXES[key],
+                    assignments,
                 )
             )
         else:
@@ -181,6 +205,17 @@ def run_finalize(meeting_dir: Path, backend: Optional[str] = None) -> dict:
                 "end": entry["end"],
                 "speaker": entry["speaker"],
                 "text": entry["text"],
+                **{
+                    field: entry[field]
+                    for field in (
+                        "track",
+                        "speaker_id",
+                        "speaker_key",
+                        "voice_profile_id",
+                        "speaker_confidence",
+                    )
+                    if field in entry and entry[field] is not None
+                },
             },
         )
     return _write_result(

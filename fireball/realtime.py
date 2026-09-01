@@ -51,6 +51,7 @@ def run_realtime_transcription(
     stop_flag: Callable[[], bool],
     backend: RealtimeBackend,
     diarization_backend=None,
+    voice_recognizer=None,
     samplerate: int = 16000,
     language: str = DEFAULT_LANGUAGE,
     poll_seconds: float = 0.3,
@@ -80,9 +81,31 @@ def run_realtime_transcription(
         diarization_streams = None
     pending = {key: [] for key in SPEAKER_LABELS}
 
-    def _emit(speaker: str, text: str, start: float, end: float) -> None:
+    def _emit(
+        speaker: str,
+        text: str,
+        start: float,
+        end: float,
+        track: str | None = None,
+        speaker_id: int | None = None,
+        assignment: dict | None = None,
+    ) -> None:
         nonlocal seq
         seq += 1
+        identity = {}
+        if track is not None and speaker_id is not None:
+            identity = {
+                "track": track,
+                "speaker_id": speaker_id,
+                "speaker_key": f"{track}:{speaker_id}",
+            }
+        if assignment:
+            identity.update(
+                {
+                    "voice_profile_id": assignment.get("profile_id"),
+                    "speaker_confidence": assignment.get("confidence"),
+                }
+            )
         storage.append_ndjson(
             transcript_path,
             {
@@ -98,11 +121,13 @@ def run_realtime_transcription(
                 "speaker": speaker,
                 "text": text,
                 "source": "realtime",
+                **identity,
             },
         )
         seq_path.write_text(str(seq))
 
     def _transcribe(key: str, utterance, turns: list[dict]) -> None:
+        nonlocal voice_recognizer
         if not turns:
             text = backend.transcribe_chunk(utterance.audio, samplerate, language)
             if text:
@@ -116,10 +141,25 @@ def run_realtime_transcription(
                 continue
             first = int((start - utterance.start) * samplerate)
             last = int((end - utterance.start) * samplerate)
-            text = backend.transcribe_chunk(utterance.audio[first:last], samplerate, language)
+            turn_audio = utterance.audio[first:last]
+            text = backend.transcribe_chunk(turn_audio, samplerate, language)
             if text:
-                speaker = f"{DIARIZED_PREFIXES[key]} {int(turn['speaker_id']) + 1}"
-                _emit(speaker, text, start, end)
+                speaker_id = int(turn["speaker_id"])
+                assignment = None
+                if voice_recognizer is not None:
+                    try:
+                        assignment = voice_recognizer.observe(
+                            key, speaker_id, turn_audio, samplerate
+                        )
+                    except BackendUnavailable as exc:
+                        (meeting_dir / "voice_warnings.log").write_text(str(exc) + "\n")
+                        voice_recognizer = None
+                speaker = (
+                    assignment["name"]
+                    if assignment
+                    else f"{DIARIZED_PREFIXES[key]} {speaker_id + 1}"
+                )
+                _emit(speaker, text, start, end, key, speaker_id, assignment)
 
     def _process(key: str, utterances: list, force: bool = False) -> bool:
         progressed = False

@@ -184,6 +184,32 @@ class Api:
     def set_diarization(self, meeting_id: str, diarize: bool) -> dict:
         return self._call(self._core.set_diarization, meeting_id=meeting_id, diarize=bool(diarize))
 
+    def voices(self) -> dict:
+        return self._call(self._core.voice_profiles)
+
+    def enroll_voice(
+        self,
+        meeting_id: str,
+        speaker_key: str,
+        name: str,
+        email: str = "",
+        profile_id: str = "",
+    ) -> dict:
+        return self._call(
+            self._core.enroll_voice,
+            meeting_id=meeting_id,
+            speaker_key=speaker_key,
+            name=name,
+            email=email,
+            profile_id=profile_id or None,
+        )
+
+    def rename_voice(self, profile_id: str, name: str) -> dict:
+        return self._call(self._core.rename_voice, profile_id=profile_id, name=name)
+
+    def delete_voice(self, profile_id: str) -> dict:
+        return self._call(self._core.delete_voice, profile_id=profile_id)
+
     def finalize(self, meeting_id: str, diarize: bool | None = None) -> dict:
         """Transcrição final pela janela.
 

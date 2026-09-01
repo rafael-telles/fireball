@@ -55,6 +55,8 @@ Os rótulos de falante significam o seguinte:
   "Remoto N" separa vozes vindas do áudio do sistema.
 - Os números são identidades anônimas desta gravação, não nomes. Não invente
   nomes nem associe convidados da agenda a uma voz sem evidência explícita.
+- Quando aparece o nome de uma pessoa no lugar de "Sala N"/"Remoto N", ele
+  veio de um perfil de voz cadastrado e pode ser usado no resumo.
 
 Responda **só com um objeto JSON**, sem cerca de código e sem nenhum texto
 antes ou depois, com exatamente estas três chaves:

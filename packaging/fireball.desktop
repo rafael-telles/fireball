@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Fireball
+Comment=Grava e transcreve reuniões
+Exec=/home/rafael/Desktop/fireball/.venv/bin/fireball-gui
+Icon=/home/rafael/Desktop/fireball/packaging/fireball.svg
+Terminal=false
+Categories=AudioVideo;Recorder;
+Keywords=reuniao;transcricao;gravacao;meeting;notes;
+StartupNotify=true
+StartupWMClass=fireball-gui

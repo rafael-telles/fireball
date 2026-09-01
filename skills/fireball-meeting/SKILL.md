@@ -80,8 +80,9 @@ CLI do Fireball (venv dedicado, não está no PATH):
    preferir a passada final via API (`GROQ_API_KEY` no `.env` do Fireball) em vez do modelo
    local.
    Com diarização ligada, os rótulos finais são `Sala N` (microfone) e
-   `Remoto N` (áudio do sistema), não nomes de pessoas. Não associe convidados
-   da agenda a esses rótulos sem confirmação explícita.
+   `Remoto N` (áudio do sistema), exceto quando um perfil de voz já cadastrado
+   for reconhecido com confiança. Não associe convidados da agenda a rótulos
+   anônimos sem confirmação explícita.
 3. Leia `~/.fireball/meetings/<meeting_id>/transcript.ndjson` (após o `finalize`, ela já é a versão
    feita sobre o áudio inteiro) e monte o corpo de uma nota
    `Transcript` nova no vault, uma linha por segmento, formato `[mm:ss] <speaker>: <texto>`

@@ -15,6 +15,7 @@ dependencies = [
 whisper = ["faster-whisper>=1.0", "numpy>=1.24"]
 parakeet = ["onnx-asr[cpu,hub]>=0.7", "faster-whisper>=1.0", "numpy>=1.24"]
 groq = ["groq>=1.0"]
+voice = ["speakeronnx>=0.0.1"]
 # Um toolkit só (Qt) pra janela E pra bandeja — ver fireball/gui/tray.py
 # pro motivo de não misturar com GTK/pystray. PyQt6 cobre as duas coisas:
 # pywebview usa o Qt pra renderizar a janela, e QSystemTrayIcon (parte do

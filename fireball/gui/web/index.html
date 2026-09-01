@@ -311,6 +311,7 @@
           <button class="set-tab selected" data-set-tab="transcricao">Transcrição</button>
           <button class="set-tab" data-set-tab="resumo">Resumo</button>
           <button class="set-tab" data-set-tab="agenda">Agenda</button>
+          <button class="set-tab" data-set-tab="vozes">Vozes</button>
         </div>
 
         <div class="scroll">
@@ -474,6 +475,19 @@
             </section>
             </div>
 
+            <div class="hidden" id="set-pane-vozes">
+            <section class="card">
+              <div class="card-title">Vozes cadastradas</div>
+              <p class="card-note">
+                O Fireball guarda somente embeddings biométricos locais, nunca cópias de áudio.
+                Cadastre uma pessoa clicando em <code>Sala N</code> ou <code>Remoto N</code>
+                depois de finalizar uma reunião diarizada.
+              </p>
+              <div class="prompt-list" id="voice-list"></div>
+              <div class="field-note" id="voice-empty">Nenhuma voz cadastrada.</div>
+            </section>
+            </div>
+
             <!-- Fora das abas: um Salvar só. Esconder uma aba não apaga o que
                  está nos campos dela, então salvar daqui salva todas. -->
             <div class="settings-actions">
@@ -519,6 +533,34 @@
         <span class="dialog-spacer"></span>
         <button class="btn outline" id="prompt-cancel">Cancelar</button>
         <button class="btn primary" id="prompt-save">Salvar prompt</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="voice-dialog" aria-labelledby="voice-dialog-title" aria-describedby="voice-privacy-note">
+    <div class="dialog-card">
+      <div class="dialog-head">
+        <h2 class="dialog-title" id="voice-dialog-title">Dar nome à voz</h2>
+        <button class="btn outline icon" id="voice-close" title="Fechar" aria-label="Fechar">✕</button>
+      </div>
+      <div class="dialog-body">
+        <p class="card-note" id="voice-speaker-label"></p>
+        <label class="lbl" for="voice-candidate">Convidado ou perfil existente</label>
+        <select id="voice-candidate"></select>
+        <label class="lbl" for="voice-name">Nome confirmado</label>
+        <input type="text" id="voice-name" placeholder="Nome da pessoa" />
+        <label class="lbl" for="voice-email">E-mail (opcional)</label>
+        <input type="email" id="voice-email" placeholder="pessoa@empresa.com" />
+        <div class="field-note" id="voice-privacy-note">
+          Ao salvar, você confirma manualmente quem falou. O Fireball extrai a voz dos
+          trechos desta reunião e guarda apenas embeddings locais para reconhecê-la no futuro.
+        </div>
+        <div class="alert bad hidden" id="voice-error"></div>
+      </div>
+      <div class="dialog-actions">
+        <span class="dialog-spacer"></span>
+        <button class="btn outline" id="voice-cancel">Cancelar</button>
+        <button class="btn primary" id="voice-save">Cadastrar voz</button>
       </div>
     </div>
   </dialog>

@@ -67,7 +67,8 @@ que está sendo dito em tempo real através do CLI `fireball` e decide o que ano
    preferir não depender do modelo local para a passada final.
    - Se a reunião foi iniciada com `--diarize` (ou o usuário pedir agora), a
      final separa `Sala 1`…`Sala 4` no microfone e `Remoto 1`…`Remoto 4` no
-     áudio do sistema. São rótulos anônimos: não invente nomes.
+     áudio do sistema. Se um perfil de voz cadastrado casar com confiança, o
+     nome confirmado aparece no lugar do rótulo; os demais continuam anônimos.
    - Com mais de quatro vozes no mesmo lado, prefira refazer com
      `--no-diarize` se os rótulos ficarem misturados.
 3. O nome, as tags e o resumo da reunião saem sozinhos assim que a transcrição final fica

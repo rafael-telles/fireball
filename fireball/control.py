@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from fireball import realtime, storage
+from fireball import realtime, storage, voices
 
 # Status em que a reunião ainda está "viva" (o daemon tem — ou deveria ter —
 # um processo cuidando dela). Fora daí, é estado terminal.
@@ -259,8 +259,68 @@ def read_transcript(meeting_id: str, since_seq: int = 0) -> list[dict]:
     O corte por seq é o que deixa o chat ao vivo da GUI barato: ela guarda o
     último seq que já desenhou e a cada polling pede só o que veio depois, em
     vez de reler a reunião inteira e reconstruir a tela.
+
+    Os nomes confirmados são aplicados na leitura, não no arquivo: enquanto a
+    reunião grava, o engine é o dono de `transcript.ndjson`, e reescrevê-lo por
+    baixo dele perderia falas. Quem dá nome a uma voz no meio da reunião vê o
+    nome na hora, inclusive nas falas que já estavam na tela.
     """
-    return list(storage.read_ndjson(transcript_path(meeting_id), since_seq=since_seq))
+    segments = list(storage.read_ndjson(transcript_path(meeting_id), since_seq=since_seq))
+    labels = voices.load_labels(storage.meeting_path(meeting_id))
+    if not labels:
+        return segments
+    return [_labelled(seg, labels) for seg in segments]
+
+
+def _assigned(seg: dict, speaker_key: str, assignment: dict) -> dict:
+    track, _, raw_id = speaker_key.partition(":")
+    return {
+        **seg,
+        "speaker": assignment["name"],
+        "track": track,
+        "speaker_id": int(raw_id),
+        "speaker_key": speaker_key,
+        "voice_profile_id": assignment.get("profile_id"),
+        "speaker_confidence": assignment.get("confidence"),
+        "speaker_edited": assignment.get("source") == "manual",
+    }
+
+
+def _labelled(seg: dict, labels: dict) -> dict:
+    key = seg.get("speaker_key")
+    assignment = labels.get(key) if key else None
+    if not assignment or not assignment.get("name"):
+        return seg
+    if seg.get("speaker") == assignment["name"]:
+        return seg
+    return _assigned(seg, key, assignment)
+
+
+def apply_speaker_labels(meeting_id: str) -> int:
+    """Grava na transcrição os nomes confirmados enquanto a reunião gravava.
+
+    Roda quando o engine já saiu: aí o arquivo tem um dono só, e o que era
+    sobreposição na leitura passa a estar no disco — que é o que a transcrição
+    final, o resumo e o Claude leem.
+    """
+    labels = voices.load_labels(storage.meeting_path(meeting_id))
+    if not labels:
+        return 0
+
+    changed = 0
+
+    def change(seg):
+        nonlocal changed
+        new = _labelled(seg, labels)
+        if new is not seg:
+            changed += 1
+        return new
+
+    try:
+        _rewrite_transcript(meeting_id, change)
+    except (FileNotFoundError, LookupError):
+        return 0
+    return changed
 
 
 def _rewrite_transcript(meeting_id: str, change) -> dict:
@@ -306,6 +366,26 @@ def edit_segment(meeting_id: str, seq: int, text: str) -> dict:
 
     def change(seg):
         return {**seg, "text": text, "edited": True} if seg.get("seq") == seq else seg
+
+    return _rewrite_transcript(meeting_id, change)
+
+
+def assign_speaker(meeting_id: str, speaker_key: str, assignment: dict) -> dict:
+    """Aplica um nome a todas as falas do mesmo slot diarizado."""
+    track, sep, raw_id = speaker_key.partition(":")
+    if not sep or track not in ("mic", "system"):
+        raise ValueError("Locutor inválido.")
+    try:
+        speaker_id = int(raw_id)
+    except ValueError as exc:
+        raise ValueError("Locutor inválido.") from exc
+    fallback = f"{'Sala' if track == 'mic' else 'Remoto'} {speaker_id + 1}"
+
+    def change(seg):
+        key = seg.get("speaker_key")
+        if key != speaker_key and not (key is None and seg.get("speaker") == fallback):
+            return seg
+        return _assigned(seg, speaker_key, assignment)
 
     return _rewrite_transcript(meeting_id, change)
 
@@ -366,6 +446,7 @@ WARNING_FILES = (
     ("audio", "audio_warnings.log"),
     ("transcricao", "transcribe_warnings.log"),
     ("diarizacao", "diarization_warnings.log"),
+    ("voz", "voice_warnings.log"),
 )
 
 

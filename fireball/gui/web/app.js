@@ -63,6 +63,8 @@ const state = {
   settings: null, // preferências vindas do daemon (backends, idioma)
   backends: { realtime: [], final: [], summary: [], calendar: [] },
   prompts: { list: [], default: null, instructions: "" }, // prompts salvos, o padrão, e o texto embutido
+  voices: [],
+  enrollingSpeaker: null,
   editingPrompt: null, // id em edição, ou "" para um prompt novo; null = editor fechado
   agenda: null, // última resposta de agenda() — status, events, error
   rows: [], // histórico como veio do daemon, mais recentes primeiro
@@ -85,6 +87,7 @@ const SETTINGS_TABS = {
   transcricao: "set-pane-transcricao",
   resumo: "set-pane-resumo",
   agenda: "set-pane-agenda",
+  vozes: "set-pane-vozes",
 };
 
 function showView(name) {
@@ -205,7 +208,8 @@ function speakerColor(name) {
   return SPEAKER_COLORS[hash % SPEAKER_COLORS.length];
 }
 
-function isLocalSpeaker(name) {
+function isLocalSpeaker(name, seg = null) {
+  if (seg && (seg.track === "mic" || String(seg.speaker_key || "").startsWith("mic:"))) return true;
   return name === "Você" || name.startsWith("Sala ");
 }
 
@@ -224,14 +228,23 @@ function chatMessage(seg, previousSpeaker) {
   const wrap = document.createElement("div");
   wrap.className = "msg";
   wrap.dataset.seq = seg.seq;
-  if (isLocalSpeaker(speaker)) wrap.classList.add("mine");
+  if (isLocalSpeaker(speaker, seg)) wrap.classList.add("mine");
   if (groupStart) wrap.classList.add("group-start");
 
   if (groupStart) {
-    const name = document.createElement("div");
+    // Vale ao vivo: o daemon guarda só o perfil e o rótulo enquanto o motor
+    // escreve a transcrição. Finalizando, não — o arquivo está sendo trocado.
+    const canEnroll = seg.speaker_key && state.open?.meeting.status !== "finalizing";
+    const name = document.createElement(canEnroll ? "button" : "div");
     name.className = "msg-speaker";
     name.textContent = speaker;
     name.style.setProperty("--speaker-color", speakerColor(speaker));
+    if (canEnroll) {
+      name.classList.add("voice-link");
+      name.title = "Confirmar quem é esta voz";
+      name.setAttribute("aria-label", `Confirmar identidade de ${speaker}`);
+      name.addEventListener("click", () => openVoiceDialog(seg));
+    }
     wrap.appendChild(name);
   }
 
@@ -1192,6 +1205,7 @@ const WARNING_TITLE = {
   audio: "A captura de áudio não saiu completa",
   transcricao: "A transcrição ao vivo falhou",
   diarizacao: "A separação de falantes não foi aplicada",
+  voz: "O reconhecimento de voz não foi aplicado",
 };
 
 function renderWarnings() {
@@ -1715,6 +1729,166 @@ function openPromptEditor(promptId) {
   el("prompt-name").focus();
 }
 
+// ------------------------------------------------------- perfis de voz
+
+async function loadVoices() {
+  state.voices = await api("voices");
+  renderVoices();
+}
+
+function renderVoices() {
+  const list = el("voice-list");
+  const empty = el("voice-empty");
+  if (!list || !empty) return;
+  list.innerHTML = "";
+  empty.classList.toggle("hidden", state.voices.length > 0);
+
+  for (const voice of state.voices) {
+    const row = document.createElement("div");
+    row.className = "prompt-row";
+    const input = document.createElement("input");
+    input.className = "voice-name-input";
+    input.value = voice.name;
+    input.setAttribute("aria-label", `Nome de ${voice.name}`);
+    row.appendChild(input);
+
+    const detail = document.createElement("span");
+    detail.className = "voice-samples";
+    detail.textContent = `${voice.samples} amostra${voice.samples === 1 ? "" : "s"}`;
+    row.appendChild(detail);
+
+    const save = document.createElement("button");
+    save.className = "btn outline small";
+    save.textContent = "Salvar";
+    save.addEventListener("click", async () => {
+      try {
+        await api("rename_voice", voice.id, input.value);
+        await loadVoices();
+      } catch (err) {
+        setAlert("settings-error", "Não foi possível renomear a voz", errText(err));
+      }
+    });
+    row.appendChild(save);
+
+    const remove = document.createElement("button");
+    remove.className = "btn outline small danger";
+    remove.textContent = "Apagar";
+    remove.addEventListener("click", async () => {
+      if (remove.dataset.confirm !== "yes") {
+        remove.dataset.confirm = "yes";
+        remove.textContent = "Confirmar";
+        setTimeout(() => {
+          if (remove.isConnected) {
+            remove.dataset.confirm = "";
+            remove.textContent = "Apagar";
+          }
+        }, 6000);
+        return;
+      }
+      try {
+        await api("delete_voice", voice.id);
+        await loadVoices();
+      } catch (err) {
+        setAlert("settings-error", "Não foi possível apagar a voz", errText(err));
+      }
+    });
+    row.appendChild(remove);
+    list.appendChild(row);
+  }
+}
+
+async function openVoiceDialog(seg) {
+  const o = state.open;
+  if (!o || !seg.speaker_key || o.meeting.status === "finalizing") return;
+  state.enrollingSpeaker = seg;
+  setAlert("voice-error", "");
+  try {
+    await loadVoices();
+  } catch (err) {
+    setAlert("meeting-error", "Não foi possível carregar as vozes", errText(err));
+    return;
+  }
+
+  el("voice-speaker-label").textContent =
+    `${seg.speaker}: confirme a pessoa para cadastrar esta voz.`;
+  const select = el("voice-candidate");
+  select.innerHTML = "";
+  select.appendChild(new Option("Digite um nome ou escolha uma sugestão", ""));
+  for (const voice of state.voices) {
+    const option = new Option(`${voice.name} — voz já cadastrada`, `profile:${voice.id}`);
+    option.dataset.name = voice.name;
+    option.dataset.email = (voice.emails && voice.emails[0]) || "";
+    select.appendChild(option);
+  }
+  const attendees = (o.meeting.event && o.meeting.event.attendees) || [];
+  for (const [index, person] of attendees.entries()) {
+    const name = person.name || person.email;
+    if (!name) continue;
+    const option = new Option(`${name} — convidado`, `attendee:${index}`);
+    option.dataset.name = person.name || person.email || "";
+    option.dataset.email = person.email || "";
+    select.appendChild(option);
+  }
+  el("voice-name").value = seg.voice_profile_id
+    ? (state.voices.find((voice) => voice.id === seg.voice_profile_id) || {}).name || seg.speaker
+    : "";
+  const existing = state.voices.find((voice) => voice.id === seg.voice_profile_id);
+  if (existing) select.value = `profile:${existing.id}`;
+  el("voice-email").value = (existing && existing.emails && existing.emails[0]) || "";
+  el("voice-dialog").showModal();
+  el("voice-name").focus();
+}
+
+function closeVoiceDialog() {
+  state.enrollingSpeaker = null;
+  el("voice-dialog").close();
+}
+
+function onVoiceCandidateChange() {
+  const option = el("voice-candidate").selectedOptions[0];
+  if (!option || !option.value) return;
+  el("voice-name").value = option.dataset.name || "";
+  el("voice-email").value = option.dataset.email || "";
+}
+
+async function onSaveVoice() {
+  const o = state.open;
+  const seg = state.enrollingSpeaker;
+  if (!o || !seg) return;
+  const option = el("voice-candidate").selectedOptions[0];
+  const profileId = option && option.value.startsWith("profile:")
+    ? option.value.slice("profile:".length)
+    : "";
+  const button = el("voice-save");
+  button.disabled = true;
+  setAlert("voice-error", "");
+  try {
+    await api(
+      "enroll_voice",
+      o.id,
+      seg.speaker_key,
+      el("voice-name").value,
+      el("voice-email").value,
+      profileId,
+    );
+    closeVoiceDialog();
+    await loadVoices();
+    // o nome vale para as falas já na tela, então o chat recomeça do zero
+    resetChat();
+    await pollChat();
+    if (!o.live) {
+      // fora do ar vivo o daemon regera o resumo com o nome novo
+      o.settling = SETTLE_TICKS;
+      await refreshOpenMeeting();
+      if (state.tab === "resumo") await loadSummary();
+    }
+  } catch (err) {
+    setAlert("voice-error", "Não foi possível cadastrar esta voz", errText(err));
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function closePromptEditor() {
   // `close()` num diálogo fechado é ruído, não erro — mas chamar isto faz
   // parte de sair da tela, e não só de cancelar a edição
@@ -1805,7 +1979,7 @@ function renderProviderFields() {
 async function loadSettings() {
   state.backends = await window.pywebview.api.backend_options();
   state.settings = await api("get_settings");
-  await loadPrompts();
+  await Promise.all([loadPrompts(), loadVoices()]);
   renderConfigSummary();
 }
 
@@ -1815,6 +1989,7 @@ function showSettingsTab(name) {
   for (const tab of document.querySelectorAll(".set-tab")) {
     tab.classList.toggle("selected", tab.dataset.setTab === name);
   }
+  el("settings-save").classList.toggle("hidden", name === "vozes");
 }
 
 async function openSettings() {
@@ -1823,7 +1998,7 @@ async function openSettings() {
   el("settings-note").textContent = "";
   closePromptEditor(); // edição pendente não atravessa uma saída da tela
   showSettingsTab(state.settingsTab);
-  await loadPrompts();
+  await Promise.all([loadPrompts(), loadVoices()]);
   renderSettings(); // sempre do estado conhecido, nunca do que ficou na tela
   showView("settings");
 }
@@ -2144,6 +2319,24 @@ async function boot() {
   el("prompt-dialog").addEventListener("click", (event) => {
     if (event.target === el("prompt-dialog")) closePromptEditor();
   });
+  el("voice-candidate").addEventListener("change", onVoiceCandidateChange);
+  el("voice-save").addEventListener("click", onSaveVoice);
+  el("voice-cancel").addEventListener("click", closeVoiceDialog);
+  el("voice-close").addEventListener("click", closeVoiceDialog);
+  el("voice-dialog").addEventListener("close", () => {
+    state.enrollingSpeaker = null;
+  });
+  el("voice-dialog").addEventListener("click", (event) => {
+    if (event.target === el("voice-dialog")) closeVoiceDialog();
+  });
+  for (const id of ["voice-name", "voice-email"]) {
+    el(id).addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onSaveVoice();
+      }
+    });
+  }
   el("set-final-backend").addEventListener("change", renderProviderFields);
 
   await loadSettings();

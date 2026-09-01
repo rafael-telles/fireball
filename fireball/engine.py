@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fireball import audio, realtime, storage
+from fireball import audio, realtime, storage, voices
 from fireball.backends import (
     BackendUnavailable,
     get_realtime_backend,
@@ -191,17 +191,23 @@ def run_real_engine(
         try:
             backend = get_realtime_backend(backend_name)
             diarization_backend = None
+            voice_recognizer = None
             if diarize:
                 try:
                     diarization_backend = get_streaming_diarization_backend()
                     (meeting_dir / "diarization_warnings.log").unlink(missing_ok=True)
                 except BackendUnavailable as exc:
                     (meeting_dir / "diarization_warnings.log").write_text(str(exc) + "\n")
+                # sempre, mesmo sem perfil nenhum: quem for cadastrado durante
+                # a reunião passa a valer para as falas seguintes
+                voice_recognizer = voices.LiveVoiceRecognizer(meeting_dir)
+                (meeting_dir / "voice_warnings.log").unlink(missing_ok=True)
             transcribe_thread = threading.Thread(
                 target=realtime.run_realtime_transcription,
                 args=(meeting_dir, lambda: not state["running"], backend),
                 kwargs={
                     "diarization_backend": diarization_backend,
+                    "voice_recognizer": voice_recognizer,
                     "samplerate": rate,
                     "language": language,
                 },

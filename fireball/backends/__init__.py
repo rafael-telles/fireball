@@ -55,6 +55,15 @@ class StreamingDiarizationBackend(Protocol):
     def close(self) -> None: ...
 
 
+class SpeakerEmbeddingBackendProtocol(Protocol):
+    """Converte fala de uma única pessoa em um vetor normalizado."""
+
+    name: str
+    model: str
+
+    def embed(self, audio, samplerate: int = 16000): ...
+
+
 REALTIME_BACKENDS = ("whisper", "parakeet")
 BATCH_BACKENDS = ("whisper", "parakeet", "groq")
 DIARIZATION_BACKENDS = ("sortformer",)
@@ -108,3 +117,11 @@ def get_streaming_diarization_backend(name: str = "sortformer") -> StreamingDiar
 
         return StreamingSortformerBackend()
     raise BackendUnavailable(f"Backend de diarização desconhecido: '{name}'. Use {DIARIZATION_BACKENDS}.")
+
+
+def get_speaker_embedding_backend(name: str = "speakeronnx") -> SpeakerEmbeddingBackendProtocol:
+    if name == "speakeronnx":
+        from fireball.backends.speaker_backend import SpeakerEmbeddingBackend
+
+        return SpeakerEmbeddingBackend()
+    raise BackendUnavailable(f"Backend de reconhecimento de voz desconhecido: '{name}'.")
