@@ -78,17 +78,9 @@
                 <span class="sec-title">Próximas na agenda</span>
                 <span class="sec-right" id="agenda-date"></span>
               </div>
-              <!-- O desenho preenche nome, local, descrição e participantes a
-                   partir do evento escolhido. Não há integração com calendário
-                   ainda, então o lugar dela fica marcado em vez de preenchido
-                   com convite inventado. -->
-              <div class="slab">
-                <div class="slab-title">Sem integração com agenda</div>
-                <div class="slab-note">
-                  O Fireball ainda não lê calendário, então não há evento de onde puxar nome,
-                  local, descrição e participantes. Dê um nome à reunião aqui embaixo.
-                </div>
-              </div>
+              <!-- Preenchido por renderAgenda(): lista de eventos, ou um
+                   slab dizendo por que não há nada (desligado / erro / vazio). -->
+              <div id="agenda-list"></div>
             </section>
 
             <section class="start-card">
@@ -158,7 +150,7 @@
 
                 <div class="field-group">
                   <div class="lbl">Local</div>
-                  <div class="value muted">— o Fireball não registra local de reunião</div>
+                  <div class="value muted" id="mv-location"></div>
                 </div>
 
                 <!-- Tags saem do mesmo pedido que escreve o resumo e o nome
@@ -171,17 +163,8 @@
 
                 <div class="field-group">
                   <div class="lbl">Participantes</div>
-                  <div class="people">
-                    <div class="person">
-                      <span class="avatar mine">V</span>
-                      <span><b>Você</b><i>microfone</i></span>
-                    </div>
-                    <div class="person">
-                      <span class="avatar other">O</span>
-                      <span><b>Outros participantes</b><i>áudio do sistema</i></span>
-                    </div>
-                  </div>
-                  <div class="note">
+                  <div class="people" id="mv-people"></div>
+                  <div class="note" id="mv-people-note">
                     O monitor do sistema não distingue quem fala do outro lado — um falante
                     genérico até haver diarização.
                   </div>
@@ -204,12 +187,7 @@
             <div class="scroll">
               <div class="field-group">
                 <div class="lbl">Descrição</div>
-                <div class="slab short">
-                  <div class="slab-note">
-                    A reunião não guarda descrição — o campo vem do evento de agenda, que ainda
-                    não existe.
-                  </div>
-                </div>
+                <div id="mv-description"></div>
               </div>
 
               <div class="field-group grow-block">
@@ -405,6 +383,29 @@
               <div class="card-title">Idioma</div>
               <div class="lbl">Código curto da fala esperada (pt, en, es…)</div>
               <input type="text" id="set-language" />
+            </section>
+
+            <section class="card">
+              <div class="card-title">Agenda</div>
+              <p class="card-note">
+                Lê os próximos eventos e deixa iniciar a reunião a partir de um —
+                já com nome, local, descrição e convidados. <code>gog</code> usa o
+                gogcli instalado na máquina (já autenticado); o Fireball não guarda
+                token nenhum. Vazio / desligado: a home mostra o estado vazio e
+                nenhum binário é chamado.
+              </p>
+              <div class="lbl">Provedor</div>
+              <select id="set-calendar-provider"></select>
+
+              <div class="subcard hidden" id="gog-fields">
+                <div class="lbl">Conta do gog</div>
+                <input type="text" id="set-gog-account" placeholder="voce@empresa.com" spellcheck="false" autocomplete="username" />
+                <div class="field-note">
+                  E-mail passado como <code>--account</code>. Deixe vazio se o gog
+                  já tem uma conta só autenticada. Token morto: rode
+                  <code>gog auth add &lt;email&gt;</code>.
+                </div>
+              </div>
             </section>
 
             <div class="settings-actions">

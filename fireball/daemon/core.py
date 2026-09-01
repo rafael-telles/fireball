@@ -26,7 +26,16 @@ from datetime import datetime
 from typing import Callable, Optional
 
 from fireball import control, settings, storage
+from fireball.calendars import CalendarUnavailable, get_calendar_provider
 from fireball.daemon import protocol
+
+# Cache da agenda: o poll da GUI é de 2s; sem TTL o gog seria chamado a cada
+# tick. Sucesso vale mais; erro também é cacheado (mais curto) para não
+# martelar token morto.
+AGENDA_TTL_S = 120
+AGENDA_ERROR_TTL_S = 30
+AGENDA_WINDOW_HOURS = 24
+AGENDA_LIMIT = 8
 
 
 def _pid_alive(pid: int) -> bool:
@@ -112,6 +121,8 @@ class DaemonCore:
         # preenchido pela casca gráfica (fireball.gui.shell) quando ela sobe;
         # continua None num daemon sem sessão gráfica
         self._window_opener: Optional[Callable[[], None]] = None
+        # um refresh de agenda em voo por vez — o poll de 2s não re-dispara gog
+        self._agenda_refreshing = False
 
     # ---------------------------------------------------------------- boot
 
@@ -304,6 +315,7 @@ class DaemonCore:
         transcribe: Optional[bool] = None,
         backend: Optional[str] = None,
         language: Optional[str] = None,
+        event_id: Optional[str] = None,
     ) -> dict:
         """Nada de backend/idioma obrigatórios: o que o chamador não disser sai
         da configuração (ver `fireball.settings`). É o que deixa a janela
@@ -312,11 +324,23 @@ class DaemonCore:
 
         Nome também não é obrigatório: reunião nasce sem nome e o provedor de
         resumo escreve um depois, a partir do que foi dito (ver
-        `_auto_summarize`)."""
+        `_auto_summarize`).
+
+        `event_id` é o caminho da agenda: o daemon resolve o evento **no
+        próprio cache** (o cliente nunca manda o blob) e grava o snapshot no
+        meeting.json com o título como nome (`name_source: "calendar"`).
+        """
         prefs = settings.load()
         transcribe = prefs["transcribe_live"] if transcribe is None else transcribe
         backend = backend or prefs["realtime_backend"]
         language = language or prefs["language"]
+
+        event = None
+        name_source = None
+        if event_id:
+            event = self._resolve_event(event_id)
+            name = (event.get("title") or "").strip() or name
+            name_source = "calendar"
 
         with self._lock:
             if self._shutting_down:
@@ -336,6 +360,8 @@ class DaemonCore:
                 transcribe=transcribe,
                 backend=backend,
                 language=language,
+                event=event,
+                name_source=name_source,
             )
             meeting_id = meeting["id"]
             cmd = control.engine_command(
@@ -357,6 +383,172 @@ class DaemonCore:
             self._recording = job
             self._supervise(job)
             return control.update_meeting(meeting_id, status="recording", engine_pid=job.pid)
+
+    def agenda(self, refresh: bool = False) -> dict:
+        """Próximos eventos da agenda, com cache em disco.
+
+        Stale-while-revalidate: devolve o cache na hora e, se estiver velho
+        (ou se pediram `refresh`), dispara um fetch em thread. O subprocess
+        do gog roda **fora** do lock — senão o poll da GUI congelaria o
+        daemon inteiro. Erro também é cacheado, senão token morto vira um
+        shell-out a cada 2s.
+        """
+        prefs = settings.load()
+        provider_name = (prefs.get("calendar_provider") or "").strip()
+        if not provider_name:
+            return {
+                "provider": "",
+                "status": "off",
+                "fetched_at": None,
+                "error": None,
+                "events": [],
+            }
+
+        with self._lock:
+            cached = self._read_agenda_cache()
+            now = time.time()
+            age = now - float(cached.get("fetched_at_epoch") or 0) if cached else None
+            is_error = bool(cached and cached.get("status") == "error")
+            ttl = AGENDA_ERROR_TTL_S if is_error else AGENDA_TTL_S
+            fresh = cached is not None and age is not None and age < ttl
+            same_provider = cached is not None and cached.get("provider") == provider_name
+
+            if refresh or not same_provider or not fresh:
+                self._kick_agenda_refresh(provider_name)
+
+            if cached and same_provider:
+                return self._agenda_view(cached)
+
+            # ainda sem cache deste provedor: devolve "loading" sem bloquear
+            return {
+                "provider": provider_name,
+                "status": "loading",
+                "fetched_at": None,
+                "error": None,
+                "events": [],
+            }
+
+    def _agenda_path(self):
+        return storage.fireball_home() / "agenda.json"
+
+    def _read_agenda_cache(self) -> Optional[dict]:
+        return storage.read_json(self._agenda_path(), None)
+
+    def _write_agenda_cache(self, payload: dict) -> None:
+        path = self._agenda_path()
+        # títulos e e-mails de convidados: mesma regra do settings.json
+        settings._restrict(path)
+        storage.write_json(path, payload)
+
+    def _agenda_view(self, cached: dict) -> dict:
+        return {
+            "provider": cached.get("provider") or "",
+            "status": cached.get("status") or "ok",
+            "fetched_at": cached.get("fetched_at"),
+            "error": cached.get("error"),
+            "events": list(cached.get("events") or []),
+        }
+
+    def _kick_agenda_refresh(self, provider_name: str) -> None:
+        """Marca refresh em voo e sobe a thread. Caller já tem o lock."""
+        if self._agenda_refreshing:
+            return
+        self._agenda_refreshing = True
+        threading.Thread(
+            target=self._refresh_agenda_worker,
+            args=(provider_name,),
+            daemon=True,
+            name="agenda-refresh",
+        ).start()
+
+    def _refresh_agenda_worker(self, provider_name: str) -> None:
+        try:
+            payload = self._fetch_agenda_payload(provider_name)
+            with self._lock:
+                self._write_agenda_cache(payload)
+        finally:
+            with self._lock:
+                self._agenda_refreshing = False
+
+    def _fetch_agenda_payload(self, provider_name: str) -> dict:
+        """Chama o provedor (fora do lock) e devolve o dict do cache."""
+        from datetime import datetime, timedelta, timezone
+
+        fetched_at = storage.now_iso()
+        fetched_at_epoch = time.time()
+        try:
+            provider = get_calendar_provider(provider_name)
+            since = datetime.now(timezone.utc)
+            until = since + timedelta(hours=AGENDA_WINDOW_HOURS)
+            events = provider.upcoming(since, until, limit=AGENDA_LIMIT)
+            return {
+                "provider": provider_name,
+                "status": "ok",
+                "fetched_at": fetched_at,
+                "fetched_at_epoch": fetched_at_epoch,
+                "error": None,
+                "events": events,
+            }
+        except CalendarUnavailable as exc:
+            return {
+                "provider": provider_name,
+                "status": "error",
+                "fetched_at": fetched_at,
+                "fetched_at_epoch": fetched_at_epoch,
+                "error": str(exc),
+                "events": [],
+            }
+        except Exception as exc:  # noqa: BLE001 — a thread não pode matar o daemon
+            return {
+                "provider": provider_name,
+                "status": "error",
+                "fetched_at": fetched_at,
+                "fetched_at_epoch": fetched_at_epoch,
+                "error": str(exc),
+                "events": [],
+            }
+
+    def _resolve_event(self, event_id: str) -> dict:
+        """Acha o evento no cache; se sumiu, um refresh forçado e tenta de novo.
+
+        O cliente só manda o id — o blob vem do cache do daemon, que é o dono.
+        """
+        event_id = (event_id or "").strip()
+        if not event_id:
+            raise ValueError("event_id vazio.")
+
+        found = self._find_cached_event(event_id)
+        if found is not None:
+            return found
+
+        # cache pode ter refresado entre o render e o clique — força um fetch
+        prefs = settings.load()
+        provider_name = (prefs.get("calendar_provider") or "").strip()
+        if not provider_name:
+            raise CalendarUnavailable(
+                "Nenhum provedor de agenda configurado. Escolha um na tela de configuração."
+            )
+        # síncrono de propósito: quem clicou precisa do evento agora. Não
+        # mexe no flag `_agenda_refreshing` — isso é da thread de fundo.
+        payload = self._fetch_agenda_payload(provider_name)
+        with self._lock:
+            self._write_agenda_cache(payload)
+        found = self._find_cached_event(event_id)
+        if found is not None:
+            return found
+        raise LookupError(
+            f"Evento '{event_id}' não está mais na agenda. Atualize a lista e tente de novo."
+        )
+
+    def _find_cached_event(self, event_id: str) -> Optional[dict]:
+        with self._lock:
+            cached = self._read_agenda_cache()
+        if not cached or cached.get("status") != "ok":
+            return None
+        for event in cached.get("events") or []:
+            if isinstance(event, dict) and event.get("id") == event_id:
+                return dict(event)
+        return None
 
     def stop_meeting(self, meeting_id: Optional[str] = None, wait_timeout: float = 0.0) -> dict:
         """Pede SIGTERM ao engine e marca 'stopping'. O status só vira

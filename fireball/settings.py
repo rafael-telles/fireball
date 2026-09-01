@@ -26,6 +26,7 @@ from typing import Optional
 
 from fireball import realtime, storage
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS
+from fireball.calendars import CALENDAR_PROVIDERS
 from fireball.summarizers import SUMMARY_PROVIDERS
 
 DEFAULTS = {
@@ -47,11 +48,16 @@ DEFAULTS = {
     "openai_base_url": "",
     "openai_api_key": "",
     "openai_model": "",
+    # quem lê a agenda. Vazio = desligado: instalação limpa não shella nenhum
+    # binário até a pessoa escolher um provedor na tela.
+    "calendar_provider": "",
+    # conta do gog (`--account`). Vazio = deixa o gog resolver sozinho.
+    "gog_account": "",
 }
 
 # As chaves cujo valor vazio é uma resposta legítima ("não configurado"), e
 # não configuração estragada.
-TEXT_KEYS = ("openai_base_url", "openai_api_key", "openai_model")
+TEXT_KEYS = ("openai_base_url", "openai_api_key", "openai_model", "gog_account")
 
 
 def settings_path():
@@ -75,6 +81,12 @@ def _coerce(key: str, value) -> Optional[object]:
         return str(value or "").strip()
     if key == "summary_provider":
         return value if value in SUMMARY_PROVIDERS else None
+    if key == "calendar_provider":
+        # vazio é "desligado" de propósito — não cai no padrão de um provedor
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        return text if text in CALENDAR_PROVIDERS else None
     if key == "language":
         text = str(value or "").strip()
         return text or None
@@ -119,6 +131,11 @@ def save(**fields) -> dict:
             if key == "summary_provider":
                 raise ValueError(
                     f"Provedor de resumo inválido: '{raw}'. Use {list(SUMMARY_PROVIDERS)}."
+                )
+            if key == "calendar_provider":
+                raise ValueError(
+                    f"Provedor de agenda inválido: '{raw}'. "
+                    f"Use '' (desligado) ou {list(CALENDAR_PROVIDERS)}."
                 )
             if key == "openai_base_url":
                 raise ValueError(

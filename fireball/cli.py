@@ -168,7 +168,13 @@ def devices():
     help="Motor de transcrição ao vivo: 'whisper' (faster-whisper, multi-idioma) ou 'parakeet' (NeMo Parakeet TDT via ONNX). Padrão: o configurado.",
 )
 @click.option("--language", default=None, help="Idioma esperado da fala (código curto, ex: pt). Padrão: o configurado.")
-def start(name, fake, interval, mic_device, system_device, transcribe, backend, language):
+@click.option(
+    "--event",
+    "event_id",
+    default=None,
+    help="Id de um evento da agenda (`fireball agenda`): a reunião nasce com nome, local, descrição e convidados desse evento.",
+)
+def start(name, fake, interval, mic_device, system_device, transcribe, backend, language, event_id):
     """Inicia uma nova reunião. O daemon cria a pasta e sobe o engine de
     gravação/transcrição, que ele mesmo supervisiona. Falha se já houver uma
     reunião gravando — só uma por vez.
@@ -178,6 +184,10 @@ def start(name, fake, interval, mic_device, system_device, transcribe, backend, 
     batizá-la. Quando a gravação termina, o provedor de resumo escreve nome,
     tags e resumo a partir da transcrição. `--name` é o override de quem já
     sabe o nome — e um nome dado por gente não é trocado pela IA.
+
+    `--event` inicia a partir de um evento da agenda: o título vira o nome
+    (`name_source: calendar`), e local/descrição/convidados vão no
+    meeting.json.
 
     Backend, idioma e transcrever-ao-vivo não passados aqui saem da
     configuração (`~/.fireball/settings.json`, editável pela tela de
@@ -193,8 +203,24 @@ def start(name, fake, interval, mic_device, system_device, transcribe, backend, 
         transcribe=transcribe,
         backend=backend,
         language=language,
+        event_id=event_id,
     )
     _echo({"meeting_id": meeting["id"], "path": str(storage.meeting_path(meeting["id"]))})
+
+
+@cli.command()
+@click.option(
+    "--refresh/--no-refresh",
+    default=False,
+    help="Força um fetch novo no provedor, ignorando o cache.",
+)
+def agenda(refresh):
+    """Lista os próximos eventos da agenda configurada.
+
+    Sem provedor configurado devolve status `off`. O daemon cacheia a resposta
+    em `~/.fireball/agenda.json` para a janela não reconsultar a cada poll.
+    """
+    click.echo(json.dumps(_call("agenda", refresh=refresh), ensure_ascii=False, indent=2))
 
 
 @cli.command()

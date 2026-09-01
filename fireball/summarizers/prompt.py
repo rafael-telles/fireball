@@ -84,11 +84,68 @@ def build_prompt(meeting: dict) -> str:
     O nome só entra quando existe: reunião sem nome é o padrão agora, e
     mandar "o nome desta reunião é: Sem nome" ancoraria o modelo justamente no
     que ele foi chamado para escrever.
+
+    O evento de agenda (quando a reunião nasceu a partir de um) entra na
+    parte fixa — título, descrição e convidados já estavam escritos **antes**
+    da conversa, e são o melhor contexto do que a reunião deveria ter sido.
+    Não vai no miolo configurável: todo provedor precisa disso, e um prompt
+    livre que esquecesse de pedir o contexto perderia justamente o ganho.
     """
+    parts = [PROMPT]
     name = (meeting.get("name") or "").strip()
-    if not name:
-        return PROMPT
-    return f"{PROMPT}\n\nEsta reunião já tem um nome dado por quem gravou: {name}"
+    if name:
+        source = meeting.get("name_source")
+        if source == "calendar":
+            parts.append(
+                f"Esta reunião já tem um nome vindo da agenda: {name}. "
+                "Não invente outro título — use este (ou uma forma bem próxima) em \"title\"."
+            )
+        else:
+            parts.append(f"Esta reunião já tem um nome dado por quem gravou: {name}")
+
+    event_block = _event_context(meeting.get("event"))
+    if event_block:
+        parts.append(event_block)
+    return "\n\n".join(parts)
+
+
+MAX_EVENT_DESCRIPTION = 1500
+
+
+def _event_context(event) -> str:
+    """Bloco fixo com o que a agenda sabia da reunião antes dela começar."""
+    if not isinstance(event, dict):
+        return ""
+    title = (event.get("title") or "").strip()
+    description = (event.get("description") or "").strip()
+    if len(description) > MAX_EVENT_DESCRIPTION:
+        description = description[:MAX_EVENT_DESCRIPTION].rstrip() + "…"
+    location = (event.get("location") or "").strip()
+    people = []
+    for person in event.get("attendees") or []:
+        if not isinstance(person, dict):
+            continue
+        label = (person.get("name") or person.get("email") or "").strip()
+        if label:
+            people.append(label)
+    if not (title or description or location or people):
+        return ""
+
+    lines = [
+        "A reunião foi iniciada a partir deste evento de agenda. Use como "
+        "contexto do que a conversa *deveria* ter sido — não invente nada "
+        "que não esteja na transcrição, e não trate a pauta como se tivesse "
+        "acontecido se a conversa foi para outro lado:",
+    ]
+    if title:
+        lines.append(f"- Título: {title}")
+    if location:
+        lines.append(f"- Local: {location}")
+    if people:
+        lines.append(f"- Convidados: {', '.join(people)}")
+    if description:
+        lines.append(f"- Descrição / pauta:\n{description}")
+    return "\n".join(lines)
 
 
 def _strip_fences(text: str) -> str:

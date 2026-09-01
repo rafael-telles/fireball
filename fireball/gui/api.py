@@ -16,6 +16,7 @@ import subprocess
 from pathlib import Path
 
 from fireball.backends import BATCH_BACKENDS, REALTIME_BACKENDS
+from fireball.calendars import CALENDAR_PROVIDERS
 from fireball.summarizers import SUMMARY_PROVIDERS
 from fireball.daemon.core import DaemonCore
 
@@ -51,6 +52,7 @@ class Api:
             "realtime": list(REALTIME_BACKENDS),
             "final": list(BATCH_BACKENDS),
             "summary": list(SUMMARY_PROVIDERS),
+            "calendar": list(CALENDAR_PROVIDERS),
         }
 
     def get_settings(self) -> dict:
@@ -59,19 +61,31 @@ class Api:
     def save_settings(self, values: dict) -> dict:
         return self._call(self._core.update_settings, **values)
 
-    def start_meeting(self, name: str = "") -> dict:
+    def agenda(self, refresh: bool = False) -> dict:
+        """Próximos eventos. `refresh=True` força um fetch novo no provedor."""
+        return self._call(self._core.agenda, refresh=bool(refresh))
+
+    def start_meeting(self, name: str = "", event_id: str = "") -> dict:
         """Começar reunião pela janela é um clique: nem o nome é obrigatório.
 
         Nome vazio é o caminho normal, não um campo esquecido — a reunião nasce
         sem nome e o provedor de resumo escreve um quando ela acaba, junto com
         as tags. Quem já sabe o nome digita, e aí a IA não mexe.
 
+        `event_id` inicia a partir de um evento da agenda: o daemon resolve o
+        evento no cache e grava nome/local/descrição/convidados no meeting.
+
         `fake=False` fixo — o motor simulado existe pra testar o pipeline sem
         microfone, o que é trabalho de desenvolvimento (`fireball start
         --fake`), não escolha de quem abriu a janela pra gravar. Backend e
         idioma saem da configuração, no daemon.
         """
-        return self._call(self._core.start_meeting, name=(name or "").strip() or None, fake=False)
+        return self._call(
+            self._core.start_meeting,
+            name=(name or "").strip() or None,
+            fake=False,
+            event_id=(event_id or "").strip() or None,
+        )
 
     def stop_meeting(self, meeting_id: str) -> dict:
         # sem espera: a janela não pode congelar até o engine fechar os .wav;
