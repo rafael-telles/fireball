@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from fireball import audio, realtime, storage, voices
+from fireball import audio, catalog, realtime, storage, voices
 from fireball.backends import (
     BackendUnavailable,
     get_realtime_backend,
@@ -41,16 +41,15 @@ FAKE_SCRIPT = [
 
 
 def _emit(transcript_path: Path, seq: int, speaker: str, text: str) -> None:
-    storage.append_ndjson(
-        transcript_path,
-        {
-            "seq": seq,
-            "ts": storage.now_iso(),
-            "speaker": speaker,
-            "text": text,
-            "source": "realtime",
-        },
-    )
+    seg = {
+        "seq": seq,
+        "ts": storage.now_iso(),
+        "speaker": speaker,
+        "text": text,
+        "source": "realtime",
+    }
+    storage.append_ndjson(transcript_path, seg)
+    catalog.try_index_segment(transcript_path.parent.name, seg)
 
 
 def run_fake_engine(meeting_dir: Path, interval: float = 3.0) -> None:

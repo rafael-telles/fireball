@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-from fireball import control, prompts, settings, storage, voices
+from fireball import catalog, control, prompts, settings, storage, voices
 from fireball.calendars import CalendarUnavailable, get_calendar_provider
 from fireball.daemon import protocol
 
@@ -147,6 +147,7 @@ class DaemonCore:
                     f"[daemon] transcrição unificada em {len(migrated)} reunião(ões) do formato antigo",
                     flush=True,
                 )
+            catalog.rebuild()
             for meeting in control.scan_live_meetings():
                 meeting_id = meeting["id"]
                 pid = meeting.get("engine_pid")
@@ -657,6 +658,9 @@ class DaemonCore:
 
     def list_meetings(self) -> list[dict]:
         return control.list_meetings()
+
+    def search_meetings(self, query: str, limit: int = 50) -> dict:
+        return control.search_meetings(query, limit=limit)
 
     def get_settings(self) -> dict:
         return settings.load()

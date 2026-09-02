@@ -14,7 +14,7 @@ from typing import Callable
 
 import numpy as np
 
-from fireball import storage
+from fireball import catalog, storage
 from fireball.backends import BackendUnavailable, RealtimeBackend
 from fireball.vad import Endpointer
 
@@ -122,6 +122,15 @@ def run_realtime_transcription(
                 "text": text,
                 "source": "realtime",
                 **identity,
+            },
+        )
+        catalog.try_index_segment(
+            meeting_dir.name,
+            {
+                "seq": seq,
+                "start": round(start, 2),
+                "speaker": speaker,
+                "text": text,
             },
         )
         seq_path.write_text(str(seq))

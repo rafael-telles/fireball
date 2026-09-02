@@ -24,7 +24,7 @@ from typing import Optional
 
 import numpy as np
 
-from fireball import realtime, storage, vad, voices
+from fireball import catalog, realtime, storage, vad, voices
 from fireball.backends import BackendUnavailable, get_batch_backend, get_diarization_backend
 
 TRACK_SPEAKERS = (("mic", "Você"), ("system", "Outros participantes"))
@@ -246,6 +246,10 @@ def _write_result(
     replaced = segments > 0
     if replaced:
         new_path.replace(transcript_path)
+        try:
+            catalog.replace_transcript(meeting_dir.name)
+        except Exception as exc:  # noqa: BLE001 — a transcrição no disco vale mais
+            print(f"[catalog] transcrição de {meeting_dir.name} não reindexada: {exc}", flush=True)
     else:
         new_path.unlink(missing_ok=True)
 

@@ -54,6 +54,7 @@ const POLL_CHAT_MS = 1000;
 const POLL_STATUS_MS = 2000;
 // Digitar não pode virar uma escrita em disco por tecla; espera a pausa.
 const NOTES_SAVE_MS = 900;
+const SEARCH_MS = 250;
 
 const state = {
   view: "home", // "home" | "meeting" | "settings"
@@ -70,7 +71,9 @@ const state = {
   editingPrompt: null, // id em edição, ou "" para um prompt novo; null = editor fechado
   agenda: null, // última resposta de agenda() — status, events, error
   rows: [], // histórico como veio do daemon, mais recentes primeiro
-  filter: "", // busca da barra lateral
+  filter: "", // texto da caixa de busca
+  searchHits: null, // resultado do catálogo, ou null quando a caixa está vazia
+  searchTimer: null,
   tab: "transcricao",
   settingsTab: "transcricao", // aba da tela de configuração, lembrada entre visitas
   notes: { loadedFor: null, saved: null, timer: null },
@@ -655,7 +658,15 @@ function showTab(name) {
   if (name !== "notas") flushNotes();
 }
 
-async function openMeeting(id, row) {
+function revealSeq(seq) {
+  const node = el("chat").querySelector(`.msg[data-seq="${seq}"]`);
+  if (!node) return false;
+  node.classList.add("search-hit");
+  node.scrollIntoView({ block: "center" });
+  return true;
+}
+
+async function openMeeting(id, row, jumpSeq) {
   await flushNotes(); // o que estava no editor da reunião anterior não se perde
   setAlert("meeting-error", "");
   showView("meeting");
@@ -698,11 +709,13 @@ async function openMeeting(id, row) {
   renderWarnings();
   renderMeetingList(); // marca a linha da barra lateral
   resetChat();
-  showTab(state.tab === "notas" ? "transcricao" : state.tab);
+  showTab(jumpSeq != null ? "transcricao" : state.tab === "notas" ? "transcricao" : state.tab);
   // o áudio antes do chat: é ele que decide se cada bolha ganha "▶ ouvir"
   await loadAudio();
   await pollChat();
-  el("chat").scrollTop = el("chat").scrollHeight;
+  if (jumpSeq == null || !revealSeq(jumpSeq)) {
+    el("chat").scrollTop = el("chat").scrollHeight;
+  }
   loadWarnings();
 }
 
@@ -818,11 +831,6 @@ async function refreshOpenMeeting() {
 
 // ----------------------------------------------- barra lateral/histórico
 
-function matchesSearch(row, needle) {
-  const hay = [row.name || "", row.id, ...(row.tags || [])].join(" ").toLowerCase();
-  return hay.includes(needle);
-}
-
 /** Em que bloco da barra lateral esta reunião cai. */
 function groupOf(iso) {
   const days = daysAgo(iso);
@@ -840,7 +848,8 @@ function sidebarRow(row) {
   button.className = "sb-row";
   if (live) button.classList.add("live");
   if (state.open && state.open.id === row.id) button.classList.add("selected");
-  button.addEventListener("click", () => openMeeting(row.id, row));
+  const jumpSeq = row.hits && row.hits[0] ? row.hits[0].seq : undefined;
+  button.addEventListener("click", () => openMeeting(row.id, row, jumpSeq));
 
   const title = document.createElement("div");
   title.className = "sb-row-title";
@@ -860,29 +869,67 @@ function sidebarRow(row) {
   sub.className = "sb-row-sub";
   sub.textContent = [when, right].filter(Boolean).join(" · ");
   button.appendChild(sub);
+
+  if (row.snippet) {
+    const hit = document.createElement("div");
+    hit.className = "sb-row-hit";
+    hit.textContent = row.snippet;
+    button.appendChild(hit);
+  }
   return button;
+}
+
+async function runSearch(needle) {
+  if (state.filter.trim() !== needle) return;
+  try {
+    const result = await api("search_meetings", needle);
+    if (state.filter.trim() !== needle) return;
+    state.searchHits = result;
+  } catch (err) {
+    setBanner(errText(err));
+    return;
+  }
+  renderMeetingList();
+}
+
+function onSearchInput(event) {
+  state.filter = event.target.value;
+  if (state.searchTimer) clearTimeout(state.searchTimer);
+  const needle = state.filter.trim();
+  if (!needle) {
+    state.searchHits = null;
+    renderMeetingList();
+    return;
+  }
+  state.searchTimer = setTimeout(() => runSearch(needle), SEARCH_MS);
+  renderMeetingList();
 }
 
 function renderMeetingList() {
   const list = el("meeting-list");
   list.innerHTML = "";
 
-  const needle = state.filter.trim().toLowerCase();
-  const rows = state.rows
-    // busca também nas tags: quando a IA nomeia, é por elas que se acha um
-    // grupo de reuniões ("contratação") sem lembrar do nome de nenhuma
-    .filter((r) => !needle || matchesSearch(r, needle))
-    // O daemon ordena pela pasta, cujo nome começa com a hora de criação — o
-    // que quase sempre bate com started_at, mas não é a mesma coisa. Ordenar
-    // aqui pelo campo que os títulos de grupo usam é o que garante que eles
-    // saiam em ordem e apareçam uma vez só.
-    .sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0));
+  const needle = state.filter.trim();
+  let rows;
+  if (!needle) {
+    rows = [...state.rows].sort(
+      (a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0)
+    );
+  } else if (state.searchHits && state.searchHits.query === needle) {
+    rows = state.searchHits.meetings;
+  } else {
+    const empty = document.createElement("div");
+    empty.className = "sb-empty";
+    empty.textContent = "Buscando…";
+    list.appendChild(empty);
+    return;
+  }
 
   if (!rows.length) {
     const empty = document.createElement("div");
     empty.className = "sb-empty";
     empty.textContent = needle
-      ? "Nenhuma reunião com esse nome."
+      ? "Nenhuma reunião encontrada."
       : "Nenhuma reunião ainda. Comece a primeira aí em cima.";
     list.appendChild(empty);
     return;
@@ -2366,10 +2413,7 @@ async function boot() {
   el("live-card-stop").addEventListener("click", (event) => {
     if (state.active) stopMeeting(state.active.id, event.currentTarget);
   });
-  el("search").addEventListener("input", (event) => {
-    state.filter = event.target.value;
-    renderMeetingList();
-  });
+  el("search").addEventListener("input", onSearchInput);
 
   for (const tab of document.querySelectorAll(".tab")) {
     tab.addEventListener("click", () => showTab(tab.dataset.tab));

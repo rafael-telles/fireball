@@ -67,6 +67,7 @@ class _Handler(socketserver.StreamRequestHandler):
             "meeting_status": core.meeting_status,
             "transcript_ack": core.transcript_ack,
             "list": core.list_meetings,
+            "search": core.search_meetings,
             "note": core.note,
             "rename": core.rename_meeting,
             "set_diarization": core.set_diarization,

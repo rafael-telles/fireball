@@ -11,6 +11,10 @@ Tudo baseado em arquivos, dentro de ~/.fireball (ou $FIREBALL_HOME):
         notes.md              notas ao vivo (Claude + usuário)
         checkpoint.json       até onde o stream já foi processado (resiliência)
         engine.log            stdout/stderr do motor de transcrição em background
+
+    meetings.db               catálogo SQLite (FTS) derivado dessas pastas —
+                              busca e lista; os arquivos continuam sendo a fonte
+                              da verdade
 """
 
 from __future__ import annotations

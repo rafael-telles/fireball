@@ -105,8 +105,12 @@ class Api:
 
     def list_meetings(self) -> dict:
         """Histórico da tela inicial: uma linha por reunião, mais recentes
-        primeiro, já com contagem de segmentos e se existe transcrição final."""
+        primeiro, já com contagem de segmentos."""
         return self._call(self._core.meeting_summaries)
+
+    def search_meetings(self, query: str, limit: int = 50) -> dict:
+        """Busca no catálogo: nome, tags, participantes, notas, resumo, fala."""
+        return self._call(self._core.search_meetings, query=query, limit=int(limit))
 
     def meeting_status(self, meeting_id: str) -> dict:
         return self._call(self._core.meeting_status, meeting_id=meeting_id)

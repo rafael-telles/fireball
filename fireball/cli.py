@@ -265,6 +265,14 @@ def list_meetings():
 
 
 @cli.command()
+@click.argument("query")
+@click.option("--limit", default=50, type=int, help="Máximo de reuniões no resultado.")
+def search(query, limit):
+    """Busca reuniões por nome, tags, participantes, notas, resumo ou fala."""
+    click.echo(json.dumps(_call("search", query=query, limit=limit), ensure_ascii=False, indent=2))
+
+
+@cli.command()
 def active():
     """Mostra a reunião que está gravando agora, ou null."""
     _echo(_call("active"))

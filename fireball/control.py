@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-from fireball import realtime, storage, voices
+from fireball import catalog, realtime, storage, voices
 
 # Status em que a reunião ainda está "viva" (o daemon tem — ou deveria ter —
 # um processo cuidando dela). Fora daí, é estado terminal.
@@ -103,6 +103,7 @@ def create_meeting(
         meeting["event"] = event
     storage.write_json(meeting_dir / "meeting.json", meeting)
     storage.write_json(meeting_dir / "checkpoint.json", {"last_seq": 0})
+    catalog.index_meeting(meeting_dir.name)
     return meeting
 
 
@@ -173,6 +174,7 @@ def update_meeting(meeting_id: str, **fields) -> dict:
     if status not in LIVE_STATUSES and status != "finalizing" and not meeting.get("ended_at"):
         meeting["ended_at"] = storage.now_iso()
     storage.write_json(meeting_dir / "meeting.json", meeting)
+    catalog.index_card(meeting_id)
     return meeting
 
 
@@ -195,6 +197,7 @@ def delete_meeting(meeting_id: str) -> dict:
 
     meeting = storage.read_json(meeting_dir / "meeting.json", {})
     shutil.rmtree(meeting_dir)
+    catalog.remove_meeting(meeting_id)
     return {"id": meeting_id, "name": meeting.get("name"), "deleted": True}
 
 
@@ -215,12 +218,8 @@ def get_meeting_status(meeting_id: str) -> dict:
 
 
 def list_meetings() -> list[dict]:
-    """Todas as reuniões conhecidas, mais recentes por último (ordem de pasta)."""
-    rows = []
-    for d in sorted(storage.meetings_root().iterdir()):
-        if d.is_dir():
-            rows.append(storage.read_json(d / "meeting.json", {"id": d.name}))
-    return rows
+    """Todas as reuniões conhecidas, mais antigas primeiro (ordem de pasta)."""
+    return catalog.list_meetings()
 
 
 def scan_live_meetings() -> list[dict]:
@@ -229,8 +228,20 @@ def scan_live_meetings() -> list[dict]:
     Usado **só na subida do daemon**, para reconciliar o que sobrou de uma
     vida anterior (adotar o engine órfão ou marcar como 'crashed'). Em regime
     normal a reunião ativa vive na memória do daemon, não aqui.
+
+    Lê as pastas, não o catálogo: na subida o índice ainda pode estar velho.
     """
-    return [m for m in list_meetings() if m.get("status") in LIVE_STATUSES]
+    rows = []
+    root = storage.meetings_root()
+    if not root.is_dir():
+        return rows
+    for d in sorted(root.iterdir()):
+        if not d.is_dir():
+            continue
+        meeting = storage.read_json(d / "meeting.json", {"id": d.name})
+        if meeting.get("status") in LIVE_STATUSES:
+            rows.append(meeting)
+    return rows
 
 
 # ------------------------------------------------------------- transcrição
@@ -349,6 +360,7 @@ def _rewrite_transcript(meeting_id: str, change) -> dict:
         tmp.unlink(missing_ok=True)
         raise LookupError("Segmento não encontrado na transcrição.")
     tmp.replace(path)
+    catalog.replace_transcript(meeting_id)
     return touched
 
 
@@ -497,22 +509,17 @@ def audio_info(meeting_id: str) -> dict:
 
 
 def meeting_summaries() -> list[dict]:
-    """`list_meetings()` mais o que cada linha da lista da GUI precisa mostrar.
+    """Histórico da GUI: mais recentes primeiro, com contagem de segmentos.
 
-    Mais recentes primeiro: o id começa com o timestamp, então inverter a
-    ordem alfabética já é ordem cronológica reversa — que é como se olha
-    histórico.
+    A contagem vem do catálogo (gravada quando a transcrição muda), não de
+    reler o NDJSON de cada reunião a cada poll da barra lateral.
     """
-    rows = []
-    for meeting in reversed(list_meetings()):
-        meeting_dir = storage.meetings_root() / meeting["id"]
-        rows.append(
-            {
-                **meeting,
-                "segments": sum(1 for _ in storage.read_ndjson(meeting_dir / TRANSCRIPT_FILE)),
-            }
-        )
-    return rows
+    return catalog.meeting_summaries()
+
+
+def search_meetings(query: str, limit: int = 50) -> dict:
+    """Busca por nome, tags, participantes, notas, resumo e transcrição."""
+    return catalog.search(query, limit=limit)
 
 
 # ------------------------------------------------------------------- notas
@@ -534,6 +541,7 @@ def write_notes(meeting_id: str, text: str) -> None:
     o editor está aberto só aparece no próximo carregamento.
     """
     (storage.meeting_path(meeting_id) / "notes.md").write_text(text)
+    catalog.index_card(meeting_id)
 
 
 def write_meeting_fields(meeting_id: str, **fields) -> dict:
@@ -550,6 +558,7 @@ def write_meeting_fields(meeting_id: str, **fields) -> dict:
     meeting = storage.read_json(meeting_dir / "meeting.json")
     meeting.update(fields)
     storage.write_json(meeting_dir / "meeting.json", meeting)
+    catalog.index_card(meeting_id)
     return meeting
 
 
@@ -616,3 +625,4 @@ def append_note(meeting_id: str, text: str, author: str, stamp: str) -> None:
     tag = "🤖" if author == "claude" else "🧑"
     with notes_path.open("a") as f:
         f.write(f"- `{stamp}` {tag} {text}\n")
+    catalog.index_card(meeting_id)
