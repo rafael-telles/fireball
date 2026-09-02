@@ -62,11 +62,23 @@ DEFAULTS = {
     "calendar_provider": "",
     # conta do gog (`--account`). Vazio = deixa o gog resolver sozinho.
     "gog_account": "",
+    # qual das vozes cadastradas é a de quem usa o Fireball. É o que junta
+    # "Você" (a track do microfone) com o nome que a diarização reconheceu e
+    # com o convidado da agenda: sem isso a mesma pessoa aparece três vezes na
+    # lista de participantes. Vazio = não configurado, e aí "Você" fica só.
+    "my_voice": "",
 }
 
 # As chaves cujo valor vazio é uma resposta legítima ("não configurado"), e
 # não configuração estragada.
-TEXT_KEYS = ("openai_base_url", "openai_api_key", "openai_model", "groq_api_key", "gog_account")
+TEXT_KEYS = (
+    "openai_base_url",
+    "openai_api_key",
+    "openai_model",
+    "groq_api_key",
+    "gog_account",
+    "my_voice",
+)
 
 
 def settings_path():

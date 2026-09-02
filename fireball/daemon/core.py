@@ -880,8 +880,22 @@ class DaemonCore:
         quando não há agenda, não há nome, e a tela cumprimenta sem ele em
         vez de inventar um.
         """
-        email = (settings.load().get("gog_account") or "").strip()
+        prefs = settings.load()
+        email = (prefs.get("gog_account") or "").strip()
         name = ""
+        emails = []
+
+        # a voz marcada como minha manda: ela é escolha explícita de quem usa,
+        # e os e-mails dela são o que liga "Você" ao convidado da agenda
+        my_voice = (prefs.get("my_voice") or "").strip()
+        if my_voice:
+            for profile in voices.public_profiles():
+                if profile["id"] != my_voice:
+                    continue
+                name = profile["name"]
+                emails = list(profile["emails"])
+                email = email or (emails[0] if emails else "")
+
         cached = self._read_agenda_cache() or {}
         for event in cached.get("events") or []:
             for person in (event or {}).get("attendees") or []:
@@ -889,7 +903,10 @@ class DaemonCore:
                     continue
                 name = name or (person.get("name") or "").strip()
                 email = email or (person.get("email") or "").strip()
-        return {"name": name, "email": email}
+
+        if email and email.lower() not in emails:
+            emails.append(email.lower())
+        return {"name": name, "email": email, "voice_id": my_voice, "emails": emails}
 
     def set_tags(self, meeting_id: str, tags) -> dict:
         with self._lock:
@@ -985,8 +1002,15 @@ class DaemonCore:
             return voices.rename_profile(profile_id, name, emails=emails)
 
     def delete_voice(self, profile_id: str) -> dict:
+        """Apaga o perfil e, se ele era "a minha voz", solta o posto —
+        configuração apontando para um perfil que não existe mais é estado
+        quebrado, e arrumá-lo é trabalho de quem apagou (mesma regra do
+        prompt padrão em `delete_prompt`)."""
         with self._lock:
-            return voices.delete_profile(profile_id)
+            result = voices.delete_profile(profile_id)
+            if settings.load()["my_voice"] == profile_id:
+                settings.save(my_voice="")
+            return result
 
     def note(self, meeting_id: str, text: str, author: str = "claude") -> dict:
         with self._lock:

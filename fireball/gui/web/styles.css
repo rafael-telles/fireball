@@ -1526,8 +1526,8 @@ select.mini {
 
 /* O padrão é o que roda quando ninguém escolhe: a lista diz qual é sem exigir
    que se olhe o <select> acima dela. */
-.prompt-row.is-default .prompt-name::after {
-  content: "padrão";
+.prompt-row.is-default .prompt-name::after,
+.prompt-row.is-me .prompt-name::after {
   margin-left: 8px;
   padding: 2px 7px;
   border-radius: 999px;
@@ -1538,6 +1538,14 @@ select.mini {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.prompt-row.is-default .prompt-name::after {
+  content: "padrão";
+}
+
+.prompt-row.is-me .prompt-name::after {
+  content: "sou eu";
 }
 
 /* Mesma convenção do `.seg-action.danger`: o vermelho cheio fica reservado ao

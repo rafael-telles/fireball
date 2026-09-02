@@ -513,11 +513,22 @@ def _people_by_meeting(conn: sqlite3.Connection, meeting_ids: list[str]) -> dict
         meeting_ids,
     ).fetchall()
     out: dict[str, list[dict]] = {}
+    seen: dict[str, set] = {}
     for row in rows:
         bucket = out.setdefault(row["meeting_id"], [])
+        keys = seen.setdefault(row["meeting_id"], set())
         label = row["name"] or row["email"]
-        if any(entry["label"] == label for entry in bucket):
+        # o e-mail identifica melhor que o nome: a voz reconhecida e o
+        # convidado da agenda são a mesma pessoa mesmo quando os dois nomes
+        # não batem letra por letra, e aí a pilha de avatares mostrava duas
+        email = (row["email"] or "").strip().lower()
+        key = f"email:{email}" if email else f"name:{label.casefold()}"
+        if key in keys:
             continue
+        keys.add(key)
+        # o nome do convidado também vale como chave: o falante que vier
+        # depois com o mesmo nome e sem e-mail é ele
+        keys.add(f"name:{label.casefold()}")
         bucket.append({"label": label, "email": row["email"], "source": row["source"]})
     return out
 
@@ -718,15 +729,19 @@ def _replace_transcript(conn: sqlite3.Connection, meeting_id: str) -> None:
     )
     path = storage.meetings_root() / meeting_id / "transcript.ndjson"
     count = 0
-    speakers: dict[str, None] = {}
+    speakers: dict[str, str] = {}
     for seg in storage.read_ndjson(path):
         _upsert_segment(conn, meeting_id, seg, bump_count=False)
         count += 1
         name = (seg.get("speaker") or "").strip()
         if name and not _is_anon_speaker(name):
-            speakers[name] = None
-    for name in speakers:
-        _add_person(conn, meeting_id, name, "", "speaker")
+            speakers[name] = speakers.get(name) or (seg.get("voice_profile_id") or "")
+    emails = _profile_emails(set(speakers.values()))
+    for name, profile_id in speakers.items():
+        # o e-mail do perfil de voz vai junto: é a única chave que o falante
+        # reconhecido e o convidado da agenda compartilham, e sem ela a mesma
+        # pessoa entra duas vezes sempre que os dois nomes não batem
+        _add_person(conn, meeting_id, name, emails.get(profile_id, ""), "speaker")
     conn.execute(
         "UPDATE meetings SET segment_count = ? WHERE id = ?",
         (count, meeting_id),
@@ -822,6 +837,28 @@ def _people_from_event(event) -> list[dict]:
 
 def _is_anon_speaker(name: str) -> bool:
     return not name or bool(_ANON_SPEAKER.match(name.strip()))
+
+
+def _profile_emails(profile_ids: set) -> dict[str, str]:
+    """O primeiro e-mail de cada perfil de voz pedido.
+
+    Import preguiçoso de propósito: `fireball.voices` traz numpy e os backends
+    de embedding, e este módulo é chamado a cada segmento gravado. Aqui só
+    entra na reindexação inteira (depois do `finalize`), que é quando a
+    diarização de fato deu nome a alguém.
+    """
+    wanted = {pid for pid in profile_ids if pid}
+    if not wanted:
+        return {}
+    try:
+        from fireball import voices
+    except Exception:  # noqa: BLE001 — sem numpy o índice continua servindo
+        return {}
+    out = {}
+    for profile in voices.public_profiles():
+        if profile["id"] in wanted and profile["emails"]:
+            out[profile["id"]] = profile["emails"][0]
+    return out
 
 
 def _duration_seconds(meeting: dict) -> Optional[float]:

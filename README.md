@@ -431,8 +431,27 @@ coisa.
   participação **precisam de tempo por fala** (`start`/`end`), que só a transcrição final tem: a
   do tempo real carimba quando o trecho chegou, não quanto durou, e a aba diz isso em vez de
   inventar um silêncio de zero segundo. Os participantes saem dos falantes detectados, e não do
-  convite: é a lista que responde "quem estava mesmo aqui". Slot de diarização sem nome é
-  clicável, e é daqui que se cadastra a voz. As tags saem do resumo e se corrigem no `+ tag`.
+  convite: é a lista que responde "quem estava mesmo aqui" — quem foi convidado e não falou
+  entra no fim, marcado como tal, porque a ausência também é informação. Slot de diarização sem
+  nome é clicável, e é daqui que se cadastra a voz. As tags saem do resumo e se corrigem no
+  `+ tag`.
+
+Três fontes falam da mesma gente e nenhuma sabe das outras: os falantes da transcrição (com
+nome de perfil de voz, ou anônimos), os convidados do evento, e a track do microfone — que se
+chama "Você". A ficha **junta** o que é a mesma pessoa, e a chave é o **e-mail**: é o único
+identificador que o perfil de voz e o convidado da agenda de fato compartilham, e o nome sozinho
+não bastava (uma voz reconhecida como "Marina Alves" e um convite para "Marina A. Alves"
+apareciam duas vezes). O nome normalizado entra como reserva, para quem não tem e-mail em lugar
+nenhum. Slot anônimo (`Sala 2`, `Remoto 1`) nunca se junta a nada: ele é precisamente a pessoa
+que o Fireball **não** identificou, e adivinhar ali seria atribuir fala a quem não falou.
+
+"Você" é o caso especial, porque a track do microfone não tem nome nem e-mail. Ela se junta ao
+resto por três caminhos: a voz marcada como **minha** em Configurações → Vozes, o convidado que
+a agenda marca como `self`, ou a conta do provedor de calendário. Sem nenhum deles — reunião
+avulsa, sem agenda e sem voz escolhida — "Você" fica um participante à parte, que é a verdade:
+nada ali liga o microfone a um nome. As barras de *participação por pessoa* usam os mesmos
+grupos, senão a mesma pessoa apareceria em duas barras de 30% e 15% no lugar de uma de 45% —
+e isso não é layout, é conta errada.
 - **Resumo** — **um resumo por prompt**, lado a lado. Ver a seção própria abaixo.
 - **Transcrição** — o chat: uma bolha por segmento, agrupadas por falante, com hora. "Você" (o
   microfone daqui) fica à direita, no vermelho da marca; "Outros participantes" (o monitor do
@@ -720,7 +739,8 @@ configuração (⚙), em `~/.fireball/settings.json`.
 
 A tela tem **quatro abas**, e a divisão é a das partes do Fireball: **Transcrição** (motor ao
 vivo, motor final, chave da Groq, idioma), **Resumo** (provedor, chaves, prompts), **Agenda**
-(provedor de calendário e a conta dele) e **Vozes** (os perfis cadastrados). O idioma fica na primeira porque é o que o motor
+(provedor de calendário e a conta dele) e **Vozes** (os perfis cadastrados e qual deles é o
+seu). O idioma fica na primeira porque é o que o motor
 espera *ouvir* — o resumo sai em português de qualquer jeito, e isso está na parte fixa do
 pedido, não no prompt. O **Salvar é um só**, fora das abas: esconder uma aba não apaga o que
 está nos campos dela.
@@ -741,6 +761,7 @@ está nos campos dela.
 | `openai_model` | id do modelo nela | vazio |
 | `calendar_provider` | quem lê a agenda (`gog`, ou vazio = desligado) | vazio |
 | `gog_account` | e-mail passado ao gog como `--account` | vazio |
+| `my_voice` | qual das vozes cadastradas é a de quem usa (junta com "Você") | vazio |
 
 Os dois modos são configurados separado de propósito: é comum querer um motor local durante a
 reunião e `groq` no final. `groq` só aparece na transcrição final — em tempo real seria uma

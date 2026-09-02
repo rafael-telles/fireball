@@ -748,6 +748,163 @@ function renderDescription(meeting) {
 }
 
 const ANON_SPEAKER = /^(Você|Outros participantes|(Sala|Remoto) \d+)$/;
+const ANON_SLOT = /^(Sala|Remoto) \d+$/;
+
+/** As chaves por que duas entradas são a mesma pessoa.
+
+    O **e-mail** primeiro: é o único identificador que o perfil de voz e o
+    convidado da agenda de fato compartilham. O nome normalizado entra como
+    reserva, para quem não tem e-mail em lugar nenhum — mas só ele não bastava,
+    e era por isso que uma voz reconhecida e o convidado dela apareciam duas
+    vezes na ficha sempre que os dois nomes não batiam letra por letra. */
+function identityKeys(name, emails) {
+  const keys = new Set();
+  for (const email of emails || []) {
+    const clean = String(email).trim().toLowerCase();
+    if (clean) keys.add(`email:${clean}`);
+  }
+  const label = String(name || "").trim().toLowerCase();
+  if (label) keys.add(`name:${label}`);
+  return keys;
+}
+
+/** O que o Fireball sabe sobre um falante: o perfil de voz, quando há um. */
+function speakerIdentity(speaker) {
+  const voice = state.voices.find((item) => item.id === speaker.voice_profile_id);
+  if (voice) return { name: voice.name, emails: voice.emails || [] };
+  // sem perfil, o nome na transcrição é o que temos — e o e-mail dele pode
+  // estar no convite, que é o outro lado desta mesma junção
+  const email = emailFor(state.open.meeting, speaker.speaker);
+  return { name: speaker.speaker, emails: email ? [email] : [] };
+}
+
+/** Junta num participante só as entradas que são a mesma pessoa.
+
+    Três fontes falam da mesma gente e nenhuma sabe das outras: os falantes da
+    transcrição (com nome de perfil de voz, ou anônimos), os convidados do
+    evento, e a track do microfone — que se chama "Você" e não tem nome nenhum
+    até alguém dizer, na configuração, qual das vozes cadastradas é a sua.
+
+    Slot anônimo de diarização (`Sala 2`, `Remoto 1`) nunca se junta a nada: ele
+    é precisamente a pessoa que o Fireball **não** identificou, e adivinhar
+    aqui seria atribuir fala a quem não falou. */
+function participantGroups() {
+  const o = state.open;
+  const m = o.meeting;
+  const me = state.profile || {};
+  const timed = Boolean(o.stats && o.stats.timed);
+  const groups = [];
+
+  const place = (keys, solo) => {
+    const found = solo
+      ? null
+      : groups.find((group) => !group.solo && [...keys].some((key) => group.keys.has(key)));
+    if (found) {
+      for (const key of keys) found.keys.add(key);
+      return found;
+    }
+    const group = {
+      keys: new Set(keys),
+      solo: Boolean(solo),
+      isMe: false,
+      seconds: 0,
+      ratio: 0,
+      tracks: new Set(),
+      names: [],
+      emails: [],
+      slot: null,
+      speaker: null,
+      attendee: null,
+      spoke: false,
+    };
+    groups.push(group);
+    return group;
+  };
+
+  for (const speaker of (o.stats && o.stats.speakers) || []) {
+    const name = speaker.speaker;
+    const anon = ANON_SPEAKER.test(name);
+    const isMine = name === "Você";
+    // "Você" só se junta a alguém pela voz marcada como minha na configuração:
+    // é a única coisa que liga a track do microfone a um nome e a um e-mail
+    const identity = isMine
+      ? { name: me.name || "", emails: me.emails || [] }
+      : anon
+        ? { name, emails: [] }
+        : speakerIdentity(speaker);
+
+    const group = place(identityKeys(identity.name, identity.emails), ANON_SLOT.test(name));
+    group.seconds += speaker.seconds || 0;
+    group.ratio += speaker.ratio || 0;
+    group.spoke = group.spoke || timed;
+    if (isMine) group.isMe = true;
+    if (anon) group.tracks.add(name);
+    else if (identity.name) group.names.push(identity.name);
+    if (ANON_SLOT.test(name)) group.slot = name;
+    for (const email of identity.emails) {
+      if (!group.emails.includes(email)) group.emails.push(email);
+    }
+    group.speaker = group.speaker || (speaker.speaker_key ? speaker : null);
+  }
+
+  for (const person of (m.event && m.event.attendees) || []) {
+    const label = person.name || person.email || "";
+    if (!label) continue;
+    const emails = person.email ? [person.email] : [];
+    // o convidado marcado como `self` é você: entra com a sua identidade para
+    // cair no mesmo grupo do microfone
+    const keys = person.self
+      ? identityKeys(me.name || label, [...(me.emails || []), ...emails])
+      : identityKeys(person.name, emails);
+
+    const group = place(keys, false);
+    group.attendee = group.attendee || person;
+    if (person.self) group.isMe = true;
+    if (person.name && !group.names.includes(person.name)) group.names.push(person.name);
+    for (const email of emails) {
+      const clean = email.toLowerCase();
+      if (!group.emails.includes(clean)) group.emails.push(clean);
+    }
+  }
+
+  // Só existe um "eu": a track do microfone, a voz marcada como minha e o
+  // convidado `self` da agenda são a mesma pessoa por definição, mesmo quando
+  // nenhuma chave em comum os ligou (é o caso de quem não configurou "minha
+  // voz" e cujo perfil não tem o e-mail do convite).
+  const mine = groups.filter((group) => group.isMe && !group.solo);
+  if (mine.length > 1) {
+    const first = mine[0];
+    for (const other of mine.slice(1)) {
+      for (const key of other.keys) first.keys.add(key);
+      first.seconds += other.seconds;
+      first.ratio += other.ratio;
+      first.spoke = first.spoke || other.spoke;
+      for (const track of other.tracks) first.tracks.add(track);
+      for (const name of other.names) if (!first.names.includes(name)) first.names.push(name);
+      for (const email of other.emails) if (!first.emails.includes(email)) first.emails.push(email);
+      first.speaker = first.speaker || other.speaker;
+      first.attendee = first.attendee || other.attendee;
+      groups.splice(groups.indexOf(other), 1);
+    }
+  }
+
+  // "Você" sem voz configurada, sem convite e sem conta continua um grupo só
+  // dele; nada a fazer além de não fingir que ele tem nome.
+  for (const group of groups) group.label = groupLabel(group);
+  return groups;
+}
+
+/** Como o grupo se chama na tela.
+
+    "Você" ganha o nome de gente quando ele existe (é mais útil numa lista de
+    participantes que um pronome), e o pronome vira o detalhe da linha. */
+function groupLabel(group) {
+  if (group.names.length) return group.names[0];
+  if (group.isMe) return "Você";
+  if (group.slot) return group.slot;
+  for (const track of group.tracks) return track;
+  return group.emails[0] || "?";
+}
 
 /** Quem falou nesta reunião — do que a transcrição mostra, não do convite.
 
@@ -761,48 +918,25 @@ function renderPeople() {
   const box = el("mv-people");
   box.innerHTML = "";
 
-  const speakers = (o.stats && o.stats.speakers) || [];
-  const timed = Boolean(o.stats && o.stats.timed);
-  const byName = new Map();
-  let unnamed = 0;
+  const groups = participantGroups();
+  // quem falou primeiro, convidado que não apareceu depois
+  const ordered = [...groups].sort((a, b) => (b.seconds || 0) - (a.seconds || 0));
 
-  for (const speaker of speakers) {
-    const name = speaker.speaker;
-    const anon = ANON_SPEAKER.test(name);
-    if (anon && /^(Sala|Remoto)/.test(name)) unnamed += 1;
-    byName.set(name.toLowerCase(), true);
-
+  for (const group of ordered) {
     const detail = [];
-    if (name === "Você") detail.push("microfone");
-    else if (name === "Outros participantes") detail.push("áudio do sistema");
-    else if (anon) detail.push("sem nome atribuído");
-    else {
-      const voice = state.voices.find((v) => v.id === speaker.voice_profile_id);
-      const email = (voice && voice.emails && voice.emails[0]) || emailFor(m, name);
-      if (email) detail.push(email);
-    }
-    if (timed && speaker.seconds) detail.push(`${clock(speaker.seconds)} de fala`);
+    // "você" já diz qual track é a sua; as duas juntas seriam a mesma coisa
+    // dita duas vezes numa linha que já é longa
+    if (group.isMe && group.label !== "Você") detail.push("você");
+    else if (group.tracks.has("Você")) detail.push("microfone");
+    if (group.tracks.has("Outros participantes")) detail.push("áudio do sistema");
+    if (group.slot) detail.push("sem nome atribuído");
+    if (group.emails.length) detail.push(group.emails[0]);
+    else if (!group.tracks.size && !group.slot) detail.push("convidado do evento");
+    if (group.seconds) detail.push(`${clock(group.seconds)} de fala`);
+    else if (group.tracks.size || group.slot) detail.push("sem fala medida");
+    else detail.push("não apareceu na transcrição");
 
-    // as cores acompanham as do chat: "Você" no acento, "Outros participantes"
-    // no azul da track remota, e só o slot anônimo de diarização no cinza
-    const kind = !anon
-      ? "known"
-      : name === "Você"
-        ? "mine"
-        : name === "Outros participantes"
-          ? "other"
-          : "slot";
-    box.appendChild(personRow(name, kind, name, detail.join(" · "), speaker));
-  }
-
-  const attendees = (m.event && m.event.attendees) || [];
-  for (const person of attendees) {
-    if (person.self) continue; // "Você" já está na lista
-    const label = person.name || person.email || "?";
-    if (byName.has(label.toLowerCase())) continue;
-    box.appendChild(
-      personRow(label, "guest", label, person.email && person.name ? person.email : "convidado do evento")
-    );
+    box.appendChild(personRow(group, detail.join(" · ")));
   }
 
   if (!box.childElementCount) {
@@ -814,9 +948,10 @@ function renderPeople() {
     box.appendChild(note);
   }
 
-  const count = speakers.length;
-  el("mv-people-count").textContent = count
-    ? `${count} ${count === 1 ? "detectada" : "detectadas"}`
+  const detected = groups.filter((group) => group.tracks.size || group.slot || group.seconds).length;
+  const unnamed = groups.filter((group) => group.slot).length;
+  el("mv-people-count").textContent = detected
+    ? `${detected} ${detected === 1 ? "detectada" : "detectadas"}`
     : "";
   el("mv-voices-note").textContent = unnamed
     ? `${unnamed} sem nome`
@@ -834,11 +969,30 @@ function emailFor(meeting, name) {
   return (found && found.email) || "";
 }
 
-function personRow(initialSource, kind, name, detail, speaker) {
+/** A cor do avatar e da barra de participação de um grupo, seguindo o chat:
+    acento para quem fala pelo microfone, azul para a track remota, cinza para
+    o slot que ninguém identificou. */
+function groupKind(group) {
+  if (group.isMe || group.tracks.has("Você")) return "mine";
+  if (group.tracks.has("Outros participantes")) return "other";
+  if (group.slot) return "slot";
+  return group.seconds ? "known" : "guest";
+}
+
+function groupColor(group) {
+  const kind = groupKind(group);
+  if (kind === "mine") return "var(--accent)";
+  if (kind === "other") return "var(--speaker)";
+  if (kind === "slot") return "var(--faint)";
+  return speakerColor(group.label);
+}
+
+function personRow(group, detail) {
   // Slot de diarização sem nome é clicável: é daqui que se cadastra a voz, e
   // exigir voltar à transcrição para achar a bolha certa era o caminho longo.
+  const speaker = group.speaker;
   const enrollable = Boolean(
-    speaker && speaker.speaker_key && state.open && state.open.meeting.status !== "finalizing"
+    speaker && speaker.speaker_key && state.open.meeting.status !== "finalizing"
   );
   const row = document.createElement(enrollable ? "button" : "div");
   row.className = "person";
@@ -855,16 +1009,15 @@ function personRow(initialSource, kind, name, detail, speaker) {
     );
   }
 
+  const kind = groupKind(group);
   const avatar = document.createElement("span");
   avatar.className = `avatar ${kind}`;
-  avatar.textContent = /^(Sala|Remoto) \d+$/.test(initialSource)
-    ? initialSource.split(" ")[1]
-    : initialsOf(initialSource).slice(0, 1);
-  if (kind === "known" || kind === "guest") avatar.style.background = avatarColor(name);
+  avatar.textContent = group.slot ? group.slot.split(" ")[1] : initialsOf(group.label).slice(0, 1);
+  if (kind === "known" || kind === "guest") avatar.style.background = avatarColor(group.label);
 
   const text = document.createElement("span");
   const b = document.createElement("b");
-  b.textContent = name;
+  b.textContent = group.label;
   const i = document.createElement("i");
   i.textContent = detail;
   text.append(b, i);
@@ -1056,12 +1209,20 @@ function renderStats() {
 
   // Participação por pessoa, com o silêncio na mesma escala: sem ele as
   // barras somariam 100% e a reunião pareceria cheia de fala.
+  //
+  // Pelos mesmos grupos da lista de participantes, e não pelos falantes
+  // crus: quem aparece como "Você" no microfone e outra vez pelo nome que a
+  // diarização reconheceu é uma pessoa só, e duas barras de 30% e 15% no
+  // lugar de uma de 45% não é layout — é conta errada.
   const share = statsBlock("Participação por pessoa", "por tempo de fala");
   const card = document.createElement("div");
   card.className = "stat-card bars-card";
-  for (const speaker of stats.speakers) {
+  const spoke = participantGroups()
+    .filter((group) => group.seconds > 0)
+    .sort((a, b) => b.seconds - a.seconds);
+  for (const group of spoke) {
     card.appendChild(
-      shareRow(speaker.speaker, speaker.ratio, `${clock(speaker.seconds)} · ${pct(speaker.ratio)}`, speakerColor(speaker.speaker))
+      shareRow(group.label, group.ratio, `${clock(group.seconds)} · ${pct(group.ratio)}`, groupColor(group))
     );
   }
   card.appendChild(
@@ -3286,9 +3447,11 @@ function renderVoices() {
   list.innerHTML = "";
   empty.classList.toggle("hidden", state.voices.length > 0);
 
+  const mine = (state.settings && state.settings.my_voice) || "";
   for (const voice of state.voices) {
     const row = document.createElement("div");
     row.className = "prompt-row";
+    if (voice.id === mine) row.classList.add("is-me");
 
     const meta = document.createElement("div");
     meta.className = "voice-meta";
@@ -3598,6 +3761,14 @@ function promptOptions() {
   return state.prompts.list.map((p) => [p.id, p.name]);
 }
 
+/** Os perfis cadastrados, mais "nenhum" — que é o padrão e não é erro. */
+function myVoiceOptions() {
+  return [
+    ["", "— nenhuma escolhida"],
+    ...state.voices.map((voice) => [voice.id, voice.name]),
+  ];
+}
+
 function calendarProviderOptions() {
   // "" = desligado: instalação limpa não shella nada até a pessoa escolher
   return [["", "Desligado"], ...(state.backends.calendar || []).map((name) => [name, name])];
@@ -3620,6 +3791,7 @@ function renderSettings() {
   el("set-groq-key").value = s.groq_api_key || "";
   el("set-gog-account").value = s.gog_account || "";
   el("set-language").value = s.language;
+  fillSelect("set-my-voice", myVoiceOptions(), s.my_voice || "");
   renderProviderFields();
 }
 
@@ -3676,12 +3848,18 @@ async function onSaveSettings() {
       groq_api_key: el("set-groq-key").value,
       calendar_provider: el("set-calendar-provider").value,
       gog_account: el("set-gog-account").value,
+      my_voice: el("set-my-voice").value,
       language: el("set-language").value,
     });
     renderSettings(); // o daemon é quem diz o que ficou valendo
+    renderVoices(); // o selo de "sou eu" mudou de linha
     renderConfigSummary();
     // provedor/conta mudaram: a lista da home precisa refletir já
     refreshAgenda(true);
+    // "minha voz" decide quem se junta a "Você" na ficha, e é o nome do
+    // cumprimento da home — os dois estão desatualizados agora
+    await loadProfile();
+    if (state.open) renderPeople();
     const note = el("settings-note");
     note.textContent = "salvo";
     note.classList.add("on");

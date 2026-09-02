@@ -161,6 +161,58 @@ class BrowseTests(unittest.TestCase):
             {person["label"] for person in row["people"]}, {"Marina Alves", "João Pedro"}
         )
 
+    def test_a_recognized_voice_and_its_attendee_are_one_face(self):
+        """A voz reconhecida e o convidado da agenda são a mesma pessoa mesmo
+        quando os dois nomes não batem letra por letra: o e-mail do perfil de
+        voz é o que os liga, e sem ele a pilha de avatares mostrava duas."""
+        import numpy as np
+
+        from fireball import voices
+
+        profile = voices.save_profile(
+            "Marina Alves",
+            np.array([1.0, 0.0, 0.0], dtype=np.float32),
+            model="test-model",
+            email="marina@vertico.com.br",
+        )
+        meeting_id = self._meeting(
+            "Retro",
+            "2026-08-20T10:00:00",
+            "2026-08-20T10:30:00",
+            event={"attendees": [{"name": "Marina A. Alves", "email": "marina@vertico.com.br"}]},
+        )
+        storage.append_ndjson(
+            storage.meeting_path(meeting_id) / "transcript.ndjson",
+            {
+                "seq": 1,
+                "speaker": "Marina Alves",
+                "voice_profile_id": profile["id"],
+                "text": "olá",
+            },
+        )
+        catalog.replace_transcript(meeting_id)
+
+        row = next(r for r in catalog.browse()["meetings"] if r["id"] == meeting_id)
+        self.assertEqual([person["label"] for person in row["people"]], ["Marina A. Alves"])
+
+    def test_the_same_name_from_both_sources_is_one_face(self):
+        meeting_id = self._meeting(
+            "Sync",
+            "2026-08-21T10:00:00",
+            "2026-08-21T10:30:00",
+            event={"attendees": [{"name": "Marina Alves", "email": "marina@vertico.com.br"}]},
+        )
+        storage.append_ndjson(
+            storage.meeting_path(meeting_id) / "transcript.ndjson",
+            {"seq": 1, "speaker": "Marina Alves", "text": "olá"},
+        )
+        catalog.replace_transcript(meeting_id)
+
+        row = next(r for r in catalog.browse()["meetings"] if r["id"] == meeting_id)
+        self.assertEqual([person["label"] for person in row["people"]], ["Marina Alves"])
+        # o do convite vem primeiro: é o que tem e-mail
+        self.assertEqual(row["people"][0]["source"], "attendee")
+
     def test_facets_count_the_whole_library(self):
         self._fixtures()
         facets = catalog.facets()
