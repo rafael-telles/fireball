@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-from fireball import catalog, control, prompts, settings, storage, voices
+from fireball import catalog, control, prompts, settings, storage, summaries, voices
 from fireball.calendars import CalendarUnavailable, get_calendar_provider
 from fireball.daemon import protocol
 
@@ -34,8 +34,8 @@ from fireball.daemon import protocol
 # martelar token morto.
 AGENDA_TTL_S = 120
 AGENDA_ERROR_TTL_S = 30
-AGENDA_WINDOW_HOURS = 24
-AGENDA_LIMIT = 8
+AGENDA_WINDOW_HOURS = 36
+AGENDA_LIMIT = 20
 
 
 def _pid_alive(pid: int) -> bool:
@@ -714,10 +714,19 @@ class DaemonCore:
         meeting = control.read_meeting(meeting_id)
         return {
             "summary": control.read_summary(meeting_id),
+            # todos os resumos gravados, um por prompt: a aba lista os
+            # anteriores ao lado do que está aberto, e pedi-los à parte
+            # deixaria a lista atrasada em relação ao que acabou de sair
+            "summaries": control.list_summaries(meeting_id),
             "status": meeting.get("summary_status"),
             "provider": meeting.get("summary_provider"),
+            "prompt": meeting.get("summary_prompt"),
             "error": self._summary_error(meeting_id),
         }
+
+    def delete_summary(self, meeting_id: str, summary_id: str) -> dict:
+        with self._lock:
+            return control.delete_summary(meeting_id, summary_id)
 
     def summarize(
         self,
@@ -741,11 +750,14 @@ class DaemonCore:
 
             prompt_id = self._resolve_prompt(prompt, meeting)
 
-            # o resumo anterior sai de cena junto com o pedido de regerar: se
-            # este falhar, mostrar o antigo como se fosse o novo seria mentira.
+            # o resumo anterior **deste prompt** sai de cena junto com o
+            # pedido de regerar: se este falhar, mostrar o antigo como se
+            # fosse o novo seria mentira. Os de outros prompts ficam — são
+            # outra leitura da mesma reunião, e ninguém pediu para apagá-los.
             meeting_dir = storage.meeting_path(meeting_id)
             (meeting_dir / "summary.md").unlink(missing_ok=True)
             (meeting_dir / "summary_result.json").unlink(missing_ok=True)
+            summaries.drop_prompt(meeting_dir, prompt_id)
 
             cmd = control.summarize_command(meeting_id, provider, prompt_id)
             job = self._spawn(meeting_id, "summary", cmd, "summary.log")
@@ -842,6 +854,46 @@ class DaemonCore:
         with self._lock:
             control.write_notes(meeting_id, text)
         return {"saved": True}
+
+    def meeting_stats(self, meeting_id: str) -> dict:
+        return control.meeting_stats(meeting_id)
+
+    def transcript_meta(self, meeting_id: str) -> dict:
+        return control.transcript_meta(meeting_id)
+
+    def export_transcript(self, meeting_id: str) -> dict:
+        with self._lock:
+            return control.export_transcript(meeting_id)
+
+    def browse_meetings(self, **filters) -> dict:
+        return catalog.browse(**filters)
+
+    def catalog_facets(self) -> dict:
+        return catalog.facets()
+
+    def profile(self) -> dict:
+        """Quem está usando o Fireball, na medida em que ele sabe.
+
+        Não há cadastro de usuário: o que existe é a conta do provedor de
+        agenda e, nos eventos que ele devolve, o convidado marcado como
+        `self`. É de lá que sai o nome do cumprimento da tela inicial — e
+        quando não há agenda, não há nome, e a tela cumprimenta sem ele em
+        vez de inventar um.
+        """
+        email = (settings.load().get("gog_account") or "").strip()
+        name = ""
+        cached = self._read_agenda_cache() or {}
+        for event in cached.get("events") or []:
+            for person in (event or {}).get("attendees") or []:
+                if not isinstance(person, dict) or not person.get("self"):
+                    continue
+                name = name or (person.get("name") or "").strip()
+                email = email or (person.get("email") or "").strip()
+        return {"name": name, "email": email}
+
+    def set_tags(self, meeting_id: str, tags) -> dict:
+        with self._lock:
+            return control.set_tags(meeting_id, tags)
 
     def rename_meeting(self, meeting_id: str, name: str) -> dict:
         with self._lock:

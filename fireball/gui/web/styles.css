@@ -35,6 +35,9 @@
 
   --radius: 12px;
   --sidebar-w: 280px;
+  /* o cabeçalho do dia no calendário e o vão acima da coluna de horas medem
+     isto — dois valores diferentes desalinham cada rótulo da linha dele */
+  --week-head-h: 44px;
 }
 
 * {
@@ -353,17 +356,6 @@ code {
   padding: 16px 17px;
 }
 
-.slab.short {
-  padding: 12px 14px;
-}
-
-.slab.tall {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-height: 150px;
-}
-
 .slab-title {
   font-weight: 600;
   font-size: 13.5px;
@@ -434,18 +426,6 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 10rem;
-}
-
-.agenda-go {
-  font-size: 11px;
-  color: var(--accent);
-  opacity: 0;
-  transition: opacity 0.12s ease;
-}
-
-.agenda-row:hover .agenda-go,
-.agenda-row:focus-visible .agenda-go {
-  opacity: 1;
 }
 
 /* ------------------------------------------------------------------ app */
@@ -726,7 +706,7 @@ code {
 /* -------------------------------------------------------------- início */
 
 .home-col {
-  width: 620px;
+  width: 720px;
   max-width: 100%;
   margin: 0 auto;
   padding: 28px 20px 20px;
@@ -751,14 +731,6 @@ code {
 
 .sec-head.tight {
   margin-bottom: 8px;
-}
-
-.sec-title {
-  font-weight: 600;
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--faint);
 }
 
 .sec-right {
@@ -919,9 +891,9 @@ select.mini {
   flex-direction: column;
 }
 
-/* ..................................................... aba Resumo */
+/* ............................................... aba Visão Geral */
 
-.resumo-left {
+.ficha-col {
   width: 352px;
   flex: none;
   border-right: 1px solid var(--border);
@@ -930,7 +902,7 @@ select.mini {
   overflow: hidden;
 }
 
-.resumo-right {
+.stats-col {
   flex: 1;
   min-width: 0;
   display: flex;
@@ -945,7 +917,7 @@ select.mini {
   gap: 20px;
 }
 
-.resumo-right .scroll {
+.stats-col .scroll {
   padding: 22px 26px;
   display: flex;
   flex-direction: column;
@@ -981,22 +953,6 @@ select.mini {
 
 .value {
   font-size: 14px;
-}
-
-.value.muted {
-  font-size: 13px;
-  color: var(--faint);
-}
-
-.field-group.grow-block {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.field-group.grow-block .slab {
-  flex: 1;
 }
 
 .people {
@@ -1713,21 +1669,23 @@ dialog::backdrop {
     --sidebar-w: 232px;
   }
 
-  .resumo-left {
+  .ficha-col {
     width: 300px;
   }
 }
 
 @media (max-width: 820px) {
+  .pane#pane-visao,
   .pane#pane-resumo {
     flex-direction: column;
   }
 
-  .resumo-left {
+  .ficha-col {
     width: auto;
+    flex: 1;
+    min-height: 0;
     border-right: none;
     border-bottom: 1px solid var(--border);
-    max-height: 55%;
   }
 }
 
@@ -2127,4 +2085,1288 @@ audio {
    da pergunta esconderia a resposta. */
 .msg .seg-actions[data-confirming] {
   opacity: 1;
+}
+
+/* ================================================== barra lateral: acervo */
+
+/* A lista abaixo é o acesso rápido; este botão é a porta do acervo inteiro.
+   Ele fica aceso quando aquela tela está aberta, como um item de navegação —
+   porque é o que ele é. */
+.sb-nav {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-3);
+  font: 600 12.5px system-ui, sans-serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sb-nav:hover {
+  border-color: var(--border-2);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.sb-nav .ico.accent {
+  color: var(--accent);
+  font-size: 13px;
+}
+
+.sb-nav-count {
+  font: 500 11px ui-monospace, Menlo, monospace;
+  color: var(--faint);
+}
+
+/* ============================================================ tela inicial */
+
+.home-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.home-today {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--faint);
+  text-align: right;
+}
+
+.home-adhoc {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* ---- o cartão da próxima reunião
+
+   Ele tem borda avermelhada e ocupa a largura toda porque é o único caminho em
+   primeiro plano da tela: a próxima reunião é o que quem abriu o Fireball veio
+   fazer. O resto do dia vem em linhas, que é o peso certo para informação. */
+.next-card {
+  background: linear-gradient(#17141a, var(--surface));
+  border: 1px solid var(--accent-border);
+  border-radius: 16px;
+  padding: 20px 22px;
+}
+
+.next-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 13px;
+}
+
+.next-when {
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-text);
+}
+
+.next-range {
+  margin-left: auto;
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.next-title {
+  font-weight: 600;
+  font-size: 21px;
+  line-height: 1.25;
+  margin: 0 0 6px;
+}
+
+.next-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dim);
+  margin: 0 0 16px;
+  text-wrap: pretty;
+  /* descrição de evento vem com pauta inteira dentro às vezes; três linhas
+     dizem do que é a reunião, e o resto está no evento */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.event-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.event-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.event-chip i {
+  font-style: normal;
+  color: var(--faint);
+}
+
+.next-people {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-bottom: 16px;
+}
+
+.person-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.person-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 4px;
+  border: 1px solid var(--border-2);
+  border-radius: 999px;
+  background: var(--surface-2);
+  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+/* Quem não confirmou fica tracejado e apagado: a diferença entre "vem" e
+   "talvez" é o que decide se a reunião acontece. */
+.person-chip.unsure {
+  border-style: dashed;
+  color: var(--dim);
+}
+
+.person-chip .avatar {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+  margin: 0;
+}
+
+.person-chip.unsure .avatar {
+  background: var(--border);
+  color: var(--dim);
+}
+
+.next-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.next-note {
+  margin-left: auto;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--faint);
+  text-align: right;
+  max-width: 13rem;
+}
+
+/* ---- o resto do dia */
+
+.agenda-section + .agenda-section {
+  margin-top: 18px;
+}
+
+.agenda-row {
+  grid-template-columns: 4.6rem 1fr auto auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  padding: 12px 15px;
+}
+
+/* Dia seguinte é informação, não o que se vai gravar agora: moldura mais
+   fraca e texto mais apagado dizem isso sem escrever. */
+.agenda-row.dim {
+  background: transparent;
+  border-color: var(--border-faint);
+  color: var(--dim);
+}
+
+.agenda-row.dim .agenda-hour,
+.agenda-row.dim .agenda-title {
+  color: var(--text-3);
+}
+
+.agenda-hour {
+  font: 600 14px ui-monospace, Menlo, monospace;
+  color: var(--text);
+}
+
+.agenda-planned {
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+
+.agenda-row.dim .agenda-hour {
+  color: var(--dim);
+}
+
+.agenda-loc {
+  max-width: none;
+}
+
+/* Pilha de avatares sobrepostos: mostra quem está na reunião sem gastar a
+   largura de uma lista de nomes. */
+.faces {
+  display: flex;
+  flex: none;
+}
+
+.face {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 9.5px system-ui, sans-serif;
+  color: #eef1f6;
+  flex: none;
+}
+
+.face + .face {
+  margin-left: -7px;
+}
+
+.face.more {
+  background: var(--border);
+  color: var(--dim);
+}
+
+/* ================================================================= acervo */
+
+.bv-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 20px 24px 0;
+  flex: none;
+}
+
+.bv-title {
+  font-weight: 600;
+  font-size: 22px;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.bv-sub {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.bv-week-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Dois modos da mesma consulta, então um controle segmentado e não duas abas:
+   abas dizem "outro conteúdo", e o conteúdo aqui é o mesmo. */
+.seg {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.seg-btn {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  font: 600 12px system-ui, sans-serif;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.seg-btn:hover {
+  color: var(--text-2);
+}
+
+.seg-btn.selected {
+  background: var(--border);
+  color: var(--text);
+}
+
+/* ---- barra de filtros */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 14px 24px 12px;
+  flex: none;
+}
+
+.filter-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 250px;
+  padding: 6px 11px;
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  background: var(--surface);
+}
+
+.filter-search input {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+}
+
+.filter-search input:focus {
+  outline: none;
+}
+
+/* O escopo da busca escrito na própria caixa: sem isto ninguém adivinha que
+   ela também procura dentro da fala. */
+.filter-scope {
+  padding-left: 9px;
+  border-left: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.filter-pick {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 1px solid var(--border-2);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.filter-pick.dashed {
+  border-style: dashed;
+  background: var(--surface);
+}
+
+.filter-pick select {
+  width: auto;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.filter-pick select:focus {
+  outline: none;
+}
+
+.filter-pick.dashed select {
+  color: var(--dim);
+}
+
+.filter-ico {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* O chip é a única prova de que um filtro está ligado: um <select> que voltou
+   ao valor escolhido desaparece no meio da barra, e a tabela fica curta sem
+   explicação. Clicar no chip desliga. */
+.filter-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: 9px;
+  background: var(--accent-bg-2);
+  font: 500 12.5px system-ui, sans-serif;
+  color: var(--accent-text-2);
+  cursor: pointer;
+}
+
+.filter-chip.person {
+  padding: 4px 10px 4px 5px;
+  border-color: var(--border-2);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.filter-chip .swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.filter-chip .face {
+  width: 19px;
+  height: 19px;
+  font-size: 9px;
+  border-color: var(--surface-2);
+}
+
+.chip-x {
+  opacity: 0.6;
+}
+
+.filter-chip:hover .chip-x {
+  opacity: 1;
+}
+
+.clear-filters {
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  font: 500 12px system-ui, sans-serif;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.bv-count {
+  padding: 0 24px 8px;
+  font-size: 11.5px;
+  color: var(--faint);
+  flex: none;
+}
+
+/* ---- tabela */
+
+#bv-table-wrap {
+  padding: 0 24px 20px;
+}
+
+.mt-table {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.mt-head,
+.mt-row {
+  display: grid;
+  grid-template-columns: 1fr 6.75rem 5.75rem 8.25rem 11.9rem;
+  align-items: center;
+}
+
+.mt-head {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.mt-col {
+  padding: 9px 10px;
+  border: none;
+  background: none;
+  font: 600 10px system-ui, sans-serif;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mt-col:first-child {
+  padding-left: 14px;
+}
+
+.mt-col.right {
+  text-align: right;
+}
+
+.mt-col.static {
+  cursor: default;
+}
+
+.mt-col:not(.static):hover {
+  color: var(--text-2);
+}
+
+.mt-col.active {
+  color: var(--text-2);
+}
+
+/* A seta da ordenação vem do dataset, não de um nó à parte: ela troca a cada
+   clique, e um nó a mais só existiria pra ser reescrito. */
+.mt-col[data-arrow]::after {
+  content: attr(data-arrow);
+  color: var(--accent);
+  margin-left: 4px;
+}
+
+.mt-row {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--border-faint);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mt-row:last-child {
+  border-bottom: none;
+}
+
+.mt-row:hover {
+  background: var(--surface);
+}
+
+.mt-row.selected {
+  background: #1a181e;
+}
+
+.mt-name {
+  padding: 11px 10px 11px 14px;
+  min-width: 0;
+}
+
+.mt-title {
+  font-weight: 500;
+  font-size: 13.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-sub {
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mt-date {
+  padding: 11px 10px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.mt-dim {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.mt-dur {
+  padding: 11px 10px;
+  text-align: right;
+  font: 500 12.5px ui-monospace, Menlo, monospace;
+  color: var(--text-3);
+}
+
+.mt-row .faces {
+  padding: 11px 10px;
+}
+
+.mt-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 11px 10px;
+}
+
+.mt-tags .tag {
+  padding: 2px 7px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--surface-2);
+  font: 500 11px system-ui, sans-serif;
+  color: var(--dim);
+}
+
+/* A tag pela qual a tabela está filtrada fica acesa: é ela que explica por que
+   estas linhas e não as outras. */
+.mt-tags .tag.on {
+  border-color: var(--accent-border);
+  background: var(--accent-bg-2);
+  color: var(--accent-text-2);
+}
+
+.mt-empty {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--faint);
+}
+
+.bv-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-foot);
+  font-size: 11px;
+  color: var(--faint);
+  flex: none;
+}
+
+/* ---- calendário da semana */
+
+.week {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: 3.25rem repeat(7, minmax(0, 1fr));
+  padding: 0 24px 18px;
+}
+
+.week-hours {
+  display: flex;
+  flex-direction: column;
+}
+
+.week-head-spacer {
+  height: var(--week-head-h);
+  flex: none;
+}
+
+.week-hour {
+  height: 40px;
+  padding-right: 8px;
+  font: 500 10.5px ui-monospace, Menlo, monospace;
+  color: #4a4650;
+  text-align: right;
+  transform: translateY(-6px);
+  flex: none;
+}
+
+.week-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.week-day {
+  height: var(--week-head-h);
+  text-align: center;
+  padding-bottom: 8px;
+  flex: none;
+}
+
+.week-day-name {
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.week-day-num {
+  font: 500 15px ui-monospace, Menlo, monospace;
+  color: var(--text-3);
+  margin-top: 3px;
+}
+
+.week-day.today .week-day-num {
+  color: var(--accent);
+}
+
+.week-col.weekend .week-day-num {
+  color: #4a4650;
+}
+
+/* As linhas de hora e a coluna são o fundo; o bloco é posicionado em cima
+   pelo JS, em pixels — é isso que faz ele ter a posição e o tamanho reais da
+   gravação em vez de virar um item de lista. */
+.week-slots {
+  position: relative;
+  background: var(--bg-foot);
+  border-left: 1px solid var(--border-faint);
+  flex: none;
+}
+
+.week-col.weekend .week-slots {
+  background: var(--bg-sidebar);
+}
+
+.week-line {
+  height: 40px;
+  border-top: 1px solid var(--border-faint);
+}
+
+.week-block {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  padding: 5px 7px;
+  border: 1px solid var(--accent-border);
+  border-left: 3px solid var(--accent);
+  border-radius: 7px;
+  background: var(--accent-bg-2);
+  overflow: hidden;
+  text-align: left;
+  cursor: pointer;
+}
+
+.week-block:hover {
+  border-color: var(--accent);
+}
+
+/* Âmbar é a gravação que parou no meio — a mesma distinção que a legenda do
+   pé explica, e o motivo de o vermelho não servir para as duas. */
+.week-block.stopped {
+  border-color: #5a4522;
+  border-left-color: var(--warn);
+  background: #221d18;
+}
+
+.week-block-title {
+  font: 600 11px/1.25 system-ui, sans-serif;
+  color: #ffb3b7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.week-block.stopped .week-block-title {
+  color: #f0d9b8;
+}
+
+.week-block-meta {
+  font-size: 10px;
+  color: var(--dim);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.week-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.week-legend .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.week-legend .dot.done {
+  background: var(--accent);
+}
+
+.week-legend .dot.stopped {
+  background: var(--warn);
+  margin-left: 8px;
+}
+
+/* ============================================== reunião: Arquivos e abas */
+
+/* Arquivos não é aba: abre a pasta no gerenciador do sistema. Fica empurrado
+   para a direita e sem sublinhado de seleção porque a tela não muda. */
+.tab.out {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.tab.out .ico.dim {
+  font-size: 12px;
+  color: var(--faint);
+}
+
+/* =========================================== reunião: aba Visão Geral */
+
+.stats-col .scroll {
+  padding: 22px 26px;
+  display: flex;
+  flex-direction: column;
+}
+
+.stats-body {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+}
+
+.stat-value {
+  font: 600 19px ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-label {
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-top: 3px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+
+.bars-card {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+
+.share-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.share-name {
+  width: 7.5rem;
+  flex: none;
+  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.share-track {
+  flex: 1;
+  min-width: 0;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+
+.share-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+
+.share-value {
+  width: 6rem;
+  flex: none;
+  text-align: right;
+  font: 500 12px ui-monospace, Menlo, monospace;
+  color: var(--dim);
+}
+
+/* A reunião fatiada no tempo. Barra alta é gente falando; a cinza e rasa é a
+   reunião parada, que é o que o gráfico existe para mostrar. */
+.spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 56px;
+}
+
+.spark i {
+  flex: 1;
+  border-radius: 2px;
+  background: #e01b2499;
+  display: block;
+}
+
+.spark i.quiet {
+  background: #4a4650;
+}
+
+.spark-axis {
+  display: flex;
+  justify-content: space-between;
+  font: 10px ui-monospace, Menlo, monospace;
+  color: var(--faint);
+  margin-top: 7px;
+}
+
+.spark-note {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--faint);
+  margin-top: 10px;
+}
+
+/* ---- tags editáveis */
+
+.tags-edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.value.tags-edit .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  border-radius: 7px;
+}
+
+.tag.removable .chip-x {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.tag.removable:hover .chip-x {
+  color: var(--accent-text-2);
+}
+
+/* "+ tag" é tracejado como os campos vazios do resto do app: dá pra ver que o
+   lugar aceita coisa, e que ainda não tem nenhuma. */
+.tag.add {
+  padding: 3px 9px;
+  border: 1px dashed var(--border-2);
+  border-radius: 7px;
+  background: none;
+  font-size: 11.5px;
+  color: var(--faint);
+  cursor: pointer;
+}
+
+.tag.add:hover {
+  border-color: var(--accent-border);
+  color: var(--accent-text-2);
+}
+
+.tag-input {
+  width: 8rem;
+  padding: 3px 8px;
+  border: 1px solid var(--accent-border);
+  border-radius: 7px;
+  background: var(--surface);
+  font-size: 11.5px;
+}
+
+/* ---- participantes */
+
+.avatar.slot {
+  background: #4a465022;
+  border: 1px solid #4a465066;
+  color: var(--faint);
+}
+
+.avatar.known {
+  color: #eef1f6;
+}
+
+/* Slot de diarização sem nome é clicável: é daqui que se cadastra a voz. */
+.person.voice-link {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  margin: -4px -8px;
+  padding: 4px 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.person.voice-link:hover,
+.person.voice-link:focus-visible {
+  border-color: var(--border-2);
+  background: var(--surface);
+  outline: none;
+}
+
+/* ============================================== reunião: aba Resumo */
+
+.sum-col {
+  width: 288px;
+  flex: none;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sec-head.pad {
+  padding: 16px 16px 0;
+  margin-bottom: 0;
+}
+
+.sum-list {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sum-item {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sum-item:hover {
+  background: var(--surface);
+}
+
+.sum-item.selected {
+  border-color: var(--border-2);
+  background: var(--surface-2);
+}
+
+.sum-item.pending {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: default;
+}
+
+.sum-item-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.sum-item.selected .sum-item-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sum-item-meta {
+  font-size: 11px;
+  color: var(--faint);
+  margin-top: 3px;
+}
+
+.sum-empty {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--faint);
+}
+
+.sum-foot {
+  border-top: 1px solid var(--border);
+  padding: 13px 16px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+select.mini.block {
+  width: 100%;
+  max-width: none;
+}
+
+.sum-view {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sum-view-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 26px 0;
+  flex: none;
+}
+
+.sum-view-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.sum-view-meta {
+  font-size: 11.5px;
+  color: var(--faint);
+  margin-top: 2px;
+}
+
+/* O prompt à vista, junto do resumo que ele escreveu: é a única coisa que
+   explica por que este resumo é diferente do de baixo. */
+.prompt-box {
+  margin: 12px 26px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-foot);
+  flex: none;
+}
+
+.prompt-box .lbl {
+  margin-bottom: 5px;
+}
+
+.prompt-text {
+  font: 11.5px/1.55 ui-monospace, Menlo, monospace;
+  color: var(--dim);
+  max-height: 5.5rem;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
+.sum-view .scroll {
+  padding: 14px 26px 22px;
+}
+
+.sum-view .summary-box {
+  overflow: visible;
+}
+
+.btn.danger-outline.confirming {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+/* ========================================= reunião: aba Transcrição */
+
+/* Qual transcrição é esta, e o que fazer com ela. Retranscrever mora aqui
+   porque o que justifica clicá-lo é a linha ao lado, que diz com que motor o
+   texto foi feito. */
+.tr-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-foot);
+  font-size: 12px;
+  color: var(--dim);
+  flex: none;
+}
+
+/* Pausa longa no meio da conversa: a transcrição não tem como mostrar "não
+   aconteceu nada aqui" a não ser dizendo. */
+.silence-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 14px 0 2px;
+  font: 11px ui-monospace, Menlo, monospace;
+  color: var(--faint);
+}
+
+.silence-mark i {
+  width: 44px;
+  height: 1px;
+  background: var(--border);
+  display: block;
+}
+
+/* ============================================================ janela estreita
+
+   Estas regras vêm no fim do arquivo de propósito: elas sobrescrevem as bases
+   das telas acima, e num bloco @media mais cedo perderiam a cascata para elas
+   (mesma especificidade, quem vem depois ganha). */
+
+@media (max-width: 980px) {
+  .sum-col {
+    width: 244px;
+  }
+
+  /* participação e silêncio ainda cabem em três colunas; os números não */
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 820px) {
+  .sum-col {
+    width: auto;
+    flex: 1;
+    min-height: 0;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* A tabela do acervo não cabe em cinco colunas nesta largura. Participantes
+     e tags são as que saem: as duas reaparecem inteiras na ficha da reunião,
+     enquanto nome, data e duração são o que se varre para achar uma. */
+  .mt-head,
+  .mt-row {
+    grid-template-columns: minmax(0, 1fr) 5.5rem 5.75rem;
+  }
+
+  .mt-head .mt-col.static,
+  .mt-row .faces,
+  .mt-row .mt-tags {
+    display: none;
+  }
+
+  .filter-scope {
+    display: none;
+  }
+
+  .share-name {
+    width: 5.5rem;
+  }
+
+  .share-value {
+    width: 5rem;
+  }
 }

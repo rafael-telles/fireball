@@ -31,10 +31,11 @@ Sketch inicial. O que funciona:
   administrada na tela de configuração, com um padrão, escolhível na hora de gerar. Ver seção
   própria abaixo.
 - GUI + bandeja — barra lateral com o histórico e a reunião em andamento (pausar/retomar,
-  parar), e a reunião aberta
-  em três abas (Resumo · Transcrição · Notas): transcrição ao vivo em formato de chat, editor
-  do `notes.md`, ficha com nome/tags/finalizar/abrir a pasta. `fireball-gui` abre a janela do
-  daemon. Ver seção própria abaixo.
+  parar); tela inicial com a **próxima reunião da agenda em primeiro plano**; **acervo** com
+  tabela ordenável e calendário semanal sobre a mesma barra de filtros (texto, data, tags,
+  participantes); e a reunião aberta em quatro abas (Visão Geral · Resumo · Transcrição ·
+  Notas): estatísticas de fala e silêncio, um resumo por prompt, chat da transcrição, editor
+  do `notes.md`. `fireball-gui` abre a janela do daemon. Ver seção própria abaixo.
 
 O que **não** está implementado ainda:
 
@@ -384,25 +385,70 @@ bandeja.
 ### A janela
 
 A **barra lateral** é a navegação, e está em toda tela. Ela tem, de cima pra baixo: o botão de
-nova reunião, o cartão da reunião **em andamento** (cronômetro e "parar"), a busca, o histórico
-agrupado por Hoje / Ontem / Esta semana / Este mês / Mais antigas, e a configuração no pé. A
-reunião gravando fica sempre à vista, inclusive enquanto se mexe na configuração: é a única
-coisa na tela que exige ação, e escondê-la atrás de um "voltar" seria esconder justamente ela.
+nova reunião, o cartão da reunião **em andamento** (cronômetro e "parar"), a porta do acervo
+(*Todas as reuniões*, com a contagem), a busca, o histórico agrupado por Hoje / Ontem / Esta
+semana / Este mês / Mais antigas, e a configuração no pé. A reunião gravando fica sempre à
+vista, inclusive enquanto se mexe na configuração: é a única coisa na tela que exige ação, e
+escondê-la atrás de um "voltar" seria esconder justamente ela.
 
-Abrir uma reunião dá três abas:
+#### A tela inicial
 
+A tela inicial é a **próxima reunião**, não um formulário: quem abre o Fireball está a caminho
+de uma chamada, e o que ela precisa é o botão que grava *aquela*. O cartão grande traz o que o
+evento da agenda sabe — quanto falta para começar, o horário e a duração prevista, a descrição,
+o link da chamada, se a reunião é recorrente, e os participantes (com quem ainda não confirmou
+marcado como *talvez*) — e dois botões: **Gravar esta reunião** e **Entrar no Meet**. O resto do
+dia vem em linhas compactas sob *Ainda hoje*, e o dia seguinte sob *Amanhã*, mais apagado: é
+informação, não o que se vai gravar agora.
+
+Sem agenda configurada não há próxima reunião para mostrar, então o **formulário avulso** ocupa
+o lugar — e aí ele *é* o caminho principal. Com agenda, ele fica atrás do link *Gravar reunião
+avulsa*, que é a saída para o que não está no calendário.
+
+#### O acervo
+
+*Todas as reuniões* abre a **mesma consulta filtrada em duas superfícies**: a **tabela** acha
+uma reunião específica (densa, ordenável por nome, data e duração, com nome, primeira frase do
+resumo, data, duração, participantes e tags), e o **calendário semanal** mostra como a semana
+foi gasta (cada gravação é um bloco na posição e no tamanho reais, vermelho quando finalizou e
+âmbar quando parou no meio). A barra de filtros é uma só de propósito: trocar de superfície não
+pode perder o filtro que a pessoa acabou de montar.
+
+Filtra por texto (nome **e** transcrição), intervalo de data, tags e participantes. Cada filtro
+ligado aparece como um chip clicável — um `<select>` que voltou ao valor escolhido desaparece no
+meio da barra, e a tabela fica curta sem explicação. No calendário a semana *é* o filtro de
+data, então o seletor de intervalo sai de cena em vez de oferecer dois controles para a mesma
+coisa.
+
+#### As abas de uma reunião
+
+- **Visão Geral** — a ficha (nome, dia e horário, tags, participantes, diarização, excluir) e as
+  **estatísticas**: duração gravada, tempo de fala, tempo de silêncio e proporção, maior trecho
+  de silêncio, trocas de turno, palavras por minuto, participação por pessoa em barras (com o
+  silêncio na mesma escala, senão as barras somariam 100% e a reunião pareceria cheia de fala) e
+  o silêncio ao longo da reunião num gráfico de fatias. Tudo recalculado da transcrição atual —
+  guardar o número seria guardar uma cópia que envelhece a cada fala editada. Silêncio e
+  participação **precisam de tempo por fala** (`start`/`end`), que só a transcrição final tem: a
+  do tempo real carimba quando o trecho chegou, não quanto durou, e a aba diz isso em vez de
+  inventar um silêncio de zero segundo. Os participantes saem dos falantes detectados, e não do
+  convite: é a lista que responde "quem estava mesmo aqui". Slot de diarização sem nome é
+  clicável, e é daqui que se cadastra a voz. As tags saem do resumo e se corrigem no `+ tag`.
+- **Resumo** — **um resumo por prompt**, lado a lado. Ver a seção própria abaixo.
 - **Transcrição** — o chat: uma bolha por segmento, agrupadas por falante, com hora. "Você" (o
   microfone daqui) fica à direita, no vermelho da marca; "Outros participantes" (o monitor do
-  sistema) à esquerda, no azul. Ao vivo, o rodapé conta o que o pipeline está fazendo (há
-  quanto tempo veio a última fala, quantos segmentos). Numa reunião encerrada que tenha sido
-  finalizada, um seletor troca entre a transcrição final e a do tempo real.
+  sistema) à esquerda, no azul. Pausa longa entre duas falas vira um separador escrito no meio
+  da conversa — a transcrição não tem outro jeito de mostrar que não aconteceu nada ali. A barra
+  do topo diz **qual** transcrição está na tela (a do tempo real ou a final), com que motor, de
+  quando e com quantos segmentos, e é ali que ficam *Exportar* (grava um `transcript.md` legível
+  na pasta da reunião) e *Retranscrever*: é uma ação sobre *este* texto, e o que justifica
+  clicá-la é justamente a linha ao lado. Ao vivo, o rodapé conta o que o pipeline está fazendo.
 - **Notas** — o `notes.md` num editor de markdown, salvo sozinho depois que você para de
   digitar (e na hora de sair da aba, que o debounce sozinho perderia as últimas teclas). A
   barra de cima insere markdown de verdade no texto; o arquivo é markdown, e é o mesmo que a
   CLI e o Claude leem e escrevem.
-- **Resumo** — a ficha (nome, tags, dia e horário, participantes, abrir a pasta) e o
-  **resumo gerado da transcrição**, com *Gerar*/*Regerar*. Nome e tags saem do mesmo pedido
-  que escreve o resumo; clicar no nome renomeia à mão. Ver a seção própria abaixo.
+
+**Arquivos** fica na mesma fileira das abas, empurrado para a direita e com uma seta: não é aba,
+abre a pasta da reunião no gerenciador de arquivos do sistema, e a tela não muda.
 
 Falhas que não interromperam a gravação aparecem como aviso âmbar acima das abas, em
 qualquer uma delas: o engine grava `audio_warnings.log` quando só o microfone entrou, e
@@ -610,12 +656,26 @@ chamada paga contraria justamente isso.
 
 Como o finalize, roda em **processo separado supervisionado pelo daemon** — pode demorar
 minutos e falhar de fora (sem login, sem rede), e nada disso pode parar o dono do estado. O
-processo filho só escreve `summary.md` e `summary_result.json`; quem aplica o nome e as tags no
+processo filho só escreve o resumo e a procedência; quem aplica o nome e as tags no
 `meeting.json` é o daemon, quando vê o job sair com código 0 — mesma regra de sempre, um dono só
 do estado. O estado da geração mora em `summary_status` e **não** toca no `status` da reunião:
 resumo não é etapa do ciclo de vida, e uma reunião finalizada continua finalizada se o resumo
-falhar. Regerar apaga o anterior antes de começar — mostrar o resumo velho como se fosse o novo
-seria mentir.
+falhar.
+
+**Um resumo por prompt.** Um resumo é uma leitura da transcrição, e prompts diferentes leem
+coisas diferentes: a ata formal e o "para quem não estava" são as duas úteis, não uma melhor que
+a outra. Então *Gerar com outro prompt* **acrescenta** um resumo à lista, e só *Regerar*
+substitui — com o mesmo prompt, que é o que "regerar" quer dizer. Cada um mora em
+`summaries/<prompt>.md`, com a procedência (provedor, prompt, quando, sobre quantas falas, e o
+**texto** do prompt) no `.json` ao lado; a aba mostra esse texto junto do resumo que ele
+escreveu, porque é a única coisa que explica por que este resumo é diferente do de baixo.
+Guardar o texto e não só o id é de propósito: editar o prompt depois não pode reescrever a
+procedência de um resumo que já saiu.
+
+`summary.md` e `summary_result.json` na raiz da pasta continuam existindo e continuam sendo o
+**último gerado** — é de lá que a CLI, as skills e o índice de busca leem. Apagar o resumo que
+está nessa posição promove o mais recente que sobrou: a raiz não pode ficar vazia enquanto ainda
+há resumo.
 
 O markdown que volta é renderizado montando nós do DOM, nunca `innerHTML`: o texto vem de um
 modelo de linguagem sobre uma transcrição, ou seja, de fora, e concatenar isso em HTML
@@ -658,9 +718,9 @@ Backend é decisão de configuração, não de cada reunião: quem vai gravar qu
 obrigatório, já que a IA escreve um depois —, e backend/idioma/agenda ficam na tela de
 configuração (⚙), em `~/.fireball/settings.json`.
 
-A tela tem **três abas**, e a divisão é a das partes do Fireball: **Transcrição** (motor ao
-vivo, motor final, chave da Groq, idioma), **Resumo** (provedor, chaves, prompts) e **Agenda**
-(provedor de calendário e a conta dele). O idioma fica na primeira porque é o que o motor
+A tela tem **quatro abas**, e a divisão é a das partes do Fireball: **Transcrição** (motor ao
+vivo, motor final, chave da Groq, idioma), **Resumo** (provedor, chaves, prompts), **Agenda**
+(provedor de calendário e a conta dele) e **Vozes** (os perfis cadastrados). O idioma fica na primeira porque é o que o motor
 espera *ouvir* — o resumo sai em português de qualquer jeito, e isso está na parte fixa do
 pedido, não no prompt. O **Salvar é um só**, fora das abas: esconder uma aba não apaga o que
 está nos campos dela.

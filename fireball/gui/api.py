@@ -112,8 +112,36 @@ class Api:
         """Busca no catálogo: nome, tags, participantes, notas, resumo, fala."""
         return self._call(self._core.search_meetings, query=query, limit=int(limit))
 
+    def browse_meetings(self, filters: dict = None) -> dict:
+        """A tela do acervo: tabela e calendário saem da mesma consulta.
+
+        Um dict só de filtros, e não sete argumentos: os dois modos de ver
+        mandam o mesmo conjunto (texto, intervalo, tags, pessoas, ordem) e
+        acrescentar um filtro passaria a mexer na assinatura de todo mundo.
+        """
+        return self._call(self._core.browse_meetings, **(filters or {}))
+
+    def catalog_facets(self) -> dict:
+        """O que há para filtrar por (tags, pessoas) e o tamanho do acervo."""
+        return self._call(self._core.catalog_facets)
+
+    def profile(self) -> dict:
+        return self._call(self._core.profile)
+
     def meeting_status(self, meeting_id: str) -> dict:
         return self._call(self._core.meeting_status, meeting_id=meeting_id)
+
+    def meeting_stats(self, meeting_id: str) -> dict:
+        """Silêncio, participação e turnos, recalculados da transcrição."""
+        return self._call(self._core.meeting_stats, meeting_id=meeting_id)
+
+    def transcript_meta(self, meeting_id: str) -> dict:
+        """Qual transcrição está na tela — a do tempo real ou a final — e com
+        que motor ela foi feita. É o que a barra da aba mostra."""
+        return self._call(self._core.transcript_meta, meeting_id=meeting_id)
+
+    def export_transcript(self, meeting_id: str) -> dict:
+        return self._call(self._core.export_transcript, meeting_id=meeting_id)
 
     def transcript(self, meeting_id: str, since_seq: int) -> dict:
         """Segmentos novos do chat. O front-end manda o último seq que já
@@ -159,6 +187,9 @@ class Api:
     def summary(self, meeting_id: str) -> dict:
         return self._call(self._core.summary, meeting_id=meeting_id)
 
+    def delete_summary(self, meeting_id: str, summary_id: str) -> dict:
+        return self._call(self._core.delete_summary, meeting_id=meeting_id, summary_id=summary_id)
+
     def summarize(self, meeting_id: str, prompt: str = "") -> dict:
         """Gera ou regera o resumo. Sem espera, como o finalize: o provedor
         pode levar minutos, e a janela acompanha o estado pelo polling."""
@@ -184,6 +215,9 @@ class Api:
 
     def rename_meeting(self, meeting_id: str, name: str) -> dict:
         return self._call(self._core.rename_meeting, meeting_id=meeting_id, name=name)
+
+    def set_tags(self, meeting_id: str, tags: list) -> dict:
+        return self._call(self._core.set_tags, meeting_id=meeting_id, tags=list(tags or []))
 
     def set_diarization(self, meeting_id: str, diarize: bool) -> dict:
         return self._call(self._core.set_diarization, meeting_id=meeting_id, diarize=bool(diarize))
@@ -228,6 +262,27 @@ class Api:
             diarize=diarize,
             wait_timeout=0.0,
         )
+
+    def open_url(self, url: str) -> dict:
+        """Abre um link no navegador do sistema — o do Meet/Zoom do evento.
+
+        Mesma regra da pasta: não é estado do Fireball, é um pedido ao desktop.
+        Só http(s) de propósito: a URL vem de um evento de calendário, que é
+        conteúdo de fora, e `xdg-open` num esquema qualquer executa handler
+        qualquer.
+        """
+        target = (url or "").strip()
+
+        def _open() -> dict:
+            if not target.startswith(("http://", "https://")):
+                raise ValueError("Só links http(s) podem ser abertos daqui.")
+            opener = shutil.which("xdg-open") or shutil.which("open")
+            if not opener:
+                raise RuntimeError("Nenhum xdg-open/open disponível para abrir o link.")
+            subprocess.Popen([opener, target], start_new_session=True)
+            return {"url": target}
+
+        return self._call(_open)
 
     def open_folder(self, meeting_id: str) -> dict:
         """Abre a pasta da reunião no gerenciador de arquivos do sistema.

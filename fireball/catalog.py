@@ -12,12 +12,13 @@ import json
 import re
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from fireball import storage
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _ANON_SPEAKER = re.compile(r"^(Você|Outros participantes|(Sala|Remoto) \d+)$")
 _FTS_TOKEN = re.compile(r"\w+", re.UNICODE)
@@ -58,6 +59,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> bool:
         DROP TABLE IF EXISTS meetings_fts;
         DROP TABLE IF EXISTS segments_fts;
         DROP TABLE IF EXISTS meeting_people;
+        DROP TABLE IF EXISTS meeting_tags;
         DROP TABLE IF EXISTS meetings;
         """
     )
@@ -71,7 +73,20 @@ def _ensure_schema(conn: sqlite3.Connection) -> bool:
             ended_at TEXT,
             tags_json TEXT NOT NULL DEFAULT '[]',
             meeting_json TEXT NOT NULL,
-            segment_count INTEGER NOT NULL DEFAULT 0
+            segment_count INTEGER NOT NULL DEFAULT 0,
+            -- duração em segundos, derivada de started_at/ended_at na
+            -- indexação: a tabela de reuniões ordena e soma por ela, e
+            -- calcular de dois ISO em SQL a cada varredura seria refazer a
+            -- mesma conta em toda tela
+            duration_s REAL,
+            -- primeira linha útil do resumo, que é a segunda linha de cada
+            -- reunião na tabela
+            subtitle TEXT NOT NULL DEFAULT ''
+        );
+        CREATE TABLE meeting_tags (
+            meeting_id TEXT NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (meeting_id, tag)
         );
         CREATE TABLE meeting_people (
             meeting_id TEXT NOT NULL,
@@ -124,6 +139,7 @@ def _rebuild(conn: sqlite3.Connection) -> int:
     conn.execute("DELETE FROM segments_fts")
     conn.execute("DELETE FROM meetings_fts")
     conn.execute("DELETE FROM meeting_people")
+    conn.execute("DELETE FROM meeting_tags")
     conn.execute("DELETE FROM meetings")
     count = 0
     root = storage.meetings_root()
@@ -289,6 +305,223 @@ def search(query: str, limit: int = 50, segments_per_meeting: int = 5) -> dict:
     return {"query": query, "meetings": meetings}
 
 
+# --------------------------------------------------------------- varredura
+
+# Como a tabela de reuniões pode ser ordenada. Lista fechada de propósito: o
+# nome da coluna entra na SQL, e aceitar o que a janela mandar seria deixar a
+# janela escrever a consulta.
+BROWSE_SORTS = {
+    "name": "m.name COLLATE NOCASE",
+    "started_at": "m.started_at",
+    "duration": "m.duration_s",
+}
+
+
+def browse(
+    query: str = "",
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    tags=None,
+    people=None,
+    sort: str = "started_at",
+    desc: bool = True,
+    limit: int = 500,
+) -> dict:
+    """As reuniões que passam pelos filtros, com o total do que passou.
+
+    Uma consulta só devolve as linhas **e** os agregados: a tela mostra os dois
+    juntos ("14 reuniões · 9h12"), e pedi-los em duas idas deixaria o cabeçalho
+    contando uma coisa e a tabela mostrando outra enquanto a segunda não chega.
+
+    `query` é a mesma busca da barra lateral (ficha + transcrição), reduzida
+    aos ids que casaram — filtrar por texto e por data no mesmo SQL exigiria
+    trazer o FTS para dentro da junção, e o FTS já sabe ordenar por relevância
+    sozinho.
+    """
+    tags = [str(tag).strip() for tag in (tags or []) if str(tag).strip()]
+    people = [str(person).strip() for person in (people or []) if str(person).strip()]
+    order = BROWSE_SORTS.get(sort) or BROWSE_SORTS["started_at"]
+
+    with _connect(rebuild_if_empty=True) as conn:
+        where = ["1 = 1"]
+        args: list = []
+
+        if since:
+            where.append("m.started_at >= ?")
+            args.append(since)
+        if until:
+            where.append("m.started_at < ?")
+            args.append(until)
+
+        if query.strip():
+            ids = _matching_ids(conn, query)
+            if not ids:
+                return _empty_browse(query, sort, desc)
+            where.append(f"m.id IN ({','.join('?' * len(ids))})")
+            args.extend(ids)
+
+        if tags:
+            where.append(
+                f"m.id IN (SELECT meeting_id FROM meeting_tags WHERE tag IN ({','.join('?' * len(tags))}))"
+            )
+            args.extend(tags)
+
+        if people:
+            marks = ",".join("?" * len(people))
+            where.append(
+                "m.id IN (SELECT meeting_id FROM meeting_people "
+                f"WHERE name IN ({marks}) OR email IN ({marks}))"
+            )
+            args.extend(people)
+            args.extend(people)
+
+        clause = " AND ".join(where)
+        # NULL por último nas duas direções: reunião sem duração (quebrada,
+        # ou gravando agora) não é "a mais curta" nem "a mais longa"
+        direction = "DESC" if desc else "ASC"
+        rows = conn.execute(
+            f"""
+            SELECT m.id, m.name, m.status, m.started_at, m.ended_at,
+                   m.duration_s, m.segment_count, m.subtitle, m.tags_json
+            FROM meetings m
+            WHERE {clause}
+            ORDER BY ({order}) IS NULL, {order} {direction}, m.id {direction}
+            LIMIT ?
+            """,
+            (*args, limit),
+        ).fetchall()
+
+        totals = conn.execute(
+            f"""
+            SELECT COUNT(*) AS meetings, COALESCE(SUM(m.duration_s), 0) AS duration_s
+            FROM meetings m
+            WHERE {clause}
+            """,
+            args,
+        ).fetchone()
+
+        found = [row["id"] for row in rows]
+        by_meeting = _people_by_meeting(conn, found)
+
+    return {
+        "query": query,
+        "sort": sort,
+        "desc": bool(desc),
+        "meetings": [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "ended_at": row["ended_at"],
+                "duration_s": row["duration_s"],
+                "segments": row["segment_count"],
+                "subtitle": row["subtitle"],
+                "tags": json.loads(row["tags_json"] or "[]"),
+                "people": by_meeting.get(row["id"], []),
+            }
+            for row in rows
+        ],
+        "totals": {
+            "meetings": totals["meetings"],
+            "duration_s": round(totals["duration_s"] or 0.0, 2),
+        },
+    }
+
+
+def facets() -> dict:
+    """O que existe para filtrar por, e o tamanho do acervo.
+
+    As tags e as pessoas vêm com contagem porque a lista é longa e sem ordem
+    natural: a mais usada primeiro é a que serve para escolher.
+    """
+    with _connect(rebuild_if_empty=True) as conn:
+        overall = conn.execute(
+            "SELECT COUNT(*) AS meetings, COALESCE(SUM(duration_s), 0) AS duration_s FROM meetings"
+        ).fetchone()
+        tag_rows = conn.execute(
+            """
+            SELECT tag, COUNT(*) AS meetings FROM meeting_tags
+            GROUP BY tag ORDER BY meetings DESC, tag COLLATE NOCASE ASC
+            """
+        ).fetchall()
+        people_rows = conn.execute(
+            """
+            SELECT
+                CASE WHEN name <> '' THEN name ELSE email END AS label,
+                MAX(email) AS email,
+                COUNT(DISTINCT meeting_id) AS meetings
+            FROM meeting_people
+            GROUP BY label
+            ORDER BY meetings DESC, label COLLATE NOCASE ASC
+            """
+        ).fetchall()
+
+    return {
+        "meetings": overall["meetings"],
+        "duration_s": round(overall["duration_s"] or 0.0, 2),
+        "tags": [{"tag": row["tag"], "meetings": row["meetings"]} for row in tag_rows],
+        "people": [
+            {"label": row["label"], "email": row["email"] or "", "meetings": row["meetings"]}
+            for row in people_rows
+        ],
+    }
+
+
+def _empty_browse(query: str, sort: str, desc: bool) -> dict:
+    return {
+        "query": query,
+        "sort": sort,
+        "desc": bool(desc),
+        "meetings": [],
+        "totals": {"meetings": 0, "duration_s": 0.0},
+    }
+
+
+def _matching_ids(conn: sqlite3.Connection, query: str) -> list[str]:
+    """Ids que casam com o texto, na ficha ou na transcrição."""
+    match = _fts_query(query)
+    if not match:
+        return []
+    rows = conn.execute(
+        """
+        SELECT DISTINCT meeting_id FROM meetings_fts WHERE meetings_fts MATCH ?
+        UNION
+        SELECT DISTINCT meeting_id FROM segments_fts WHERE segments_fts MATCH ?
+        """,
+        (match, match),
+    ).fetchall()
+    return [row["meeting_id"] for row in rows]
+
+
+def _people_by_meeting(conn: sqlite3.Connection, meeting_ids: list[str]) -> dict[str, list[dict]]:
+    """Quem aparece em cada reunião: convidado da agenda e falante da
+    transcrição na mesma lista, que é como a tabela desenha os avatares.
+
+    Convidado antes de falante de propósito: quando a diarização deu nome a
+    uma voz, os dois são a mesma pessoa, e é o do evento que tem e-mail.
+    """
+    if not meeting_ids:
+        return {}
+    marks = ",".join("?" * len(meeting_ids))
+    rows = conn.execute(
+        f"""
+        SELECT meeting_id, name, email, source FROM meeting_people
+        WHERE meeting_id IN ({marks})
+        ORDER BY source ASC, name COLLATE NOCASE ASC
+        """,
+        meeting_ids,
+    ).fetchall()
+    out: dict[str, list[dict]] = {}
+    for row in rows:
+        bucket = out.setdefault(row["meeting_id"], [])
+        label = row["name"] or row["email"]
+        if any(entry["label"] == label for entry in bucket):
+            continue
+        bucket.append({"label": label, "email": row["email"], "source": row["source"]})
+    return out
+
+
 def _search_cards(conn: sqlite3.Connection, match: str, limit: int) -> list[dict]:
     rows = conn.execute(
         """
@@ -416,17 +649,22 @@ def _index_card(conn: sqlite3.Connection, meeting_id: str) -> None:
 
     conn.execute(
         """
-        INSERT INTO meetings (id, name, status, started_at, ended_at, tags_json, meeting_json, segment_count)
+        INSERT INTO meetings (
+            id, name, status, started_at, ended_at, tags_json, meeting_json,
+            segment_count, duration_s, subtitle
+        )
         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(
             (SELECT segment_count FROM meetings WHERE id = ?), 0
-        ))
+        ), ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             name = excluded.name,
             status = excluded.status,
             started_at = excluded.started_at,
             ended_at = excluded.ended_at,
             tags_json = excluded.tags_json,
-            meeting_json = excluded.meeting_json
+            meeting_json = excluded.meeting_json,
+            duration_s = excluded.duration_s,
+            subtitle = excluded.subtitle
         """,
         (
             meeting_id,
@@ -437,8 +675,16 @@ def _index_card(conn: sqlite3.Connection, meeting_id: str) -> None:
             json.dumps(tags, ensure_ascii=False),
             json.dumps(meeting, ensure_ascii=False),
             meeting_id,
+            _duration_seconds(meeting),
+            _subtitle(summary),
         ),
     )
+    conn.execute("DELETE FROM meeting_tags WHERE meeting_id = ?", (meeting_id,))
+    for tag in tags:
+        conn.execute(
+            "INSERT OR IGNORE INTO meeting_tags (meeting_id, tag) VALUES (?, ?)",
+            (meeting_id, tag),
+        )
     conn.execute(
         "DELETE FROM meeting_people WHERE meeting_id = ? AND source = 'attendee'",
         (meeting_id,),
@@ -536,6 +782,7 @@ def _delete_meeting(conn: sqlite3.Connection, meeting_id: str) -> None:
     conn.execute("DELETE FROM segments_fts WHERE meeting_id = ?", (meeting_id,))
     conn.execute("DELETE FROM meetings_fts WHERE meeting_id = ?", (meeting_id,))
     conn.execute("DELETE FROM meeting_people WHERE meeting_id = ?", (meeting_id,))
+    conn.execute("DELETE FROM meeting_tags WHERE meeting_id = ?", (meeting_id,))
     conn.execute("DELETE FROM meetings WHERE id = ?", (meeting_id,))
 
 
@@ -575,6 +822,39 @@ def _people_from_event(event) -> list[dict]:
 
 def _is_anon_speaker(name: str) -> bool:
     return not name or bool(_ANON_SPEAKER.match(name.strip()))
+
+
+def _duration_seconds(meeting: dict) -> Optional[float]:
+    started = _parse_iso(meeting.get("started_at"))
+    ended = _parse_iso(meeting.get("ended_at"))
+    if not started or not ended:
+        return None
+    seconds = (ended - started).total_seconds()
+    return round(seconds, 2) if seconds > 0 else None
+
+
+def _parse_iso(value) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _subtitle(summary: str, limit: int = 120) -> str:
+    """A primeira frase do resumo — a linha de baixo de cada reunião na tabela.
+
+    Título de markdown fica fora: o resumo abre repetindo o nome da reunião, e
+    a linha de baixo repetindo a de cima não diz nada.
+    """
+    for raw in (summary or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ">", "-", "*", "|", "`")):
+            continue
+        line = line.replace("**", "").replace("`", "")
+        return line if len(line) <= limit else line[: limit - 1].rstrip() + "…"
+    return ""
 
 
 def _read_text(path: Path) -> str:

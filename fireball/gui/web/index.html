@@ -47,6 +47,17 @@
         </div>
       </div>
 
+      <!-- A lista abaixo é o acesso rápido às últimas; esta é a porta do acervo
+           inteiro, com filtro e calendário. As duas coisas são diferentes: rolar
+           a barra lateral serve para "aquela de ontem", não para "as três de
+           agosto com a Marina sobre produto". -->
+      <div class="sb-block">
+        <button class="sb-nav" id="browse-btn">
+          <span class="ico accent">▦</span><span class="grow">Todas as reuniões</span>
+          <span class="sb-nav-count" id="browse-count"></span>
+        </button>
+      </div>
+
       <div class="sb-block">
         <div class="search">
           <span class="search-icon" aria-hidden="true">⌕</span>
@@ -65,25 +76,33 @@
 
     <div class="main">
       <!-- ------------------------------------------------------- início -->
+      <!-- A tela inicial é a próxima reunião, não um formulário: quem abre o
+           Fireball está a caminho de uma chamada, e o que ela precisa é o botão
+           que grava *aquela*. O formulário avulso continua existindo, escondido
+           atrás de um link, para o que não está na agenda. -->
       <main class="view" id="view-home">
         <div class="scroll">
           <div class="home-col">
             <div class="home-head">
-              <div class="kicker" id="home-kicker">Ocioso · nada gravando</div>
-              <h1 class="home-title">Começar uma reunião</h1>
+              <div>
+                <div class="kicker" id="home-kicker">Ocioso · nada gravando</div>
+                <h1 class="home-title" id="home-greeting">Fireball</h1>
+              </div>
+              <span class="home-today" id="home-today"></span>
             </div>
 
-            <section>
-              <div class="sec-head">
-                <span class="sec-title">Próximas na agenda</span>
-                <span class="sec-right" id="agenda-date"></span>
-              </div>
-              <!-- Preenchido por renderAgenda(): lista de eventos, ou um
-                   slab dizendo por que não há nada (desligado / erro / vazio). -->
-              <div id="agenda-list"></div>
-            </section>
+            <!-- Preenchidos por renderAgenda(): o cartão grande da próxima, as
+                 linhas compactas do resto, ou um slab dizendo por que não há
+                 nada (desligado / erro / vazio). -->
+            <div id="next-card"></div>
+            <div id="agenda-rest"></div>
 
-            <section class="start-card">
+            <div class="home-adhoc">
+              <span>Nada na agenda que sirva?</span>
+              <button class="linkish" id="adhoc-link">Gravar reunião avulsa</button>
+            </div>
+
+            <section class="start-card hidden" id="start-card">
               <div class="start-head">
                 <span class="kicker accent">Nova reunião</span>
               </div>
@@ -112,6 +131,88 @@
         <div class="hint">Fechar a janela não desliga o Fireball — ele continua na bandeja.</div>
       </main>
 
+      <!-- ------------------------------------------------------- acervo -->
+      <!-- Duas superfícies sobre a mesma consulta: a tabela acha uma reunião
+           específica, o calendário mostra como a semana foi gasta. A barra de
+           filtros é uma só de propósito — trocar de superfície não pode perder
+           o filtro que a pessoa acabou de montar. -->
+      <main class="view hidden" id="view-browse">
+        <div class="bv-head">
+          <h1 class="bv-title" id="bv-title">Todas as reuniões</h1>
+          <span class="bv-week-nav hidden" id="bv-week-nav">
+            <button class="btn outline icon small" id="bv-prev" title="Semana anterior">‹</button>
+            <button class="btn outline icon small" id="bv-next" title="Semana seguinte">›</button>
+            <button class="btn outline small" id="bv-this">Esta semana</button>
+          </span>
+          <span class="bv-sub" id="bv-sub"></span>
+          <div class="seg" id="bv-modes">
+            <button class="seg-btn selected" data-mode="tabela">Tabela</button>
+            <button class="seg-btn" data-mode="semana">Semana</button>
+          </div>
+        </div>
+
+        <div class="filters">
+          <div class="filter-search">
+            <span class="search-icon" aria-hidden="true">⌕</span>
+            <input type="text" id="bv-q" placeholder="Buscar por nome…" autocomplete="off" />
+            <span class="filter-scope">nome + transcrição</span>
+          </div>
+
+          <label class="filter-pick">
+            <span class="filter-ico" aria-hidden="true">📅</span>
+            <select id="bv-range">
+              <option value="">Qualquer data</option>
+              <option value="7">Últimos 7 dias</option>
+              <option value="30">Últimos 30 dias</option>
+              <option value="90">Últimos 90 dias</option>
+              <option value="365">Último ano</option>
+            </select>
+          </label>
+
+          <!-- Chips do que já está filtrando, e um <select> para acrescentar.
+               O select é nativo por escolha: o popover dele é do sistema, então
+               abre no lugar certo dentro da janela do pywebview e continua
+               navegável pelo teclado. -->
+          <div class="chips" id="bv-tag-chips"></div>
+          <label class="filter-pick dashed">
+            <select id="bv-tag-add"><option value="">+ tags</option></select>
+          </label>
+
+          <div class="chips" id="bv-people-chips"></div>
+          <label class="filter-pick dashed">
+            <select id="bv-people-add"><option value="">+ participantes</option></select>
+          </label>
+
+          <button class="clear-filters hidden" id="bv-clear">Limpar filtros</button>
+        </div>
+
+        <div class="bv-count" id="bv-count"></div>
+
+        <div class="scroll" id="bv-table-wrap">
+          <div class="mt-table" id="bv-table">
+            <div class="mt-head" id="bv-table-head">
+              <button class="mt-col" data-sort="name">Nome</button>
+              <button class="mt-col" data-sort="started_at">Data</button>
+              <button class="mt-col right" data-sort="duration">Duração</button>
+              <span class="mt-col static">Participantes</span>
+              <span class="mt-col static">Tags</span>
+            </div>
+            <div id="bv-rows"></div>
+          </div>
+        </div>
+
+        <div class="week hidden" id="bv-week"></div>
+
+        <div class="bv-foot">
+          <span id="bv-foot-note"></span>
+          <span class="grow"></span>
+          <span class="week-legend hidden" id="bv-legend">
+            <span class="dot done"></span>finalizada
+            <span class="dot stopped"></span>parada
+          </span>
+        </div>
+      </main>
+
       <!-- ------------------------------------------------------ reunião -->
       <main class="view hidden" id="view-meeting">
         <div class="mv-head">
@@ -122,14 +223,20 @@
           <div class="mv-elapsed hidden" id="mv-elapsed"></div>
           <button class="btn outline hidden" id="pause-btn">Pausar</button>
           <button class="btn primary hidden" id="stop-btn">Parar</button>
-          <button class="btn outline hidden" id="finalize-btn">Finalizar</button>
           <button class="btn outline icon" id="mv-settings" title="Configurações">⚙</button>
         </div>
 
         <div class="tabs">
+          <button class="tab selected" data-tab="visao">Visão Geral</button>
           <button class="tab" data-tab="resumo">Resumo</button>
-          <button class="tab selected" data-tab="transcricao">Transcrição</button>
+          <button class="tab" data-tab="transcricao">Transcrição</button>
           <button class="tab" data-tab="notas">Notas</button>
+          <!-- Arquivos não é aba: é a pasta da reunião abrindo no gerenciador
+               do sistema. Fica na fileira porque é ali que se procura por ela,
+               e a seta diz que a tela não muda. -->
+          <button class="tab out" id="files-tab" title="Abrir a pasta da reunião">
+            <span class="ico">🗀</span><span>Arquivos</span><span class="ico dim">↗</span>
+          </button>
         </div>
 
         <!-- Falhas que não interromperam a gravação. Ficam fora das abas de
@@ -137,9 +244,9 @@
              precisa saber tanto quanto quem está na Transcrição. -->
         <div class="warnings hidden" id="warnings"></div>
 
-        <!-- ......................................... aba Resumo -->
-        <section class="pane hidden" id="pane-resumo">
-          <div class="resumo-left">
+        <!-- .................................... aba Visão Geral -->
+        <section class="pane" id="pane-visao">
+          <div class="ficha-col">
             <div class="scroll">
               <div class="ficha">
                 <div>
@@ -152,25 +259,29 @@
                   <div class="value" id="mv-when"></div>
                 </div>
 
-                <div class="field-group">
-                  <div class="lbl">Local</div>
-                  <div class="value muted" id="mv-location"></div>
-                </div>
-
-                <!-- Tags saem do mesmo pedido que escreve o resumo e o nome
-                     (uma leitura da transcrição, três respostas), então elas
-                     aparecem quando o resumo aparece. -->
+                <!-- Tags saem do resumo (uma leitura da transcrição, três
+                     respostas) e podem ser corrigidas aqui: quem estava na
+                     reunião sabe classificá-la melhor que o modelo. -->
                 <div class="field-group">
                   <div class="lbl">Tags</div>
-                  <div class="value" id="mv-tags"></div>
+                  <div class="value tags-edit" id="mv-tags"></div>
                 </div>
 
                 <div class="field-group">
-                  <div class="lbl">Participantes</div>
-                  <div class="people" id="mv-people"></div>
-                  <div class="note" id="mv-people-note">
-                    Ative a diarização para separar vozes na sala e na chamada ao vivo e na transcrição final.
+                  <div class="sec-head tight">
+                    <span class="lbl">Participantes</span>
+                    <span class="sec-right" id="mv-people-count"></span>
                   </div>
+                  <div class="people" id="mv-people"></div>
+                  <button class="btn outline block left" id="manage-voices">
+                    <span class="ico">☰</span><span class="grow">Gerenciar vozes</span>
+                    <span class="ico dim" id="mv-voices-note"></span>
+                  </button>
+                </div>
+
+                <div class="field-group hidden" id="mv-description-group">
+                  <div class="lbl">Descrição</div>
+                  <div id="mv-description"></div>
                 </div>
 
                 <div class="field-group">
@@ -184,9 +295,6 @@
               </div>
             </div>
             <div class="ficha-foot">
-              <button class="btn outline block left" id="open-folder">
-                <span class="ico">🗀</span><span class="grow">Abrir arquivos da reunião</span><span class="ico dim">↗</span>
-              </button>
               <div class="path" id="mv-path"></div>
               <div class="danger-zone">
                 <button class="btn danger-outline small" id="delete-btn">Excluir reunião</button>
@@ -195,28 +303,67 @@
             </div>
           </div>
 
-          <div class="resumo-right">
+          <div class="stats-col">
             <div class="scroll">
-              <div class="field-group">
-                <div class="lbl">Descrição</div>
-                <div id="mv-description"></div>
-              </div>
+              <div class="stats-body" id="mv-stats"></div>
+            </div>
+          </div>
+        </section>
 
-              <div class="field-group grow-block">
-                <div class="sec-head tight">
-                  <span class="lbl">Resumo</span>
-                  <span class="sec-right" id="summary-meta"></span>
-                  <select class="mini" id="summary-prompt" title="Com qual prompt gerar"></select>
-                  <button class="btn outline small" id="summary-btn">Gerar</button>
-                </div>
-                <div class="summary-box" id="summary-box"></div>
+        <!-- ......................................... aba Resumo -->
+        <!-- Um resumo por prompt, lado a lado: a ata formal e o "para quem não
+             estava" são as duas úteis. Gerar com outro prompt acrescenta; só
+             regerar com o mesmo substitui. -->
+        <section class="pane hidden" id="pane-resumo">
+          <div class="sum-col">
+            <div class="sec-head tight pad">
+              <span class="lbl">Resumos gerados</span>
+              <span class="sec-right" id="sum-count"></span>
+            </div>
+            <div class="scroll">
+              <div class="sum-list" id="sum-list"></div>
+            </div>
+            <div class="sum-foot">
+              <select class="mini block" id="summary-prompt" title="Com qual prompt gerar"></select>
+              <button class="btn primary block" id="summary-btn">Gerar com outro prompt</button>
+              <div class="field-note">
+                Cada geração fica salva como um resumo próprio — nada é sobrescrito.
               </div>
+            </div>
+          </div>
+
+          <div class="sum-view">
+            <div class="sum-view-head" id="sum-view-head">
+              <div class="grow">
+                <div class="sum-view-name" id="sum-name"></div>
+                <div class="sum-view-meta" id="sum-meta"></div>
+              </div>
+              <button class="btn outline small" id="sum-regen">Regerar</button>
+              <button class="btn outline small" id="sum-copy">Copiar</button>
+              <button class="btn danger-outline small" id="sum-delete">Excluir</button>
+            </div>
+            <div class="prompt-box hidden" id="sum-prompt-box">
+              <div class="lbl">Prompt</div>
+              <div class="prompt-text" id="sum-prompt-text"></div>
+            </div>
+            <div class="scroll">
+              <div class="summary-box" id="summary-box"></div>
             </div>
           </div>
         </section>
 
         <!-- .................................... aba Transcrição -->
-        <section class="pane column" id="pane-transcricao">
+        <section class="pane column hidden" id="pane-transcricao">
+          <!-- Qual transcrição é esta, e com que motor. Retranscrever mora aqui
+               e não no cabeçalho: é uma ação *sobre este texto*, e no cabeçalho
+               ela ficava longe da única coisa que justifica clicá-la — saber
+               que o texto saiu de um motor pior. -->
+          <div class="tr-bar" id="tr-bar">
+            <div class="grow" id="tr-meta"></div>
+            <button class="btn outline small" id="tr-export">Exportar</button>
+            <button class="btn outline small" id="finalize-btn">Retranscrever</button>
+          </div>
+
           <div class="chat" id="chat"></div>
 
           <!-- Rodapé ao vivo: o que o pipeline está fazendo agora. -->
@@ -265,7 +412,7 @@
         </section>
 
         <!-- ........................................... aba Notas -->
-        <section class="pane column" id="pane-notas">
+        <section class="pane column hidden" id="pane-notas">
           <div class="editor-toolbar">
             <button class="tool" data-md="h2" title="Título">H2</button>
             <span class="tool-sep"></span>

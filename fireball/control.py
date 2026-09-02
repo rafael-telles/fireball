@@ -11,10 +11,11 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fireball import catalog, realtime, storage, voices
+from fireball import catalog, realtime, stats, storage, summaries, voices
 
 # Status em que a reunião ainda está "viva" (o daemon tem — ou deveria ter —
 # um processo cuidando dela). Fora daí, é estado terminal.
@@ -490,6 +491,110 @@ def read_summary(meeting_id: str) -> Optional[dict]:
     }
 
 
+def list_summaries(meeting_id: str) -> list[dict]:
+    """Todos os resumos gravados desta reunião, mais recente primeiro."""
+    return summaries.listing(storage.meeting_path(meeting_id))
+
+
+def delete_summary(meeting_id: str, summary_id: str) -> dict:
+    result = summaries.delete(storage.meeting_path(meeting_id), summary_id)
+    catalog.index_card(meeting_id)
+    return result
+
+
+# -------------------------------------------------------------- estatística
+
+
+def meeting_stats(meeting_id: str) -> dict:
+    """Números da reunião (silêncio, participação, turnos) da transcrição atual."""
+    return stats.meeting_stats(storage.meeting_path(meeting_id))
+
+
+# ------------------------------------------------------------- transcrição
+
+
+def transcript_meta(meeting_id: str) -> dict:
+    """De onde veio o texto que está na tela, e quando.
+
+    A transcrição é um arquivo só, reescrito pelo `finalize` — então "qual
+    delas é esta" não está no NDJSON, está em `finalize_result.json` existir
+    ou não. Sem isso a barra da aba não teria como dizer com que motor o texto
+    foi feito, que é justamente o que decide se vale retranscrever.
+    """
+    meeting_dir = storage.meeting_path(meeting_id)
+    meeting = storage.read_json(meeting_dir / "meeting.json", {}) or {}
+    path = meeting_dir / TRANSCRIPT_FILE
+    final = storage.read_json(meeting_dir / "finalize_result.json", None)
+    segments = sum(1 for _ in storage.read_ndjson(path))
+
+    if final and final.get("replaced"):
+        return {
+            "kind": "final",
+            "backend": final.get("backend"),
+            "segments": final.get("segments") or segments,
+            "diarized": bool(final.get("diarized")),
+            "generated_at": _mtime_iso(path),
+            "warning": final.get("diarization_warning"),
+        }
+    return {
+        "kind": "live" if segments else "empty",
+        "backend": meeting.get("backend"),
+        "segments": segments,
+        "diarized": bool(meeting.get("diarize")),
+        "generated_at": _mtime_iso(path) if segments else None,
+        "warning": None,
+    }
+
+
+def _mtime_iso(path: Path) -> Optional[str]:
+    if not path.exists():
+        return None
+    return datetime.fromtimestamp(path.stat().st_mtime).isoformat(timespec="seconds")
+
+
+def export_transcript(meeting_id: str) -> dict:
+    """Escreve a transcrição como markdown legível, ao lado do NDJSON.
+
+    Um arquivo na pasta da reunião, e não um download: a janela é local e a
+    pasta é o lugar de onde tudo já sai (áudio, notas, resumo). Quem exporta
+    quer o texto num formato que se cole em outro lugar — o NDJSON serve à
+    máquina, não a isso.
+    """
+    meeting_dir = storage.meeting_path(meeting_id)
+    meeting = storage.read_json(meeting_dir / "meeting.json", {}) or {}
+    segments = list(storage.read_ndjson(meeting_dir / TRANSCRIPT_FILE))
+    if not segments:
+        raise ValueError("Esta reunião não tem transcrição para exportar.")
+
+    lines = [f"# {meeting.get('name') or meeting_id}", ""]
+    started = meeting.get("started_at")
+    if started:
+        lines += [f"_{started}_", ""]
+    for seg in segments:
+        stamp = _stamp_of(seg)
+        speaker = (seg.get("speaker") or "?").strip()
+        text = (seg.get("text") or "").strip()
+        if not text:
+            continue
+        lines.append(f"**{speaker}**{f' · `{stamp}`' if stamp else ''}  ")
+        lines.append(text)
+        lines.append("")
+
+    path = meeting_dir / "transcript.md"
+    path.write_text("\n".join(lines))
+    return {"path": str(path), "segments": len(segments)}
+
+
+def _stamp_of(seg: dict) -> str:
+    start = seg.get("start")
+    if start is None:
+        return ""
+    total = int(float(start))
+    hours, rest = divmod(total, 3600)
+    minutes, seconds = divmod(rest, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes:02d}:{seconds:02d}"
+
+
 # ------------------------------------------------------------------- áudio
 
 
@@ -577,6 +682,22 @@ def rename_meeting(meeting_id: str, name: str) -> dict:
     if not name:
         raise ValueError("O nome da reunião não pode ficar vazio.")
     return write_meeting_fields(meeting_id, name=name, name_source="user")
+
+
+def set_tags(meeting_id: str, tags) -> dict:
+    """Troca as tags da reunião pelas que vieram da tela.
+
+    Tags escritas à mão e tags do resumo moram no mesmo campo de propósito: é
+    uma lista só, e a regra de quem ganha está em `apply_summary_metadata` —
+    um resumo novo substitui, porque as duas listas são leituras da mesma
+    reunião e mostrá-las somadas seria mostrar duas verdades como uma.
+    """
+    clean = []
+    for tag in tags or []:
+        text = str(tag).strip()
+        if text and text not in clean:
+            clean.append(text)
+    return write_meeting_fields(meeting_id, tags=clean)
 
 
 def apply_summary_metadata(meeting_id: str) -> dict:

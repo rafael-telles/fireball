@@ -196,6 +196,11 @@ def _normalize(raw: dict) -> Optional[dict]:
         ),
         "conference_url": _conference_url(raw),
         "html_link": raw.get("htmlLink") or None,
+        # instância de série recorrente: o Google só marca a repetição no
+        # evento-mestre (`recurrence`), e o que a agenda devolve são as
+        # ocorrências, que apontam para ele em `recurringEventId`
+        "recurring": bool(raw.get("recurringEventId")),
+        "recurrence": [str(rule) for rule in (raw.get("recurrence") or []) if rule],
     }
 
 

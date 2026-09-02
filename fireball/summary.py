@@ -5,9 +5,9 @@ finalize, e pelo mesmo motivo: a chamada ao provedor pode demorar minutos e
 falhar de formas que não podem derrubar o dono do estado.
 
 Este módulo **não mexe em meeting.json**: quem escreve status é o daemon, que
-observa este processo terminar. Aqui só produzimos `summary.md` e um
-`summary_result.json` com a procedência — qual provedor escreveu, quando, e
-sobre quantos segmentos.
+observa este processo terminar. Aqui só produzimos o resumo e a procedência —
+qual provedor escreveu, quando, com que prompt e sobre quantos segmentos (ver
+`fireball.summaries`, que guarda um resumo por prompt).
 
 O nome e as tags que o provedor escreveu saem por esse mesmo
 `summary_result.json`, e não direto no meeting.json, pela mesma regra: este é
@@ -20,7 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from fireball import prompts as prompts_store, storage
+from fireball import prompts as prompts_store, storage, summaries
 from fireball.summarizers import SummarizerUnavailable, get_summary_provider
 
 def read_transcript(meeting_dir: Path) -> list[dict]:
@@ -68,11 +68,14 @@ def run_summary(meeting_dir: Path, provider: str, prompt_id: str = "") -> dict:
         dialogue, {**meeting, "_dir": str(meeting_dir)}, prompt["instructions"]
     )
 
-    (meeting_dir / "summary.md").write_text(written["markdown"] + "\n")
     result = {
         "provider": provider,
         "prompt": prompt["id"],
         "prompt_name": prompt["name"],
+        # o texto do prompt junto do resumo, e não só o id: a tela mostra com
+        # o que aquele resumo foi escrito, e editar o prompt depois não pode
+        # reescrever a procedência de um resumo que já saiu
+        "prompt_instructions": prompt["instructions"],
         "segments": len(segments),
         "generated_at": storage.now_iso(),
         # o nome só vale como sugestão até o daemon decidir aplicá-lo: uma
@@ -81,5 +84,4 @@ def run_summary(meeting_dir: Path, provider: str, prompt_id: str = "") -> dict:
         "title": written.get("title"),
         "tags": written.get("tags") or [],
     }
-    storage.write_json(meeting_dir / "summary_result.json", result)
-    return result
+    return summaries.write(meeting_dir, written["markdown"], result)

@@ -95,5 +95,6 @@ Cada reunião mora em `~/.fireball/meetings/<meeting_id>/`:
 - `transcript.ndjson` — transcrição em tempo real (fonte primária durante a reunião)
 - a transcrição é um arquivo só (`transcript.ndjson`): o `finalize` reescreve por cima dela
 - `notes.md` — notas ao vivo (a mesma fonte que a GUI reflete)
-- `summary.md` — resumo gerado da transcrição
+- `summary.md` — o último resumo gerado (é daqui que se lê)
+- `summaries/<prompt>.md` — um resumo por prompt, com a procedência no `.json` ao lado
 - `checkpoint.json` — até onde o stream já foi processado
