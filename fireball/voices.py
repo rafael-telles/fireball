@@ -146,6 +146,28 @@ def get_profile(profile_id: str) -> dict:
     return profile
 
 
+def find_profile(name: str, emails, model: str) -> Optional[dict]:
+    """O perfil que já é desta pessoa: mesmo nome e um e-mail em comum.
+
+    E-mail sozinho não basta — uma sala de reunião é o mesmo endereço para
+    várias vozes —, e nome sozinho também não; os dois juntos são a pessoa.
+    """
+    wanted = " ".join(str(name or "").split()).casefold()
+    addresses = set(_normalize_emails(emails))
+    if not (wanted and addresses):
+        return None
+    return next(
+        (
+            item
+            for item in list_profiles()
+            if item["model"] == model
+            and item["name"].casefold() == wanted
+            and addresses & set(item["emails"])
+        ),
+        None,
+    )
+
+
 def save_profile(
     name: str,
     embedding: "np.ndarray",
@@ -162,10 +184,8 @@ def save_profile(
         raise VoiceEnrollmentError("O embedding de voz produzido é inválido.")
     vector = vector / norm
 
-    profile = None
     extra = _normalize_emails(email)
-    if profile_id:
-        profile = get_profile(profile_id)
+    profile = get_profile(profile_id) if profile_id else find_profile(name, extra, model)
 
     now = storage.now_iso()
     if profile is None:
@@ -309,7 +329,48 @@ def track_audio(meeting_dir: Path, track: str) -> tuple["np.ndarray", int]:
     raise VoiceEnrollmentError(f"Esta reunião não tem áudio de {track}.")
 
 
-def _slot_turns(meeting_dir: Path, track: str, speaker_id: int) -> list[dict]:
+def _as_ids(value) -> list[int]:
+    return [int(value)] if isinstance(value, (int, np.integer)) else [int(item) for item in value]
+
+
+def person_slots(
+    meeting_dir: Path,
+    track: str,
+    speaker_id: int,
+    name: str,
+    profile_id: Optional[str] = None,
+) -> tuple[list[int], Optional[str]]:
+    """Todos os slots desta track que já são desta pessoa, e o perfil dela.
+
+    O diarizador costuma partir quem fala num slot grande e outro só de
+    interjeições. Cadastrar o slot picotado sozinho gera um embedding ruim que
+    ainda suja o centroide, então o cadastro soma o áudio dos dois.
+    """
+    wanted = " ".join(str(name or "").split()).casefold()
+    target = profile_id
+    speaker_ids = [int(speaker_id)]
+    for key, label in load_labels(meeting_dir).items():
+        slot_track, sep, raw_id = key.partition(":")
+        if not sep or slot_track != track:
+            continue
+        try:
+            other = int(raw_id)
+        except ValueError:
+            continue
+        same_person = (
+            label.get("profile_id") == target
+            if target
+            else " ".join(str(label.get("name") or "").split()).casefold() == wanted
+        )
+        if not same_person:
+            continue
+        profile_id = profile_id or label.get("profile_id") or None
+        if other not in speaker_ids:
+            speaker_ids.append(other)
+    return speaker_ids, profile_id
+
+
+def _slot_turns(meeting_dir: Path, track: str, speaker_ids) -> list[dict]:
     """Onde este locutor falou.
 
     A passada final grava `diarization.json`, mas o tempo real já sabe disso
@@ -317,29 +378,30 @@ def _slot_turns(meeting_dir: Path, track: str, speaker_id: int) -> list[dict]:
     posição no áudio. Usar o transcript como segunda fonte é o que faz o
     cadastro funcionar durante a reunião, sem esperar a transcrição final.
     """
+    wanted = {int(item) for item in speaker_ids}
     diarization = storage.read_json(meeting_dir / "diarization.json", {}) or {}
     turns = [
         {"start": float(turn["start"]), "end": float(turn["end"])}
         for turn in diarization.get(track, [])
-        if int(turn.get("speaker_id", -1)) == int(speaker_id)
+        if int(turn.get("speaker_id", -1)) in wanted
         and float(turn.get("end", 0)) - float(turn.get("start", 0)) >= 0.8
     ]
     if turns:
         return turns
 
-    key = f"{track}:{int(speaker_id)}"
+    keys = {f"{track}:{item}" for item in wanted}
     return [
         {"start": float(seg["start"]), "end": float(seg["end"])}
         for seg in storage.read_ndjson(meeting_dir / "transcript.ndjson")
-        if seg.get("speaker_key") == key
+        if seg.get("speaker_key") in keys
         and seg.get("start") is not None
         and seg.get("end") is not None
         and float(seg["end"]) - float(seg["start"]) >= 0.8
     ]
 
 
-def slot_audio(meeting_dir: Path, track: str, speaker_id: int) -> tuple["np.ndarray", int]:
-    turns = _slot_turns(meeting_dir, track, speaker_id)
+def slot_audio(meeting_dir: Path, track: str, speaker_ids) -> tuple["np.ndarray", int]:
+    turns = _slot_turns(meeting_dir, track, _as_ids(speaker_ids))
     if not turns:
         raise VoiceEnrollmentError("Não há fala limpa suficiente desse locutor.")
     samples, samplerate = track_audio(meeting_dir, track)
@@ -373,7 +435,8 @@ def enroll_from_meeting(
 ) -> dict:
     if track not in ("mic", "system"):
         raise VoiceEnrollmentError("Track de voz inválida.")
-    embedding, model = prepare_enrollment(meeting_dir, track, speaker_id)
+    speaker_ids, profile_id = person_slots(meeting_dir, track, speaker_id, name, profile_id)
+    embedding, model = prepare_enrollment(meeting_dir, track, speaker_ids)
     profile = save_profile(
         name=name,
         email=email,
@@ -395,12 +458,12 @@ def enroll_from_meeting(
 def prepare_enrollment(
     meeting_dir: Path,
     track: str,
-    speaker_id: int,
+    speaker_ids,
 ) -> tuple["np.ndarray", str]:
     """Parte pesada do cadastro, feita fora do lock global do daemon."""
     if track not in ("mic", "system"):
         raise VoiceEnrollmentError("Track de voz inválida.")
-    audio, samplerate = slot_audio(meeting_dir, track, speaker_id)
+    audio, samplerate = slot_audio(meeting_dir, track, speaker_ids)
     backend = get_speaker_embedding_backend()
     return backend.embed(audio, samplerate), backend.model
 

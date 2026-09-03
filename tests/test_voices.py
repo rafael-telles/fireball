@@ -116,6 +116,27 @@ class VoiceTests(unittest.TestCase):
         self.assertNotEqual(first["id"], second["id"])
         self.assertEqual(len(voices.public_profiles()), 2)
 
+    def test_same_name_and_email_feeds_one_profile(self):
+        first = voices.save_profile(
+            "Ana", np.array([1.0, 0.0]), model="test-model", email="ana@example.com"
+        )
+        again = voices.save_profile(
+            "ana", np.array([0.0, 1.0]), model="test-model", email="ANA@example.com"
+        )
+        self.assertEqual(first["id"], again["id"])
+        self.assertEqual(again["samples"], 2)
+        self.assertEqual(len(voices.public_profiles()), 1)
+
+    def test_same_name_without_a_shared_email_stays_apart(self):
+        first = voices.save_profile(
+            "Ana", np.array([1.0, 0.0]), model="test-model", email="ana@example.com"
+        )
+        other = voices.save_profile(
+            "Ana", np.array([0.0, 1.0]), model="test-model", email="ana@empresa.com"
+        )
+        anonymous = voices.save_profile("Ana", np.array([0.0, 1.0]), model="test-model")
+        self.assertEqual(len({first["id"], other["id"], anonymous["id"]}), 3)
+
     def test_manual_label_survives_finalize_without_profiles(self):
         meeting = Path(self.temp.name) / "meeting"
         meeting.mkdir()
@@ -175,6 +196,43 @@ class VoiceTests(unittest.TestCase):
         recognizer.next_attempt = {}
         self.assertIsNotNone(recognizer.observe("system", 0, chunk, 16000))
         self.assertIsNone(recognizer.observe("system", 1, chunk, 16000))
+
+    @patch("fireball.voices.get_speaker_embedding_backend", return_value=FakeEmbeddingBackend())
+    def test_split_slots_of_one_person_feed_one_profile(self, _backend):
+        """O diarizador partiu a pessoa em dois slots da mesma track."""
+        meeting = Path(self.temp.name) / "meetings" / "meeting-split"
+        meeting.mkdir(parents=True)
+        write_wav(meeting / "system.wav", seconds=30.0)
+        storage.write_json(
+            meeting / "diarization.json",
+            {
+                "system": [{"start": 0.0, "end": 20.0, "speaker_id": 0}]
+                + [
+                    {"start": start, "end": start + 1.0, "speaker_id": 1}
+                    for start in range(20, 28)
+                ],
+            },
+        )
+
+        first = voices.enroll_from_meeting(meeting, "system", 0, "Guilherme", "gui@x.com")
+        second = voices.enroll_from_meeting(meeting, "system", 1, "Guilherme", "gui@x.com")
+
+        self.assertEqual(first["profile"]["id"], second["profile"]["id"])
+        self.assertEqual(len(voices.public_profiles()), 1)
+        labels = voices.load_labels(meeting)
+        self.assertEqual(
+            {labels["system:0"]["profile_id"], labels["system:1"]["profile_id"]},
+            {first["profile"]["id"]},
+        )
+
+        # e o cadastro do slot picotado ouve os dois, não só os fragmentos
+        self.assertEqual(
+            voices.person_slots(meeting, "system", 1, "Guilherme"),
+            ([1, 0], first["profile"]["id"]),
+        )
+        fragments, _ = voices.slot_audio(meeting, "system", 1)
+        both, _ = voices.slot_audio(meeting, "system", [0, 1])
+        self.assertGreater(len(both), len(fragments))
 
     @patch("fireball.voices.get_speaker_embedding_backend", return_value=FakeEmbeddingBackend())
     def test_enroll_from_finalized_meeting_assigns_every_segment(self, _backend):

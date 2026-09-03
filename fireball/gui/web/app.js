@@ -3638,17 +3638,35 @@ async function openVoiceDialog(seg) {
   const select = el("voice-candidate");
   select.innerHTML = "";
   select.appendChild(new Option("Digite um nome ou escolha uma sugestão", ""));
+  const attendees = (o.meeting.event && o.meeting.event.attendees) || [];
+  // o convidado que já tem voz cadastrada entra uma vez só, apontando para o
+  // perfil: escolhê-lo como "convidado" criaria uma segunda voz da mesma pessoa
+  const guests = new Map();
+  for (const [index, person] of attendees.entries()) {
+    const name = (person.name || person.email || "").trim();
+    if (!name) continue;
+    const email = (person.email || "").toLowerCase();
+    const voice = state.voices.find(
+      (item) =>
+        (email && (item.emails || []).some((one) => one.toLowerCase() === email)) ||
+        item.name.trim().toLowerCase() === name.toLowerCase(),
+    );
+    if (voice) guests.set(voice.id, person);
+    else guests.set(`attendee:${index}`, person);
+  }
   for (const voice of state.voices) {
-    const option = new Option(`${voice.name} — voz já cadastrada`, `profile:${voice.id}`);
+    const guest = guests.get(voice.id);
+    const option = new Option(
+      guest ? `${voice.name} — voz já cadastrada, convidado` : `${voice.name} — voz já cadastrada`,
+      `profile:${voice.id}`,
+    );
     option.dataset.name = voice.name;
-    option.dataset.email = (voice.emails && voice.emails[0]) || "";
+    option.dataset.email = (voice.emails && voice.emails[0]) || (guest && guest.email) || "";
     select.appendChild(option);
   }
-  const attendees = (o.meeting.event && o.meeting.event.attendees) || [];
-  for (const [index, person] of attendees.entries()) {
-    const name = person.name || person.email;
-    if (!name) continue;
-    const option = new Option(`${name} — convidado`, `attendee:${index}`);
+  for (const [key, person] of guests) {
+    if (!String(key).startsWith("attendee:")) continue;
+    const option = new Option(`${person.name || person.email} — convidado`, key);
     option.dataset.name = person.name || person.email || "";
     option.dataset.email = person.email || "";
     select.appendChild(option);

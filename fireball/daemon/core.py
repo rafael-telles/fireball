@@ -958,8 +958,11 @@ class DaemonCore:
             except ValueError as exc:
                 raise voices.VoiceEnrollmentError("Locutor inválido.") from exc
             meeting_dir = storage.meeting_path(meeting_id)
+            speaker_ids, profile_id = voices.person_slots(
+                meeting_dir, track, speaker_id, name, profile_id
+            )
 
-        embedding, model = voices.prepare_enrollment(meeting_dir, track, speaker_id)
+        embedding, model = voices.prepare_enrollment(meeting_dir, track, speaker_ids)
 
         with self._lock:
             if meeting_id in self._finalizing:
