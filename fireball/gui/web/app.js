@@ -653,6 +653,9 @@ function renderTranscriptBar() {
   if (!o) return;
   const m = o.meeting;
   const meta = o.transcriptMeta;
+  // a passada final desligada muda as duas coisas desta barra: o que a linha
+  // diz e se o botão existe
+  const enabled = !state.settings || state.settings.transcribe_final !== false;
 
   const bits = [];
   if (o.live) {
@@ -677,13 +680,17 @@ function renderTranscriptBar() {
   } else {
     bits.push("Sem transcrição");
   }
+  // sem isto, quem desligou a passada final não entende por que o botão sumiu
+  if (!enabled && !o.live) bits.push("transcrição final desligada");
   el("tr-meta").textContent = bits.join(" · ");
 
   // Retranscrever é a transcrição final sobre o áudio inteiro. Só faz sentido
   // depois que a gravação fechou os .wav — antes disso não há áudio completo.
+  // E não aparece com a passada final desligada: oferecer o botão que o daemon
+  // vai recusar é pior que não oferecer nada.
   const finalize = el("finalize-btn");
   const finalizing = m.status === "finalizing";
-  finalize.classList.toggle("hidden", o.live && !finalizing);
+  finalize.classList.toggle("hidden", (o.live && !finalizing) || (!enabled && !finalizing));
   finalize.disabled = finalizing;
   finalize.textContent = finalizing
     ? "Retranscrevendo…"
@@ -3387,8 +3394,9 @@ function renderConfigSummary() {
   const s = state.settings;
   if (!s) return;
   const live = s.transcribe_live ? `ao vivo: ${s.realtime_backend}` : "sem transcrição ao vivo";
+  const final = s.transcribe_final ? `final: ${s.final_backend}` : "sem transcrição final";
   const diarize = s.diarize_default ? "diarização padrão ligada" : "diarização opcional";
-  el("config-summary-text").textContent = `${live} · final: ${s.final_backend} · ${diarize} · ${s.language}`;
+  el("config-summary-text").textContent = `${live} · ${final} · ${diarize} · ${s.language}`;
   el("start-diarize").checked = Boolean(s.diarize_default);
 }
 
@@ -3783,6 +3791,7 @@ function renderSettings() {
   renderPromptList();
   fillSelect("set-calendar-provider", calendarProviderOptions(), s.calendar_provider || "");
   el("set-live-on").checked = s.transcribe_live;
+  el("set-final-on").checked = s.transcribe_final;
   el("set-diarize-default").checked = s.diarize_default;
   el("set-auto-summarize").checked = s.auto_summarize;
   el("set-openai-url").value = s.openai_base_url || "";
@@ -3793,9 +3802,19 @@ function renderSettings() {
   el("set-language").value = s.language;
   fillSelect("set-my-voice", myVoiceOptions(), s.my_voice || "");
   renderProviderFields();
+  renderFinalFields();
 }
 
 /** Os campos da API só existem quando o provedor que os usa está escolhido. */
+/** Com a transcrição final desligada, o motor dela não decide nada — e um
+    <select> aceso sobre coisa que não roda é convite a ajustar o que não tem
+    efeito. */
+function renderFinalFields() {
+  const on = el("set-final-on").checked;
+  el("set-final-backend").disabled = !on;
+  el("set-final-backend").closest("section").classList.toggle("off", !on);
+}
+
 function renderProviderFields() {
   el("openai-fields").classList.toggle("hidden", el("set-summary-provider").value !== "openai_api");
   el("groq-fields").classList.toggle("hidden", el("set-final-backend").value !== "groq");
@@ -3838,6 +3857,7 @@ async function onSaveSettings() {
       realtime_backend: el("set-live-backend").value,
       transcribe_live: el("set-live-on").checked,
       diarize_default: el("set-diarize-default").checked,
+      transcribe_final: el("set-final-on").checked,
       final_backend: el("set-final-backend").value,
       summary_provider: el("set-summary-provider").value,
       summary_prompt: el("set-summary-prompt").value,
@@ -3853,6 +3873,8 @@ async function onSaveSettings() {
     });
     renderSettings(); // o daemon é quem diz o que ficou valendo
     renderVoices(); // o selo de "sou eu" mudou de linha
+    // ligar/desligar a passada final muda se o botão Retranscrever existe
+    if (state.open) renderTranscriptBar();
     renderConfigSummary();
     // provedor/conta mudaram: a lista da home precisa refletir já
     refreshAgenda(true);
@@ -4284,6 +4306,7 @@ async function boot() {
     }
   });
   el("set-final-backend").addEventListener("change", renderProviderFields);
+  el("set-final-on").addEventListener("change", renderFinalFields);
 
   await loadSettings();
   await loadVoices(); // a ficha da reunião mostra e-mail de voz cadastrada

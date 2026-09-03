@@ -38,6 +38,15 @@ class NoActiveMeeting(RuntimeError):
     """Pediram para parar/consultar a reunião ativa, e não há nenhuma."""
 
 
+class FinalizeDisabled(RuntimeError):
+    """A transcrição final está desligada na configuração.
+
+    Separada de `MeetingBusy` porque pede outra coisa de quem lê: não é
+    esperar, é ir mudar uma preferência — ou não querer isso mesmo, que é o
+    caso de quem desligou.
+    """
+
+
 def create_meeting(
     name: Optional[str],
     fake: bool,

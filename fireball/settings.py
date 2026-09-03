@@ -37,6 +37,11 @@ DEFAULTS = {
     # separar pessoas nas duas tracks ao vivo e durante o finalize. Opt-in:
     # Sortformer suporta até quatro vozes na sala e quatro no áudio do sistema.
     "diarize_default": False,
+    # rodar a transcrição final. Ela reescreve `transcript.ndjson` por cima —
+    # o que é melhor quase sempre, e é perda quando alguém já corrigiu falas à
+    # mão, ou quando o backend é pago e ninguém quer ficar a um clique de
+    # gastar. Desligada, nem a janela nem `fireball finalize` a rodam.
+    "transcribe_final": True,
     # motor da transcrição final, rodada sobre o áudio inteiro depois
     "final_backend": "whisper",
     # chave da Groq, usada só quando final_backend é "groq". Vazio aqui não é
@@ -91,7 +96,7 @@ def _coerce(key: str, value) -> Optional[object]:
         return value if value in REALTIME_BACKENDS else None
     if key == "final_backend":
         return value if value in BATCH_BACKENDS else None
-    if key in ("transcribe_live", "auto_summarize", "diarize_default"):
+    if key in ("transcribe_live", "transcribe_final", "auto_summarize", "diarize_default"):
         return bool(value)
     if key == "openai_base_url":
         url = str(value or "").strip().rstrip("/")

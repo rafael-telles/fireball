@@ -1027,7 +1027,22 @@ class DaemonCore:
         # sem backend explícito vale o configurado para a transcrição final,
         # que não é necessariamente o do tempo real (é comum querer 'groq'
         # aqui e um motor local durante a reunião).
-        backend = backend or settings.load()["final_backend"]
+        prefs = settings.load()
+        backend = backend or prefs["final_backend"]
+
+        # Desligada é desligada, inclusive para quem passou `--backend`: a
+        # finalização **reescreve** a transcrição por cima, e quem desligou
+        # isso desligou justamente para que nada a reescrevesse sem pedir. As
+        # skills rodam `fireball finalize` como parte do fluxo delas, então
+        # recusar aqui é o que faz a preferência valer de verdade — esconder
+        # só o botão da janela deixaria o passo automático de fora.
+        if not prefs["transcribe_final"]:
+            raise control.FinalizeDisabled(
+                "A transcrição final está desligada na configuração "
+                "(`transcribe_final`). Ligue em Configurações → Transcrição, ou "
+                "edite ~/.fireball/settings.json."
+            )
+
         with self._lock:
             meeting = control.read_meeting(meeting_id)
             if meeting.get("status") in control.LIVE_STATUSES:

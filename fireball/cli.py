@@ -387,6 +387,11 @@ def finalize(meeting_id, backend, diarize, wait, timeout):
     'finalizing' e depois 'finalized' (ou 'finalize_failed'). A reconciliação
     entre a transcrição final e as notas ao vivo é feita pelo Claude via
     skill, não por este comando.
+
+    Recusa quando `transcribe_final` está desligado na configuração — a
+    finalização **reescreve** a transcrição por cima, e quem desligou isso
+    desligou para que nada a reescrevesse. `--backend` não passa por cima
+    dessa preferência: ele diz *qual* motor, não que ela não vale.
     """
     result = _call(
         "finalize",

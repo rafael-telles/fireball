@@ -521,9 +521,21 @@ devolve zero segmento **não** substitui nada — um backend que falhou em silê
 apagar o único registro da reunião. Reuniões gravadas no formato antigo são convertidas na
 subida do daemon: a final vira a transcrição, e a do tempo real sai de cena.
 
-No cabeçalho ficam o cronômetro e **Parar** enquanto grava; depois, **Finalizar** (ou
-**Retranscrever**, se já houver transcrição final), que roda o motor sobre o áudio inteiro sem
-travar a janela — o status vira "finalizando" e a tela acompanha pelo polling.
+No cabeçalho ficam o cronômetro e **Parar** enquanto grava. **Transcrever** (ou
+**Retranscrever**, se já houver transcrição final) mora na barra da aba Transcrição, junto da
+linha que diz com que motor o texto na tela foi feito: é uma ação sobre *este* texto, e é essa
+linha que justifica clicá-la. Roda sem travar a janela — o status vira "finalizando" e a tela
+acompanha pelo polling.
+
+A passada final **se desliga** (`transcribe_final`, em Configurações → Transcrição). Ela
+reescreve a transcrição por cima, o que é melhor quase sempre e é perda quando alguém já
+corrigiu falas à mão — ou quando o backend é pago e ninguém quer ficar a um clique de gastar.
+Desligada, o botão sai da tela (a barra diz "transcrição final desligada", senão ninguém
+entende onde ele foi) e **`fireball finalize` recusa**, com uma mensagem que aponta a
+preferência. A recusa mora no daemon e não só no botão de propósito: as skills rodam
+`fireball finalize` como parte do fluxo delas, e é justamente esse passo automático que a
+preferência precisa alcançar. `--backend` não passa por cima — ele diz *qual* motor, não que a
+preferência não vale.
 
 O chat é **incremental**: a cada volta do polling a janela pede só os segmentos com `seq` maior
 que o último desenhado (`Api.transcript`) e dá append no DOM, em vez de redesenhar a conversa —
@@ -749,6 +761,7 @@ está nos campos dela.
 | --- | --- | --- |
 | `realtime_backend` | motor da transcrição ao vivo (a que alimenta o chat) | `whisper` |
 | `transcribe_live` | transcrever durante a reunião, ou só gravar o áudio | `true` |
+| `transcribe_final` | rodar a passada final (reescreve a transcrição por cima) | `true` |
 | `diarize_default` | ativar Sortformer por padrão em reuniões novas | `false` |
 | `final_backend` | motor da transcrição final, sobre o áudio inteiro | `whisper` |
 | `groq_api_key` | chave da Groq, usada só pelo backend `groq` | vazio |

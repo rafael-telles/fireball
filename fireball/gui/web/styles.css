@@ -3378,3 +3378,14 @@ select.mini.block {
     width: 5rem;
   }
 }
+
+/* Cartão de configuração cujo interruptor está desligado: o que sobra nele não
+   decide nada, e apagar dá pra ver isso sem esconder (esconder faria a pessoa
+   procurar onde o backend foi parar). O interruptor em si fica aceso. */
+.card.off .lbl,
+.card.off select,
+.card.off input:not([type="checkbox"]),
+.card.off .field-note,
+.card.off .subcard {
+  opacity: 0.45;
+}

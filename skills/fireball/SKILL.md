@@ -65,6 +65,10 @@ que está sendo dito em tempo real através do CLI `fireball` e decide o que ano
    inteiro de cada track, não em pedaços) com o mesmo backend usado ao vivo. Também aceita
    `--backend groq` (API paga, `whisper-large-v3-turbo`, requer `GROQ_API_KEY`) se o usuário
    preferir não depender do modelo local para a passada final.
+   - **Pode recusar**: com `transcribe_final` desligado na configuração, o comando devolve erro
+     em vez de rodar — a passada final reescreve a transcrição por cima, e quem desligou isso
+     desligou de propósito. Siga para o passo seguinte com a transcrição do tempo real, e não
+     tente contornar com `--backend`: ele não passa por cima da preferência.
    - Se a reunião foi iniciada com `--diarize` (ou o usuário pedir agora), a
      final separa `Sala 1`…`Sala 4` no microfone e `Remoto 1`…`Remoto 4` no
      áudio do sistema. Se um perfil de voz cadastrado casar com confiança, o

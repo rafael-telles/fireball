@@ -78,7 +78,8 @@ CLI do Fireball (venv dedicado, não está no PATH):
 1. `fireball stop <meeting_id>`
 2. `fireball finalize <meeting_id>` — mesmo backend do início por padrão; `--backend groq` se
    preferir a passada final via API (`GROQ_API_KEY` no `.env` do Fireball) em vez do modelo
-   local.
+   local. Com `transcribe_final` desligado na configuração o comando **recusa**: siga com a
+   transcrição do tempo real, que é o que o usuário pediu ao desligar.
    Com diarização ligada, os rótulos finais são `Sala N` (microfone) e
    `Remoto N` (áudio do sistema), exceto quando um perfil de voz já cadastrado
    for reconhecido com confiança. Não associe convidados da agenda a rótulos
