@@ -413,12 +413,14 @@ function segmentActions(seg) {
   const edit = document.createElement("button");
   edit.className = "seg-action";
   edit.textContent = "✎ editar";
+  edit.title = "Mexe só na transcrição — o áudio original não muda.";
   edit.addEventListener("click", (event) => startEdit(event.target.closest(".msg"), seg));
   box.appendChild(edit);
 
   const remove = document.createElement("button");
   remove.className = "seg-action danger";
   remove.textContent = "✕ excluir";
+  remove.title = "Mexe só na transcrição — o áudio original não muda.";
   remove.addEventListener("click", (event) => confirmDelete(event.target.closest(".msg"), seg));
   box.appendChild(remove);
   return box;
@@ -709,12 +711,13 @@ function renderFicha() {
   // vazio, não o id: o campo tem placeholder "Sem nome", e preencher com o id
   // faria a pessoa apagá-lo antes de escrever o nome de verdade
   if (document.activeElement !== rename) rename.value = m.name || "";
+  // só a procedência: que o campo é editável, o title dele já diz
   el("rename-note").textContent =
     m.name_source === "ai"
-      ? "nome escrito pela IA · clique para trocar"
+      ? "nome escrito pela IA"
       : m.name_source === "calendar"
-        ? "nome da agenda · clique para trocar"
-        : "clique para renomear";
+        ? "nome da agenda"
+        : "";
 
   renderTags(m);
   renderPeople();
@@ -1891,7 +1894,7 @@ function nextCard(event) {
 
   const note = document.createElement("span");
   note.className = "next-note";
-  note.textContent = "Nome, participantes e descrição vêm do evento da agenda.";
+  note.textContent = "Nome e participantes vêm da agenda.";
   actions.appendChild(note);
   card.appendChild(actions);
   return card;
@@ -2272,8 +2275,8 @@ function renderBrowse() {
   el("bv-range").closest(".filter-pick").classList.toggle("hidden", week);
 
   el("bv-foot-note").textContent = week
-    ? "Blocos na posição e no tamanho reais da gravação · clique para abrir"
-    : "Clique numa linha para abrir · Ctrl+K vai para a busca";
+    ? "Blocos na posição e no tamanho reais da gravação"
+    : "Ctrl+K vai para a busca";
 
   renderBrowseCount();
   renderFilters();
@@ -2821,12 +2824,9 @@ function renderPlayer() {
   if (!o || o.live) {
     bar.classList.add("hidden");
     none.classList.add("hidden");
-    el("edit-hint").classList.add("hidden");
     audio.pause();
     return;
   }
-
-  el("edit-hint").classList.remove("hidden");
 
   if (!playerReady()) {
     bar.classList.add("hidden");
@@ -2835,8 +2835,7 @@ function renderPlayer() {
     // o .wav sai quando a gravação termina (mistura de mic + sistema, ou só
     // mic quando o monitor do sistema não abriu); não havendo nenhum dos
     // dois, não há o que tocar.
-    el("player-none-note").textContent =
-      "Esta reunião não deixou áudio gravado — não há mic.wav nem meeting.wav na pasta dela.";
+    el("player-none-note").textContent = "Esta reunião não deixou áudio gravado.";
     return;
   }
 
@@ -3815,10 +3814,18 @@ function renderFinalFields() {
   el("set-final-backend").closest("section").classList.toggle("off", !on);
 }
 
+const SUMMARY_PROVIDER_NOTE = {
+  claude_code: "Usa o Claude Code da máquina: claude no PATH, com login feito. Não pede chave.",
+  openai_api:
+    "Qualquer API compatível com OpenAI — OpenAI, OpenRouter, Groq, Ollama, llama.cpp, LM Studio.",
+};
+
 function renderProviderFields() {
-  el("openai-fields").classList.toggle("hidden", el("set-summary-provider").value !== "openai_api");
+  const summary = el("set-summary-provider").value;
+  el("openai-fields").classList.toggle("hidden", summary !== "openai_api");
   el("groq-fields").classList.toggle("hidden", el("set-final-backend").value !== "groq");
   el("gog-fields").classList.toggle("hidden", el("set-calendar-provider").value !== "gog");
+  el("summary-provider-note").textContent = SUMMARY_PROVIDER_NOTE[summary] || "";
 }
 
 async function loadSettings() {
@@ -4063,7 +4070,8 @@ async function onRename() {
     renderMeetingHeader();
     await loadHistory();
     el("rename-note").textContent = "renomeada";
-    setTimeout(() => (el("rename-note").textContent = "clique para renomear"), 2000);
+    // nome escrito à mão não tem procedência a exibir (name_source: "user")
+    setTimeout(() => (el("rename-note").textContent = ""), 2000);
   } catch (err) {
     input.value = o.meeting.name || o.id;
     setBanner(errText(err));

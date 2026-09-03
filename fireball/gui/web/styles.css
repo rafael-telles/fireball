@@ -1268,11 +1268,6 @@ select.mini {
   flex: none;
 }
 
-.tool-note {
-  font-size: 11px;
-  color: var(--faint);
-}
-
 .editor-wrap {
   flex: 1;
   min-height: 0;
@@ -1310,17 +1305,6 @@ select.mini {
   border-top: 1px solid var(--border);
   background: var(--bg-foot);
   flex: none;
-}
-
-.editor-hint {
-  font-size: 11px;
-  color: var(--faint);
-}
-
-.editor-hint code {
-  background: var(--surface-2);
-  border-radius: 4px;
-  padding: 1px 5px;
 }
 
 .saved {
@@ -1369,6 +1353,17 @@ select.mini {
   line-height: 1.6;
   color: var(--dim);
   margin: 0 0 14px;
+}
+
+.info {
+  font-size: 11px;
+  color: var(--faint);
+  cursor: help;
+  vertical-align: 1px;
+}
+
+.info:hover {
+  color: var(--dim);
 }
 
 .lbl-soft {
@@ -1659,6 +1654,12 @@ dialog::backdrop {
   margin: -6px 0 0;
 }
 
+/* Encurtada para uma linha, a nota encostava no rótulo seguinte — o parágrafo
+   longo que havia aqui antes disfarçava o `margin-bottom: 0`. */
+.card-note.tight + .lbl {
+  margin-top: 14px;
+}
+
 .settings-actions {
   display: flex;
   align-items: center;
@@ -1794,15 +1795,6 @@ dialog::backdrop {
   flex: none;
   accent-color: var(--accent);
   cursor: pointer;
-}
-
-.edit-hint {
-  font-size: 11px;
-  color: var(--faint);
-  padding: 8px 20px 10px;
-  text-align: center;
-  border-top: 1px solid var(--border);
-  flex: none;
 }
 
 audio {

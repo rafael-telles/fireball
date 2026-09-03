@@ -128,7 +128,7 @@
             </section>
           </div>
         </div>
-        <div class="hint">Fechar a janela não desliga o Fireball — ele continua na bandeja.</div>
+        <div class="hint">Fechar a janela mantém o Fireball na bandeja.</div>
       </main>
 
       <!-- ------------------------------------------------------- acervo -->
@@ -250,8 +250,14 @@
             <div class="scroll">
               <div class="ficha">
                 <div>
-                  <input type="text" class="rename" id="mv-rename" placeholder="Sem nome" />
-                  <div class="rename-note" id="rename-note">clique para renomear</div>
+                  <input
+                    type="text"
+                    class="rename"
+                    id="mv-rename"
+                    placeholder="Sem nome"
+                    title="Clique para renomear"
+                  />
+                  <div class="rename-note" id="rename-note"></div>
                 </div>
 
                 <div class="field-group">
@@ -325,10 +331,11 @@
             </div>
             <div class="sum-foot">
               <select class="mini block" id="summary-prompt" title="Com qual prompt gerar"></select>
-              <button class="btn primary block" id="summary-btn">Gerar com outro prompt</button>
-              <div class="field-note">
-                Cada geração fica salva como um resumo próprio — nada é sobrescrito.
-              </div>
+              <button
+                class="btn primary block"
+                id="summary-btn"
+                title="Cada geração fica salva como um resumo próprio — nada é sobrescrito."
+              >Gerar com outro prompt</button>
             </div>
           </div>
 
@@ -376,7 +383,7 @@
                  terminar"; nenhum dos dois existe ainda, e prometer na tela o
                  que a próxima tela não entrega é pior que não dizer nada. O
                  que de fato acontece no fim é a transcrição final. -->
-            <div class="live-bar-note">A transcrição final, mais precisa, roda quando a reunião terminar.</div>
+            <div class="live-bar-note">A transcrição final roda quando a reunião terminar.</div>
           </div>
 
           <!-- Rodapé da gravação encerrada: o áudio da reunião, com a
@@ -404,10 +411,6 @@
             <div class="player-note" id="player-none-note"></div>
           </div>
 
-          <div class="edit-hint hidden" id="edit-hint">
-            Editar ou excluir uma entrada mexe só na transcrição — o áudio original não muda.
-          </div>
-
           <audio id="audio" preload="metadata"></audio>
         </section>
 
@@ -426,16 +429,11 @@
             <span class="tool-sep"></span>
             <button class="tool" data-md="quote" title="Citação">❝</button>
             <button class="tool" data-md="link" title="Link">🔗</button>
-            <span class="grow"></span>
-            <span class="tool-note">markdown · salvo automaticamente em notes.md</span>
           </div>
           <div class="editor-wrap">
             <textarea id="notes" spellcheck="false" placeholder="Escreva enquanto a reunião acontece…"></textarea>
           </div>
           <div class="editor-foot">
-            <span class="editor-hint">
-              <code>##</code> título · <code>-</code> lista · <code>- [ ]</code> tarefa
-            </span>
             <span class="grow"></span>
             <span class="saved" id="notes-status"></span>
           </div>
@@ -450,10 +448,15 @@
           <button class="btn outline icon" id="settings-back" title="Voltar">←</button>
           <div class="headline">
             <div class="mv-name">Configurações</div>
-            <div class="mv-meta">Valem para toda reunião nova — e para a CLI, quando ela não passa a flag.</div>
+            <div class="mv-meta">Valem para toda reunião nova e para a CLI.</div>
           </div>
         </div>
 
+        <!-- O detalhe que não cabe na linha de apoio vive no `title` de um
+             `.info`, e o tooltip nativo do Qt não reflui texto puro: sem as
+             quebras de linha ele sai numa tira só, mais larga que a janela.
+             Por isso os títulos longos continuam na **coluna 0** — indentar
+             essas linhas colocaria os espaços dentro do texto do tooltip. -->
         <div class="tabs">
           <button class="set-tab selected" data-set-tab="transcricao">Transcrição</button>
           <button class="set-tab" data-set-tab="resumo">Resumo</button>
@@ -466,9 +469,7 @@
             <div id="set-pane-transcricao">
             <section class="card">
               <div class="card-title">Transcrição ao vivo</div>
-              <p class="card-note">
-                Roda durante a reunião, sobre o áudio que vai chegando — é ela que alimenta o chat.
-              </p>
+              <p class="card-note">Roda durante a reunião e alimenta o chat.</p>
               <label class="checkbox-row">
                 <input type="checkbox" id="set-live-on" />
                 <span>Transcrever durante a reunião</span>
@@ -480,20 +481,20 @@
             <section class="card">
               <div class="card-title">Transcrição final</div>
               <p class="card-note">
-                Roda depois que a reunião acaba, sobre o áudio inteiro (<code>fireball finalize</code>):
-                mais precisa que a do tempo real. <code>groq</code> é API paga por requisição e só
-                existe aqui.
+                Roda sobre o áudio inteiro depois da reunião (<code>fireball finalize</code>) —
+                mais precisa. <code>groq</code> é API paga por requisição.
               </p>
               <label class="checkbox-row">
                 <input type="checkbox" id="set-final-on" />
                 <span>Transcrever de novo depois da reunião</span>
               </label>
               <p class="card-note tight">
-                Ela <b>reescreve</b> a transcrição por cima — o que é melhor quase sempre, e é
-                perda quando alguém já corrigiu falas à mão. Desligada, o botão
-                <i>Retranscrever</i> sai da tela e <code>fireball finalize</code> recusa, inclusive
-                quando as skills o chamam: é o passo automático delas que a preferência precisa
-                alcançar.
+                Reescreve a transcrição por cima.
+                <span
+                  class="info" title="Quase sempre é o que se quer, e é perda quando alguém já corrigiu
+falas à mão. Desligada, o botão Retranscrever sai da tela e
+fireball finalize recusa, inclusive quando as skills o chamam."
+                >ⓘ</span>
               </p>
               <div class="lbl">Backend</div>
               <select id="set-final-backend"></select>
@@ -502,7 +503,8 @@
                 <span>Ativar diarização por padrão em reuniões novas</span>
               </label>
               <p class="card-note tight">
-                Usa Sortformer ao vivo e novamente na passada final. Pode ser ligado ou desligado em cada reunião.
+                Pode ser ligado ou desligado em cada reunião.
+                <span class="info" title="Usa Sortformer ao vivo e novamente na passada final.">ⓘ</span>
               </p>
 
               <!-- Só aparece com groq escolhido: campo de chave de API numa
@@ -511,20 +513,23 @@
                 <div class="lbl">Chave da Groq</div>
                 <input type="password" id="set-groq-key" placeholder="gsk_…" spellcheck="false" autocomplete="off" />
                 <div class="field-note">
-                  Guardada em <code>~/.fireball/settings.json</code>, com permissão 600. Deixe
-                  vazia para usar <code>GROQ_API_KEY</code> do ambiente. Pegue a sua em
+                  Vazia usa <code>GROQ_API_KEY</code> do ambiente. Pegue a sua em
                   <code>console.groq.com/keys</code>.
+                  <span class="info" title="Guardada em ~/.fireball/settings.json, com permissão 600.">ⓘ</span>
                 </div>
               </div>
             </section>
 
             <section class="card">
               <div class="card-title">Idioma</div>
-              <div class="lbl">Código curto da fala esperada (pt, en, es…)</div>
+              <div class="lbl">Código da fala (pt, en, es…)</div>
               <input type="text" id="set-language" />
               <div class="field-note">
-                É o que o motor de transcrição espera ouvir. O resumo sai em português de
-                qualquer jeito — isso está na parte fixa do pedido, não no prompt.
+                O resumo sai em português de qualquer jeito.
+                <span
+                  class="info" title="O código vale para o motor de transcrição. O idioma do resumo está
+na parte fixa do pedido, não no prompt."
+                >ⓘ</span>
               </div>
             </section>
             </div>
@@ -533,15 +538,14 @@
             <section class="card">
               <div class="card-title">Resumo, nome e tags</div>
               <p class="card-note">
-                O mesmo provedor escreve as três coisas de uma vez, a partir da transcrição.
-                <code>claude_code</code> usa o Claude Code instalado na máquina — não pede chave
-                de API, mas precisa dele autenticado (<code>claude</code> no PATH, com login
-                feito). <code>openai_api</code> é qualquer API compatível com OpenAI: a da
-                OpenAI, OpenRouter, Groq, Ollama, llama.cpp, LM Studio — você diz a URL, a chave
-                e o modelo.
+                O mesmo provedor escreve as três coisas a partir da transcrição.
               </p>
               <div class="lbl">Provedor</div>
               <select id="set-summary-provider"></select>
+              <!-- Preenchida por renderProviderFields(): descrever os dois
+                   provedores com um só escolhido era metade de um parágrafo
+                   falando de configuração que não está em uso. -->
+              <div class="field-note" id="summary-provider-note"></div>
 
               <!-- Só aparece com openai_api escolhido: campo de chave de API
                    numa tela onde ele não é usado é convite a preencher errado. -->
@@ -549,17 +553,20 @@
                 <div class="lbl">URL da API</div>
                 <input type="text" id="set-openai-url" placeholder="https://api.openai.com/v1" spellcheck="false" />
                 <div class="field-note">
-                  A base, normalmente terminada em <code>/v1</code> — o <code>/chat/completions</code>
-                  entra sozinho. Servidor local costuma ser
-                  <code>http://localhost:11434/v1</code> (Ollama) ou <code>:1234/v1</code> (LM Studio).
+                  A base, terminada em <code>/v1</code> — Ollama é
+                  <code>http://localhost:11434/v1</code>.
+                  <span
+                    class="info" title="O /chat/completions entra sozinho. LM Studio costuma ser
+http://localhost:1234/v1."
+                  >ⓘ</span>
                 </div>
 
                 <div class="lbl">Chave</div>
                 <input type="password" id="set-openai-key" placeholder="sk-…" spellcheck="false" autocomplete="off" />
                 <div class="field-note">
-                  Guardada em <code>~/.fireball/settings.json</code>, com permissão 600. Deixe
-                  vazia para usar <code>FIREBALL_OPENAI_API_KEY</code> do ambiente — ou quando o
-                  servidor é local e não pede chave.
+                  Vazia usa <code>FIREBALL_OPENAI_API_KEY</code>, ou nada quando o servidor é
+                  local.
+                  <span class="info" title="Guardada em ~/.fireball/settings.json, com permissão 600.">ⓘ</span>
                 </div>
 
                 <div class="lbl">Modelo</div>
@@ -572,31 +579,32 @@
                 <span>Gerar sozinho quando a reunião terminar</span>
               </label>
               <p class="card-note tight">
-                Roda ao fim da gravação e de novo quando a transcrição final fica pronta (ela
-                reescreve a transcrição, e o resumo antigo passa a ser sobre um texto que não
-                existe mais). É o que faz uma reunião sem nome ganhar um sem ninguém pedir.
-                Desligado, o resumo só sai no botão <i>Gerar</i>. Reunião simulada
-                (<code>--fake</code>) nunca gera sozinha — ela existe pra testar o pipeline sem
-                gastar API.
+                Roda ao fim da gravação e de novo quando a transcrição final fica pronta.
+                <span
+                  class="info" title="A transcrição final reescreve o texto, e o resumo antigo passaria
+a ser sobre algo que não existe mais. É o que faz uma reunião sem
+nome ganhar um. Desligado, o resumo só sai no botão Gerar. Reunião
+simulada (--fake) nunca gera sozinha."
+                >ⓘ</span>
               </p>
             </section>
 
             <section class="card">
               <div class="card-title">Prompts do resumo</div>
               <p class="card-note">
-                Um prompt diz <b>o que o resumo deve conter e em que forma</b>. O resto do pedido
-                é sempre o mesmo e não se edita: de onde vem a transcrição, o que significam os
-                os rótulos de falante, e o JSON com <code>title</code>, <code>tags</code> e
-                <code>summary</code> — é isso que faz qualquer prompt continuar rendendo nome e
-                tags para a reunião.
+                O prompt diz o que o resumo deve conter e em que forma.
+                <span
+                  class="info" title="O resto do pedido é sempre o mesmo e não se edita: de onde vem a
+transcrição, o que significam os rótulos de falante, e o JSON com
+title, tags e summary — é isso que faz qualquer prompt continuar
+rendendo nome e tags para a reunião."
+                >ⓘ</span>
               </p>
 
               <div class="lbl">Padrão</div>
               <select id="set-summary-prompt"></select>
               <div class="field-note">
-                Vale para reunião que ainda não foi resumida. Depois de resumida, ela lembra o
-                prompt que usou — regerar e o resumo automático pós-<code>finalize</code> repetem
-                a escolha em vez de trocar de formato no meio do caminho.
+                Vale para reunião ainda não resumida; depois ela lembra o prompt que usou.
               </div>
 
               <div class="prompt-list" id="prompt-list"></div>
@@ -610,11 +618,12 @@
             <section class="card">
               <div class="card-title">Provedor de agenda</div>
               <p class="card-note">
-                Lê os próximos eventos e deixa iniciar a reunião a partir de um — já com nome,
-                local, descrição e convidados, que também viram contexto do resumo.
-                <code>gog</code> usa o gogcli instalado na máquina (já autenticado); o Fireball
-                não guarda token nenhum. <i>Desligado</i> é o padrão: a home mostra o estado
-                vazio e nenhum binário é chamado.
+                Lê os próximos eventos e deixa iniciar a reunião a partir de um.
+                <span
+                  class="info" title="A reunião já começa com nome, local, descrição e convidados, que
+também viram contexto do resumo. gog usa o gogcli da máquina (já
+autenticado); o Fireball não guarda token nenhum."
+                >ⓘ</span>
               </p>
               <div class="lbl">Provedor</div>
               <select id="set-calendar-provider"></select>
@@ -625,9 +634,8 @@
                 <div class="lbl">Conta do gog</div>
                 <input type="text" id="set-gog-account" placeholder="voce@empresa.com" spellcheck="false" autocomplete="username" />
                 <div class="field-note">
-                  E-mail passado como <code>--account</code>. Deixe vazio se o gog já tem uma
-                  conta só autenticada. Token morto: rode
-                  <code>gog auth add &lt;email&gt;</code>.
+                  E-mail passado como <code>--account</code>. Vazio usa a única conta autenticada.
+                  <span class="info" title="Token morto: rode gog auth add &lt;email&gt;.">ⓘ</span>
                 </div>
               </div>
             </section>
@@ -637,9 +645,12 @@
             <section class="card">
               <div class="card-title">Vozes cadastradas</div>
               <p class="card-note">
-                O Fireball guarda somente embeddings biométricos locais, nunca cópias de áudio.
-                Cadastre uma pessoa clicando em <code>Sala N</code> ou <code>Remoto N</code>
-                depois de finalizar uma reunião diarizada. Edite nome e e-mails aqui depois.
+                Cadastre clicando em <code>Sala N</code> ou <code>Remoto N</code> numa reunião
+                diarizada já finalizada.
+                <span
+                  class="info" title="O Fireball guarda somente embeddings biométricos locais, nunca
+cópias de áudio."
+                >ⓘ</span>
               </p>
               <div class="prompt-list" id="voice-list"></div>
               <div class="field-note" id="voice-empty">Nenhuma voz cadastrada.</div>
@@ -648,11 +659,13 @@
             <section class="card">
               <div class="card-title">Minha voz</div>
               <p class="card-note">
-                Qual dos perfis é o seu. É o que junta num participante só o
-                <code>Você</code> do microfone, o nome que a diarização reconheceu e o seu
-                convidado na agenda — sem isso a mesma pessoa aparece três vezes na ficha da
-                reunião. Os e-mails do perfil são o que faz essa ligação, então vale cadastrar
-                nele o e-mail com que a agenda te convida.
+                Junta num participante só o <code>Você</code> do microfone, o nome que a
+                diarização reconheceu e o seu convidado na agenda.
+                <span
+                  class="info" title="Sem isso a mesma pessoa aparece três vezes na ficha da reunião. Os
+e-mails do perfil são o que faz a ligação, então vale cadastrar
+nele o e-mail com que a agenda te convida."
+                >ⓘ</span>
               </p>
               <div class="lbl">Perfil</div>
               <select id="set-my-voice"></select>
@@ -690,10 +703,12 @@
         <div class="lbl">Instruções</div>
         <textarea id="prompt-instructions" rows="16" spellcheck="false"></textarea>
         <div class="field-note">
-          Escreva como se continuasse a frase "e o resumo deve ficar assim". Peça
-          <code>summary</code> em markdown; um prompt que peça lista também funciona. O resto do
-          pedido — os falantes e o JSON com <code>title</code>, <code>tags</code> e
-          <code>summary</code> — entra sozinho, e não se edita aqui.
+          Escreva como se continuasse a frase "e o resumo deve ficar assim".
+          <span
+            class="info" title="Peça summary em markdown; um prompt que peça lista também
+funciona. O resto do pedido — os falantes e o JSON com title, tags
+e summary — entra sozinho, e não se edita aqui."
+          >ⓘ</span>
         </div>
 
         <div class="alert bad hidden" id="prompt-error"></div>
@@ -723,8 +738,7 @@
         <label class="lbl" for="voice-email">E-mail (opcional)</label>
         <input type="email" id="voice-email" placeholder="pessoa@empresa.com" />
         <div class="field-note" id="voice-privacy-note">
-          Ao salvar, você confirma manualmente quem falou. O Fireball extrai a voz dos
-          trechos desta reunião e guarda apenas embeddings locais para reconhecê-la no futuro.
+          O Fireball guarda apenas embeddings locais da voz, nunca cópias de áudio.
         </div>
         <div class="alert bad hidden" id="voice-error"></div>
       </div>
@@ -757,8 +771,7 @@
           <button class="btn outline small" type="button" id="voice-edit-add">Adicionar</button>
         </div>
         <div class="field-note">
-          Os e-mails ligam a voz a convidados da agenda. Dá para escolher um da lista
-          ou escrever outro. Vários endereços valem para a mesma pessoa.
+          Os e-mails ligam a voz a convidados da agenda; vários valem para a mesma pessoa.
         </div>
         <div class="alert bad hidden" id="voice-edit-error"></div>
       </div>
