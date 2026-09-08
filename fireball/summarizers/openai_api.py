@@ -49,6 +49,12 @@ TEMPERATURE = 0.2
 # (403 "error code: 1010") antes mesmo de olhar a chave — daí a nossa.
 USER_AGENT = "fireball"
 
+# Gateway que roteia entre modelos (o zen do opencode é um) recusa a requisição
+# inteira sem um id estável de conversa no cabeçalho. Mandamos o id da reunião:
+# regerar o resumo da mesma reunião cai na mesma conversa, que é o que deixa o
+# cache de prompt do outro lado servir para alguma coisa.
+SESSION_HEADER = "x-opencode-session"
+
 ENV_BASE_URL = "FIREBALL_OPENAI_BASE_URL"
 ENV_API_KEY = "FIREBALL_OPENAI_API_KEY"
 ENV_MODEL = "FIREBALL_OPENAI_MODEL"
@@ -93,17 +99,20 @@ class OpenAICompatibleSummarizer:
 
     # ------------------------------------------------------------- http
 
-    def _post(self, payload: dict) -> dict:
+    def _post(self, payload: dict, session: str = "") -> dict:
+        headers = {
+            "Content-Type": "application/json",
+            # servidor local costuma ignorar a chave; mandar mesmo assim é
+            # inofensivo e evita um caminho de código a menos pra testar
+            "Authorization": f"Bearer {self.api_key}",
+            "User-Agent": USER_AGENT,
+        }
+        if session:
+            headers[SESSION_HEADER] = session
         request = urllib.request.Request(
             chat_completions_url(self.base_url),
             data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                # servidor local costuma ignorar a chave; mandar mesmo assim é
-                # inofensivo e evita um caminho de código a menos pra testar
-                "Authorization": f"Bearer {self.api_key}",
-                "User-Agent": USER_AGENT,
-            },
+            headers=headers,
             method="POST",
         )
         try:
@@ -152,15 +161,16 @@ class OpenAICompatibleSummarizer:
             ],
             "response_format": {"type": "json_object"},
         }
+        session = str(meeting.get("id") or "")
         try:
-            data = self._post(payload)
+            data = self._post(payload, session)
         except SummarizerUnavailable as exc:
             # servidor compatível que não conhece response_format recusa a
             # requisição inteira; o prompt já pede JSON, então vai sem o campo
             if not _rejected_response_format(exc):
                 raise
             payload.pop("response_format")
-            data = self._post(payload)
+            data = self._post(payload, session)
 
         return parse_result(_content(data))
 
