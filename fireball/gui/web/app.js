@@ -729,8 +729,6 @@ function renderFicha() {
   el("mv-when").textContent = [day, to ? `${from} – ${to}` : `${from} — em andamento`]
     .filter(Boolean)
     .join(" · ");
-  el("mv-path").textContent = o.path || "";
-
   const diarize = el("mv-diarize");
   diarize.checked = Boolean(m.diarize);
   diarize.disabled = o.live || m.status === "finalizing";
@@ -959,15 +957,9 @@ function renderPeople() {
   }
 
   const detected = groups.filter((group) => group.tracks.size || group.slot || group.seconds).length;
-  const unnamed = groups.filter((group) => group.slot).length;
   el("mv-people-count").textContent = detected
     ? `${detected} ${detected === 1 ? "detectada" : "detectadas"}`
     : "";
-  el("mv-voices-note").textContent = unnamed
-    ? `${unnamed} sem nome`
-    : state.voices.length
-      ? `${state.voices.length} cadastrada${state.voices.length === 1 ? "" : "s"}`
-      : "";
 }
 
 /** O e-mail que o evento de agenda conhece para este nome. */
@@ -4135,11 +4127,6 @@ async function onExportTranscript() {
   }
 }
 
-async function onManageVoices() {
-  await openSettings();
-  showSettingsTab("vozes");
-}
-
 // ------------------------------------------------------------------ boot
 
 function tick() {
@@ -4160,7 +4147,6 @@ async function boot() {
   el("tr-export").addEventListener("click", onExportTranscript);
   el("mv-diarize").addEventListener("change", onDiarizeChange);
   el("files-tab").addEventListener("click", onOpenFolder);
-  el("manage-voices").addEventListener("click", onManageVoices);
   el("delete-btn").addEventListener("click", onDelete);
   el("pause-btn").addEventListener("click", (event) => {
     const o = state.open;
@@ -4259,7 +4245,6 @@ async function boot() {
   }
 
   el("settings-btn").addEventListener("click", openSettings);
-  el("mv-settings").addEventListener("click", openSettings);
   el("config-link").addEventListener("click", openSettings);
   el("settings-back").addEventListener("click", goHome);
   el("settings-save").addEventListener("click", onSaveSettings);

@@ -1030,13 +1030,6 @@ select.mini {
   flex: none;
 }
 
-.path {
-  font: 10.5px/1.5 ui-monospace, Menlo, monospace;
-  color: var(--faint);
-  margin-top: 7px;
-  word-break: break-all;
-}
-
 /* ................................................ aba Transcrição */
 
 .source-switch {
@@ -2027,9 +2020,6 @@ audio {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
 }
 
 /* Excluir não ganha o vermelho cheio de "iniciar/parar": não é a ação que se
