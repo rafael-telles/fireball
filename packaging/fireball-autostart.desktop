@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Fireball
+Comment=Sobe o daemon e a bandeja do Fireball na entrada da sessão
+Exec=sh -c "sleep 3; exec /home/rafael/Desktop/fireball/.venv/bin/fireball daemon start"
+Icon=/home/rafael/Desktop/fireball/packaging/fireball.svg
+Terminal=false
+Categories=AudioVideo;Recorder;
+X-GNOME-Autostart-enabled=true

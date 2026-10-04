@@ -391,6 +391,26 @@ A bandeja tem status em três estados (ocioso, gravando, parando) e menu (abrir 
 reunião atual, sair). Fechar a janela só esconde — o Fireball continua ligado, e continua na
 bandeja.
 
+### Entrar junto com a sessão
+
+Quem quer o Fireball de pé assim que entra na sessão copia a entrada de autostart (o atalho do
+menu de aplicativos é outro arquivo, `packaging/fireball.desktop`):
+
+```bash
+mkdir -p ~/.config/autostart
+cp packaging/fireball-autostart.desktop ~/.config/autostart/
+```
+
+Ela roda `fireball daemon start`, que é idempotente: não briga com um `fireball-gui` aberto na
+mão nem sobe um segundo daemon. O `sleep 3` antes existe porque o ícone precisa do painel já no
+ar — o daemon sobe antes do host da bandeja e o ícone simplesmente não vem (o Qt só pergunta uma
+vez se há bandeja). Quem preferir abrir a janela ao entrar na sessão troca o `Exec` por
+`fireball-gui`.
+
+O daemon demora por volta de um minuto e meio para subir a primeira vez (ele carrega os modelos de
+transcrição), então a bandeja aparece um pouco depois da área de trabalho. Enquanto isso já vale
+o de sempre: qualquer comando do `fireball` sobe o daemon se ele ainda não estiver no ar.
+
 ### A janela
 
 A **barra lateral** é a navegação, e está em toda tela. Ela tem, de cima pra baixo: o botão de
