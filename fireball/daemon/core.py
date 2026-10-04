@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-from fireball import catalog, control, prompts, settings, storage, summaries, voices
+from fireball import catalog, control, prompts, settings, storage, summaries, voices, watch
 from fireball.calendars import CalendarUnavailable, get_calendar_provider
 from fireball.daemon import protocol
 
@@ -124,6 +124,10 @@ class DaemonCore:
         self._window_opener: Optional[Callable[[], None]] = None
         # um refresh de agenda em voo por vez — o poll de 2s não re-dispara gog
         self._agenda_refreshing = False
+        # avisos de gravação esquecida: a regra é do `fireball.watch`, o relógio
+        # é do daemon (mesma forma da supervisão do engine)
+        self._watch = watch.Watch()
+        self._notifier: Optional[Callable[[str, str], None]] = None
 
     # ---------------------------------------------------------------- boot
 
@@ -155,6 +159,7 @@ class DaemonCore:
                     job = Job(meeting_id=meeting_id, kind="engine", pid=pid)
                     self._recording = job
                     self._supervise(job)
+                    self._start_watch(meeting_id)
                     # o engine adotado guarda a própria pausa (os parecord
                     # seguem parados); dar 'recording' aqui mostraria uma
                     # reunião gravando que não está capturando nada.
@@ -217,6 +222,38 @@ class DaemonCore:
                 print(f"[daemon] resumo atualizado de {job.meeting_id} não subiu: {exc}", flush=True)
         elif transcript_changed:
             self._auto_summarize(job.meeting_id)
+
+    # --------------------------------------------------------------- vigia
+    def _start_watch(self, meeting_id: str) -> None:
+        """Um vigia por gravação: enquanto ela for a reunião ativa, olha o
+        relógio e a transcrição e avisa. Thread daemon, como a supervisão.
+
+        Vale também para a reunião **adotada** no boot (`recover`): é
+        justamente ela o caso de "esqueci gravando"."""
+        job = self._recording
+        if job is None or job.meeting_id != meeting_id:
+            return
+        threading.Thread(
+            target=self._watch_loop, args=(job,), daemon=True, name="fireball-watch"
+        ).start()
+
+    def _watch_loop(self, job: Job) -> None:
+        while True:
+            time.sleep(watch.INTERVALO_S)
+            with self._lock:
+                ativo, desligando = self._recording, self._shutting_down
+            if ativo is not job or desligando:
+                return  # a gravação acabou: o vigia sai junto com ela
+            try:
+                reuniao = control.read_meeting(job.meeting_id)
+                avisos = self._watch.avaliar(
+                    reuniao, storage.meeting_path(job.meeting_id), settings.load()
+                )
+            except Exception as exc:  # noqa: BLE001 — o vigia não morre por um tick ruim
+                print(f"[daemon] vigia de {job.meeting_id} falhou: {exc}", flush=True)
+                continue
+            for aviso in avisos:
+                self._notificar(aviso["titulo"], aviso["corpo"])
 
     def _persist_speaker_labels(self, meeting_id: str) -> None:
         """Fixa na transcrição os nomes dados durante a gravação.
@@ -293,6 +330,37 @@ class DaemonCore:
         with self._lock:
             self._window_opener = opener
 
+    def set_notifier(self, notifier: Optional[Callable[[str, str], None]]) -> None:
+        """Quem desenha o aviso de gravação esquecida.
+
+        A casca gráfica passa o sinal da bandeja (ver
+        `fireball.gui.shell.run`); sem casca, o aviso sai por `notify-send`, de
+        modo que daemon headless também avisa quem estiver na sessão."""
+        with self._lock:
+            self._notifier = notifier
+
+    def _notificar(self, titulo: str, corpo: str) -> None:
+        """Um aviso, pelo melhor caminho disponível — nunca por mais de um."""
+        # o log fica sempre: é o registro de que o aviso existiu, mesmo quando a
+        # bandeja desenhou ele
+        print(f"[daemon] aviso: {titulo} — {corpo.splitlines()[0]}", flush=True)
+        with self._lock:
+            alvo = self._notifier
+        if alvo is not None:
+            try:
+                alvo(titulo, corpo)
+                return
+            except Exception as exc:  # noqa: BLE001 — avisar não derruba o daemon
+                print(f"[daemon] aviso pela casca falhou: {exc}", flush=True)
+        try:
+            subprocess.run(
+                ["notify-send", "-u", "critical", "-a", "Fireball",
+                 "-i", "audio-input-microphone", titulo, corpo],
+                timeout=10, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # sem notify-send, sobra o log
+
     def has_shell(self) -> bool:
         with self._lock:
             return self._window_opener is not None
@@ -321,6 +389,7 @@ class DaemonCore:
                 "shell": self._window_opener is not None,
                 "active": control.read_meeting(self._recording.meeting_id) if self._recording else None,
                 "finalizing": sorted(self._finalizing),
+                "aviso": self._watch.ultimo_aviso,
             }
 
     def active(self) -> Optional[dict]:
@@ -410,6 +479,7 @@ class DaemonCore:
 
             self._recording = job
             self._supervise(job)
+            self._start_watch(meeting_id)
             return control.update_meeting(meeting_id, status="recording", engine_pid=job.pid)
 
     def agenda(self, refresh: bool = False) -> dict:

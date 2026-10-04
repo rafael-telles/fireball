@@ -3387,7 +3387,12 @@ function renderConfigSummary() {
   const live = s.transcribe_live ? `ao vivo: ${s.realtime_backend}` : "sem transcrição ao vivo";
   const final = s.transcribe_final ? `final: ${s.final_backend}` : "sem transcrição final";
   const diarize = s.diarize_default ? "diarização padrão ligada" : "diarização opcional";
-  el("config-summary-text").textContent = `${live} · ${final} · ${diarize} · ${s.language}`;
+  const limites = [];
+  if (s.aviso_silencio_minutos) limites.push(`${s.aviso_silencio_minutos}min sem falar`);
+  if (s.aviso_minutos) limites.push(`${s.aviso_minutos}min gravando`);
+  const avisos = limites.length ? `avisos: ${limites.join(" / ")}` : "sem avisos";
+  el("config-summary-text").textContent =
+    `${live} · ${final} · ${diarize} · ${s.language} · ${avisos}`;
   el("start-diarize").checked = Boolean(s.diarize_default);
 }
 
@@ -3803,6 +3808,8 @@ function renderSettings() {
   el("set-final-on").checked = s.transcribe_final;
   el("set-diarize-default").checked = s.diarize_default;
   el("set-auto-summarize").checked = s.auto_summarize;
+  el("set-aviso-silencio-minutos").value = s.aviso_silencio_minutos;
+  el("set-aviso-minutos").value = s.aviso_minutos;
   el("set-openai-url").value = s.openai_base_url || "";
   el("set-openai-key").value = s.openai_api_key || "";
   el("set-openai-model").value = s.openai_model || "";
@@ -3879,6 +3886,8 @@ async function onSaveSettings() {
       summary_provider: el("set-summary-provider").value,
       summary_prompt: el("set-summary-prompt").value,
       auto_summarize: el("set-auto-summarize").checked,
+      aviso_silencio_minutos: Number(el("set-aviso-silencio-minutos").value),
+      aviso_minutos: Number(el("set-aviso-minutos").value),
       openai_base_url: el("set-openai-url").value,
       openai_api_key: el("set-openai-key").value,
       openai_model: el("set-openai-model").value,

@@ -74,6 +74,9 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
         signal cruza a fronteira com segurança (conexão enfileirada)."""
 
         show_requested = pyqtSignal()
+        # o vigia roda numa thread do daemon e mexer em widget fora do thread do
+        # Qt é falha na certa: o signal cruza a fronteira com segurança
+        aviso = pyqtSignal(str, str)
 
     # o áudio das reuniões precisa sair por http para o <audio> da página
     # conseguir tocar (ver gui/audio_server.py) — e vive só enquanto a janela
@@ -135,6 +138,13 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
     tray = TrayIcon(core=core, show_window=bridge.show_requested.emit, quit_app=request_quit)
     tray.show()
 
+    # aviso de gravação esquecida: a regra é do daemon, o desenho é da bandeja
+    bridge.aviso.connect(lambda titulo, corpo: tray.showMessage(
+        "Fireball", f"{titulo}\n{corpo}",
+        QSystemTrayIcon.MessageIcon.Warning, 0,
+    ))
+    core.set_notifier(bridge.aviso.emit)
+
     if not QSystemTrayIcon.isSystemTrayAvailable():
         print(
             "[shell] atenção: este ambiente não expõe bandeja do sistema; "
@@ -158,6 +168,7 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
         webview.start(gui="qt")
     finally:
         core.set_window_opener(None)
+        core.set_notifier(None)
         audio_server.stop()
         tray.hide()
         stop_event.set()  # janela fechada de vez == daemon desligando

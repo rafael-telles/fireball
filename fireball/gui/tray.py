@@ -12,6 +12,7 @@ contexto de thread do Qt/OpenGL num teste manual. Um toolkit só.
 
 from __future__ import annotations
 
+import datetime as _dt
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QTimer, Qt
@@ -43,6 +44,26 @@ def _dot_icon(color: str) -> QIcon:
     painter.drawEllipse(8, 8, 48, 48)
     painter.end()
     return QIcon(pixmap)
+
+
+def _tempo_gravando(active: dict) -> str:
+    """' (há 1 h 32 min)' para o tooltip — o aviso mais barato é o que não interrompe.
+
+    Reunião sem `started_at` legível não inventa tempo: devolve string vazia.
+    """
+    inicio = active.get("started_at")
+    if not inicio:
+        return ""
+    try:
+        minutos = (_dt.datetime.now(_dt.timezone.utc)
+                   - _dt.datetime.fromisoformat(inicio)).total_seconds() / 60
+    except ValueError:
+        return ""
+    if minutos < 1:
+        return ""
+    if minutos >= 60:
+        return f" (há {int(minutos // 60)} h {int(minutos % 60):02d} min)"
+    return f" (há {int(minutos)} min)"
 
 
 class TrayIcon(QSystemTrayIcon):
@@ -112,5 +133,5 @@ class TrayIcon(QSystemTrayIcon):
         # reunião gravando quase nunca tem nome ainda (quem nomeia é o resumo,
         # depois); o rótulo genérico é melhor que um "None" na bandeja
         name = (active.get("name") or "").strip() or "reunião sem nome"
-        self.setToolTip(f"Fireball — {STATE_LABEL.get(status, status)}: {name}")
+        self.setToolTip(f"Fireball — {STATE_LABEL.get(status, status)}: {name}{_tempo_gravando(active)}")
         self._stop_action.setEnabled(status != "stopping")

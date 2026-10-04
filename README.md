@@ -112,6 +112,15 @@ conferência evita o risco antigo de mandar SIGTERM para um PID reciclado pelo s
 **Um daemon só.** `flock` exclusivo em `$FIREBALL_HOME/daemon.lock` — duas subidas simultâneas
 resolvem aí, sem janela de corrida; quem perde sai quieto e usa o socket de quem ganhou.
 
+**A gravação esquecida avisa.** Quem grava entra na reunião e esquece o botão; horas depois
+existe uma reunião de quatro horas que era de quarenta minutos. O daemon vigia a reunião ativa
+enquanto ela existe e avisa quando ela passa do ponto — minutos sem ninguém falar (o mesmo VAD
+que fecha as falas da transcrição decide isso: sem fala fechada, sem linha nova no arquivo),
+minutos de relógio, ou áudio parado (engine morto com o microfone tomado). O aviso sai pela
+bandeja; num daemon sem casca gráfica, sai por `notify-send`. Ele **só avisa**: parar a reunião
+continua sendo decisão de quem está nela. Os limiares ficam na configuração
+(`aviso_silencio_minutos`, `aviso_minutos`), com `0` desligando o aviso.
+
 ### Estados de uma reunião
 
 `starting` → `recording` → `stopping` → `stopped` → `finalizing` → `finalized`
@@ -769,6 +778,8 @@ está nos campos dela.
 | `summary_provider` | quem escreve nome, tags e resumo a partir da transcrição | `claude_code` |
 | `summary_prompt` | qual prompt salvo o resumo usa quando ninguém escolhe | `padrao` |
 | `auto_summarize` | gerar as três coisas sozinho quando a reunião termina | `true` |
+| `aviso_silencio_minutos` | avisar depois de tanto tempo sem ninguém falar (`0` desliga) | `10` |
+| `aviso_minutos` | avisar depois de tanto tempo gravando (`0` desliga) | `75` |
 | `openai_base_url` | URL da API compatível com OpenAI (provedor `openai_api`) | vazio |
 | `openai_api_key` | chave dessa API | vazio |
 | `openai_model` | id do modelo nela | vazio |

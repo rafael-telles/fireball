@@ -57,6 +57,12 @@ DEFAULTS = {
     # "reunião nasce sem nome, a IA nomeia" acontecer sem ninguém clicar —
     # sem isso a reunião ficaria sem nome até alguém lembrar de pedir.
     "auto_summarize": True,
+    # avisar quando a gravação passa do ponto: minutos de relógio e minutos sem
+    # ninguém falar (o VAD do Fireball carimba cada fala fechada, então "sem
+    # falar" é "sem linha nova na transcrição"). 0 desliga o aviso — e desligar
+    # precisa ser resposta possível, então o zero é valor legítimo, não "vazio".
+    "aviso_minutos": 75,
+    "aviso_silencio_minutos": 10,
     # provedor 'openai_api': qualquer API compatível com OpenAI. Vazio aqui
     # não é erro — significa "ainda não configurado", ou "está no ambiente".
     "openai_base_url": "",
@@ -119,6 +125,13 @@ def _coerce(key: str, value) -> Optional[object]:
     if key == "language":
         text = str(value or "").strip()
         return text or None
+    if key in ("aviso_minutos", "aviso_silencio_minutos"):
+        # inteiro >= 0, com 0 = desligado (ver DEFAULTS)
+        try:
+            minutos = int(value)
+        except (TypeError, ValueError):
+            return None
+        return minutos if minutos >= 0 else None
     return None
 
 

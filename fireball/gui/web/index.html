@@ -581,6 +581,28 @@ nome ganhar um. Desligado, o resumo só sai no botão Gerar. Reunião
 simulada (--fake) nunca gera sozinha."
                 >ⓘ</span>
               </p>
+
+              <div class="lbl">Avisar quando a gravação passa do ponto</div>
+              <div class="subcard">
+                <div class="lbl">Minutos sem ninguém falar</div>
+                <input type="number" id="set-aviso-silencio-minutos" min="0" step="5" />
+                <div class="field-note">
+                  0 desliga este aviso.
+                  <span
+                    class="info" title="Quem decide que alguém falou é o mesmo VAD que fecha as falas da
+transcrição: sem fala fechada, sem linha nova no arquivo. Vale só com
+a transcrição ao vivo ligada — sem ela não existe a medida."
+                  >ⓘ</span>
+                </div>
+
+                <div class="lbl">Minutos gravando</div>
+                <input type="number" id="set-aviso-minutos" min="0" step="15" />
+                <div class="field-note">0 desliga este aviso.</div>
+              </div>
+              <p class="card-note tight">
+                Avisos aparecem na bandeja, e por notificação do sistema quando o Fireball roda sem
+                janela. Eles só avisam: quem para a reunião é você.
+              </p>
             </section>
 
             <section class="card">
