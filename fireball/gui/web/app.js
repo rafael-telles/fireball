@@ -4337,12 +4337,63 @@ async function boot() {
   renderHome();
   await refreshStatus();
 
-  setInterval(refreshStatus, POLL_STATUS_MS);
-  setInterval(() => {
-    if (state.view === "meeting" && state.open && state.open.live) pollChat();
-  }, POLL_CHAT_MS);
-  setInterval(tick, 1000);
+  ligarRelogios();
 }
+
+/* Os três relógios da tela: o status (que descobre reunião nova), o chat da
+   reunião ao vivo e o cronômetro local. Com a janela escondida — minimizada,
+   atrás de outra ou em outra área de trabalho — não há nada para atualizar, e
+   cada volta custa layout num renderer que vive semanas. Ao voltar, uma volta
+   de cada um antes de religar evita mostrar a tela velha. */
+const RELOGIOS = [
+  { ms: POLL_STATUS_MS, fn: () => refreshStatus() },
+  { ms: POLL_CHAT_MS, fn: () => {
+      if (state.view === "meeting" && state.open && state.open.live) pollChat();
+    } },
+  { ms: 1000, fn: () => tick() },
+];
+
+function ligarRelogios() {
+  RELOGIOS.forEach((relogio) => {
+    if (!relogio.id) relogio.id = setInterval(relogio.fn, relogio.ms);
+  });
+}
+
+function desligarRelogios() {
+  RELOGIOS.forEach((relogio) => {
+    if (relogio.id) {
+      clearInterval(relogio.id);
+      relogio.id = null;
+    }
+  });
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    desligarRelogios();
+    return;
+  }
+  RELOGIOS.forEach((relogio) => relogio.fn());
+  ligarRelogios();
+});
+
+/* Uma resposta para uma chamada desta página pode chegar depois de a página
+   ser trocada: o pywebview entrega o resultado com um `evaluate_js`, e o
+   Chromium pode rodar esse JS já no documento novo, onde o callback da chamada
+   não existe — vira `TypeError` e traceback no log do daemon (ver
+   fireball/gui/pagina.py, que tem o mesmo remendo do outro lado). O proxy
+   devolve no-op para o que não existe e deixa passar o que está registrado. */
+function perdoarRespostasAtrasadas() {
+  const api = window.pywebview;
+  if (!api || !api._returnValuesCallbacks) return;
+  const registro = api._returnValuesCallbacks;
+  api._returnValuesCallbacks = new Proxy(registro, {
+    get: (alvo, chave) => alvo[chave] ?? new Proxy({}, { get: () => () => {} }),
+  });
+}
+
+if (window.pywebview && window.pywebview._returnValuesCallbacks) perdoarRespostasAtrasadas();
+window.addEventListener("pywebviewready", perdoarRespostasAtrasadas);
 
 if (window.pywebview && window.pywebview.api) boot();
 else window.addEventListener("pywebviewready", boot);

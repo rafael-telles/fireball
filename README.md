@@ -391,6 +391,24 @@ A bandeja tem status em três estados (ocioso, gravando, parando) e menu (abrir 
 reunião atual, sair). Fechar a janela só esconde — o Fireball continua ligado, e continua na
 bandeja.
 
+### A página só existe com a janela aberta
+
+`fireball daemon start` sobe a janela **escondida**, e janela escondida não carrega o app: ela fica
+numa página vazia, sem relógio nenhum (`fireball/gui/pagina.py`). A página do app entra quando a
+janela aparece e é largada de novo quando ela fecha. É isso que devolve a memória do renderer do
+QtWebEngine, que rodando uma semana seguida acumula tudo o que desenha e nunca devolve.
+
+Medido num daemon de 2,6 dias: **6,5 GB** (renderer com 3,6 GB de heap do Chromium, 1,1 GB de heap
+do JS, e mais de 5 GB disso parados no swap); com a troca de página, o Fireball inteiro fica em
+**~570 MB** (deste, 88 MB de renderer), com a janela fechada ou aberta, e sem swap.
+
+O preço, explícito: **fechar e reabrir a janela recomeça a tela no Início** — o estado da tela não
+sobrevive à troca. Com a janela aberta nada muda, é a mesma tela de sempre.
+
+Com a janela aberta mas não à vista (minimizada, atrás de outra, em outra área de trabalho) a
+página também para de trabalhar: os três relógios dela — status, chat da reunião ao vivo e
+cronômetro — desligam e voltam quando ela reaparece, já com uma atualização de cada um.
+
 ### Entrar junto com a sessão
 
 Quem quer o Fireball de pé assim que entra na sessão copia a entrada de autostart (o atalho do
