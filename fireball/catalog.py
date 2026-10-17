@@ -130,8 +130,38 @@ def _needs_rebuild(conn: sqlite3.Connection) -> bool:
 
 
 def rebuild() -> int:
-    """Reconstrói o catálogo a partir das pastas. Devolve quantas reuniões entrou."""
+    """Reconstrói o catálogo a partir das pastas. Devolve quantas reuniões entrou.
+
+    Custa minutos com o acervo cheio (medido em 17/10/2026: 302 s para 70
+    reuniões, 49 mil segmentos no FTS). Use `ensure()` no caminho de boot.
+    """
     with _connect(rebuild_if_empty=False) as conn:
+        return _rebuild(conn)
+
+
+def ensure() -> int:
+    """Garante o índice pronto sem reindexar o acervo — devolve quantas reuniões ele tem.
+
+    Só reconstrói quando o banco está vazio (schema novo, banco apagado) ou
+    quando o número de reuniões em disco diverge do indexado, que é o sinal de
+    que mexeram no acervo por fora. Fora disso o índice já está em dia: quem o
+    mantém é o caminho normal (engine indexando cada segmento ao vivo, daemon
+    ao encerrar a reunião, `finalize`).
+
+    Existe porque o boot do daemon chamava `rebuild()` e ficava minutos preso
+    nele antes de abrir o socket — todo cliente (CLI, cron, bandeja) desistia
+    antes de o daemon atender.
+    """
+    with _connect(rebuild_if_empty=True) as conn:
+        indexadas = conn.execute("SELECT COUNT(*) FROM meetings").fetchone()[0]
+        if indexadas:
+            em_disco = sum(
+                1
+                for d in storage.meetings_root().iterdir()
+                if d.is_dir() and (d / "meeting.json").exists()
+            )
+            if em_disco == indexadas:
+                return indexadas
         return _rebuild(conn)
 
 

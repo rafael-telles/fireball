@@ -151,7 +151,7 @@ class DaemonCore:
                     f"[daemon] transcrição unificada em {len(migrated)} reunião(ões) do formato antigo",
                     flush=True,
                 )
-            catalog.rebuild()
+            catalog.ensure()
             for meeting in control.scan_live_meetings():
                 meeting_id = meeting["id"]
                 pid = meeting.get("engine_pid")

@@ -40,6 +40,36 @@ class CatalogTests(unittest.TestCase):
         ids = {row["id"] for row in catalog.list_meetings()}
         self.assertEqual(ids, {first["id"], second["id"]})
 
+    def test_ensure_does_not_reindex_when_the_index_is_current(self):
+        """`ensure()` é o caminho do boot do daemon: reindexar ali custa minutos."""
+        first = self._create(name="Sincronização Fireball")
+        second = self._create(name="1:1 com Ana")
+        with patch.object(catalog, "_rebuild") as rebuild:
+            self.assertEqual(catalog.ensure(), 2)
+        rebuild.assert_not_called()
+        ids = {row["id"] for row in catalog.list_meetings()}
+        self.assertEqual(ids, {first["id"], second["id"]})
+
+    def test_ensure_rebuilds_when_folders_and_index_diverge(self):
+        first = self._create(name="Sincronização Fireball")
+        # reunião que chegou ao acervo sem passar pelo índice (resto de crash,
+        # cópia manual): o disco tem 2, o índice tem 1
+        outra = storage.meetings_root() / "20260101-000000-manual"
+        outra.mkdir()
+        storage.write_json(outra / "meeting.json", {"id": outra.name, "name": "Manual"})
+        self.assertEqual(catalog.ensure(), 2)
+        ids = {row["id"] for row in catalog.list_meetings()}
+        self.assertEqual(ids, {first["id"], outra.name})
+
+    def test_ensure_rebuilds_on_a_fresh_database(self):
+        first = self._create(name="Sincronização Fireball")
+        second = self._create(name="1:1 com Ana")
+        catalog.db_path().unlink()
+        self.assertEqual(catalog.ensure(), 2)
+        self.assertEqual(
+            {row["id"] for row in catalog.list_meetings()}, {first["id"], second["id"]}
+        )
+
     def test_search_name_tags_notes_and_speech(self):
         meeting = self._create(name="Planning de contratação")
         meeting_id = meeting["id"]
