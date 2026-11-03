@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <title>Fireball</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="theme-ember-doc.css" />
 </head>
 <body>
   <!-- O esqueleto vive aqui, estático: o app.js só troca classes e preenche as
@@ -361,11 +362,18 @@
                que o texto saiu de um motor pior. -->
           <div class="tr-bar" id="tr-bar">
             <div class="grow" id="tr-meta"></div>
+            <!-- Documento é a leitura padrão (texto corrido, coluna estreita);
+                 Chat mantém o balão de mensageiro para quem prefere varrer
+                 rápido quem falou por último. A escolha fica no aparelho. -->
+            <div class="tr-modo" id="tr-modo" role="group" aria-label="Modo da transcrição">
+              <button type="button" data-modo="doc" aria-pressed="true">Documento</button>
+              <button type="button" data-modo="chat" aria-pressed="false">Chat</button>
+            </div>
             <button class="btn outline small" id="tr-export">Exportar</button>
             <button class="btn outline small" id="finalize-btn">Retranscrever</button>
           </div>
 
-          <div class="chat" id="chat"></div>
+          <div class="chat modo-doc" id="chat"></div>
 
           <!-- Rodapé ao vivo: o que o pipeline está fazendo agora. -->
           <div class="live-bar hidden" id="live-bar">

@@ -391,6 +391,22 @@ A bandeja tem status em três estados (ocioso, gravando, parando) e menu (abrir 
 reunião atual, sair). Fechar a janela só esconde — o Fireball continua ligado, e continua na
 bandeja.
 
+### Aparência e modo da transcrição
+
+A pele fica em `gui/web/theme-ember-doc.css`, carregada **depois** de `styles.css`: ela só
+sobrescreve — cor escura quente, título em serifada editorial (Newsreader empacotada em
+`gui/web/fonts/`, sem rede) e metadado fantasma. O vermelho é reservado ao que grava ou
+para a gravação; o botão que inicia usa o claro de alto contraste, para as duas ações não
+competirem. Tirar o `<link>` do `index.html` volta ao tema anterior inteiro.
+
+A aba **Transcrição** tem dois modos, escolhidos no seletor ao lado de `Exportar`:
+
+- **Documento** (padrão) — texto corrido em coluna de 660px, nome do falante em caixa alta com
+  um ponto da cor dele e hora só no hover. É o modo de leitura, para reunião longa.
+- **Chat** — o balão de mensageiro, melhor para varrer quem falou por último.
+
+A escolha é de tela, não do daemon: mora no `localStorage` do renderer, não no `settings.json`.
+
 ### A página só existe com a janela aberta
 
 `fireball daemon start` sobe a janela **escondida**, e janela escondida não carrega o app: ela fica

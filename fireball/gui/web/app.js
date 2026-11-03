@@ -4148,12 +4148,59 @@ function tick() {
   }
 }
 
+// -------------------------------------------------------- modo da transcrição
+
+/* Documento é o padrão: texto corrido numa coluna estreita, que é o que se lê
+   depois. Chat mantém o balão de mensageiro, melhor para varrer quem falou por
+   último. É preferência de tela, não do daemon — por isso mora no localStorage
+   e não no settings.json: o daemon não precisa saber disso e a janela volta na
+   mesma escolha. Sem storage (file:// restrito), vale só nesta janela. */
+const MODO_KEY = "fireball.transcricao.modo";
+
+function modoTranscricao() {
+  try {
+    return localStorage.getItem(MODO_KEY) === "chat" ? "chat" : "doc";
+  } catch (err) {
+    return "doc";
+  }
+}
+
+function aplicarModoTranscricao(modo) {
+  const chat = el("chat");
+  if (!chat) return;
+  chat.classList.toggle("modo-doc", modo !== "chat");
+  chat.classList.toggle("modo-chat", modo === "chat");
+  for (const botao of document.querySelectorAll("#tr-modo button[data-modo]")) {
+    const ativo = botao.dataset.modo === modo;
+    botao.classList.toggle("on", ativo);
+    botao.setAttribute("aria-pressed", ativo ? "true" : "false");
+  }
+}
+
+function ligarModoTranscricao() {
+  const grupo = el("tr-modo");
+  if (grupo) {
+    grupo.addEventListener("click", (ev) => {
+      const botao = ev.target.closest("button[data-modo]");
+      if (!botao) return;
+      try {
+        localStorage.setItem(MODO_KEY, botao.dataset.modo);
+      } catch (err) {
+        // sem storage a escolha vale só nesta janela; não é motivo de banner
+      }
+      aplicarModoTranscricao(botao.dataset.modo);
+    });
+  }
+  aplicarModoTranscricao(modoTranscricao());
+}
+
 async function boot() {
   el("start-btn").addEventListener("click", onStart);
   el("adhoc-link").addEventListener("click", onAdHoc);
   el("stop-btn").addEventListener("click", onStop);
   el("finalize-btn").addEventListener("click", onFinalize);
   el("tr-export").addEventListener("click", onExportTranscript);
+  ligarModoTranscricao();
   el("mv-diarize").addEventListener("change", onDiarizeChange);
   el("files-tab").addEventListener("click", onOpenFolder);
   el("delete-btn").addEventListener("click", onDelete);
