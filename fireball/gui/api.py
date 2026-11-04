@@ -201,6 +201,10 @@ class Api:
         return self._call(self._core.ask, meeting_id=meeting_id, question=question,
                           history=history or [])
 
+    def ask_library(self, question: str, history: list | None = None) -> dict:
+        """Pergunta sobre todas as reuniões, a partir da tela inicial."""
+        return self._call(self._core.ask_library, question=question, history=history or [])
+
     def prompts(self) -> dict:
         return self._call(self._core.prompts)
 

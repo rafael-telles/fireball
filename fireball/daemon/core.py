@@ -811,6 +811,12 @@ class DaemonCore:
 
         return ask_engine.answer(meeting_id, question, history or [])
 
+    def ask_library(self, question: str, history: list | None = None) -> dict:
+        """Pergunta sobre todas as reuniões. Fora do lock pelo mesmo motivo do `ask`."""
+        from fireball import ask as ask_engine
+
+        return ask_engine.answer_library(question, history or [])
+
     def summarize(
         self,
         meeting_id: str,

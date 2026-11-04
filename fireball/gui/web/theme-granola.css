@@ -133,19 +133,20 @@ html, body {
 .sb-empty { padding: 14px 10px; color: var(--faint); font-size: 11.5px; }
 
 .sb-foot { flex: none; padding-top: 6px; border-top: 1px solid var(--border-faint); }
-.util { display: flex; gap: 2px; padding: 2px 4px 6px; }
-.util button {
-  width: 26px; height: 26px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--faint); font-size: 12px; cursor: pointer;
-}
-.util button:hover { background: #ffffff08; color: var(--text-2); }
+/* o cartão de estado só aparece quando há o que dizer: gravando ou pausada */
 .trial {
-  background: var(--surface); border: 1px solid var(--border-faint);
-  border-radius: 9px; padding: 9px 10px; margin: 0 2px 8px;
+  background: var(--accent-bg); border: 1px solid var(--accent-border);
+  border-radius: 9px; padding: 9px 10px; margin: 2px 2px 6px;
 }
-.trial b { display: block; font-size: 11.5px; font-weight: 600; color: var(--text-2); }
-.trial span { display: block; margin-top: 2px; font-size: 10.5px; color: var(--faint); }
-.ws { display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12.3px; color: var(--text-2); }
+.trial.idle { display: none; }
+.trial b { display: block; font-size: 11.5px; font-weight: 600; color: var(--accent-text-2); }
+.trial span { display: block; margin-top: 2px; font-size: 11px; color: var(--accent-text); }
+.ws { display: flex; align-items: center; gap: 8px; padding: 4px 4px 2px 8px; font-size: 12.3px; color: var(--text-2); }
+.ws-gear {
+  margin-left: auto; width: 28px; height: 28px; border: 0; border-radius: 7px;
+  background: transparent; color: var(--faint); font-size: 13px; cursor: pointer;
+}
+.ws-gear:hover { background: #ffffff08; color: var(--text-2); }
 .ws .avatar {
   width: 18px; height: 18px; border-radius: 50%;
   background: linear-gradient(135deg, #ff8a3d, #e01b24);
@@ -222,12 +223,8 @@ html, body {
   padding: 9px 12px; color: inherit; text-align: left; cursor: pointer;
   position: relative;
 }
-.agenda-row::before {
-  content: ""; position: absolute; left: 0; top: 10px; bottom: 10px;
-  width: 2px; border-radius: 2px; background: var(--border-2);
-}
 .agenda-row:hover { background: #ffffff05; }
-.agenda-hour { font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.agenda-hour { font: 500 13px "Inter", system-ui, sans-serif; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .agenda-planned { font-size: 11px; color: var(--faint); }
 .agenda-title { font-size: 13.4px; color: var(--text); font-weight: 500; }
 .agenda-loc { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
@@ -639,14 +636,6 @@ html, body {
 .editor-wrap:not(.editing) #notes { display: none; }
 .editor-wrap.editing .notes-view { display: none; }
 
-/* ------------------------------------------------- cru ↔ resumo (como no Granola) */
-#btn-notas.on { border-color: var(--border-2); color: var(--text); background: var(--surface); }
-
-/* na vista "minhas notas", o resumo e os detalhes saem de cena */
-.nota-col.cru .doc-bloco.resumo,
-.nota-col.cru .doc-det { display: none; }
-.nota-col.cru #notes { min-height: 220px; }
-
 /* o que veio das suas notas: mais claro/forte que o resto do texto gerado */
 .summary-box mark.de-notas,
 .notes-view mark.de-notas {
@@ -726,3 +715,112 @@ html, body {
 
 /* um resumo só não precisa de chip de resumo */
 .sum-chips.single { display: none; }
+
+/* ================================================ limpeza: menos andaimes ===
+   Rótulos em caixa normal e cinza, como no Granola: o caixa-alta espaçado em
+   toda seção competia com o conteúdo. O vermelho segue só para gravação. */
+.sec, .sb-group, .kicker, .lbl, .doc-lbl, .next-when, .cit-pop .cit-h, .cp-msg .who {
+  font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none;
+}
+.sb-group { padding: 14px 9px 4px; }
+.kicker:empty { display: none; }
+.next-when { color: var(--accent-text); }
+
+/* participantes do próximo evento: nomes, não uma parede de pílulas */
+.next-people .person-chips { gap: 4px 14px; }
+.next-people .person-chip { border: 0; padding: 2px 0; background: transparent; color: var(--text-3); }
+.next-people .person-chip.unsure { color: var(--faint); }
+
+/* a nota: alternador discreto, sem moldura */
+.vista-nota { background: transparent; border: 0; padding: 0; gap: 4px; margin: 0 0 18px; }
+.vista-nota button { padding: 4px 11px; color: var(--faint); }
+.vista-nota button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); }
+
+/* tags como texto leve; o × só aparece ao passar o mouse */
+.doc-chips .tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  border: 0; border-radius: 6px; background: #ffffff07;
+  padding: 3px 8px; font-size: 11.5px; color: var(--text-3);
+}
+.doc-chips .tag::before { content: "#"; color: var(--faint); }
+.doc-chips .tag.add { background: transparent; color: var(--faint); border: 0; }
+.doc-chips .tag.add::before { content: none; }
+.doc-chips .tag.add:hover { color: var(--text-2); }
+.doc-chips .tag .chip-x { opacity: 0; transition: opacity .12s; }
+.doc-chips .tag:hover .chip-x, .doc-chips .tag .chip-x:focus-visible { opacity: 1; }
+
+/* o resumo é o corpo do documento, não um cartão com rolagem própria */
+#summary-box.summary-box {
+  background: none; border: 0; border-radius: 0; padding: 0;
+  overflow: visible; flex: none; min-height: 0;
+}
+.summary-box h1, .summary-box h2, .summary-box h3 {
+  font-family: "Inter", system-ui, sans-serif; font-weight: 600;
+  font-size: 15px; letter-spacing: -.005em; text-transform: none;
+  color: var(--text); margin: 26px 0 8px;
+}
+.summary-box > :first-child { margin-top: 0; }
+.summary-box li::marker { color: var(--faint); }
+
+/* o "Resumo" já está no alternador; aqui ficam só as ações, à direita */
+.resumo-lbl > span:first-child { display: none; }
+.doc-bloco.resumo { margin-top: 18px; }
+.resumo-lbl { min-height: 18px; margin-bottom: 4px; }
+.sum-tools { opacity: .0; transition: opacity .15s; }
+.doc-bloco.resumo:hover .sum-tools, .sum-tools:focus-within { opacity: 1; }
+.sum-tools .linkish { font-size: 11.5px; }
+
+/* o prompt cru é detalhe de quem configura, não da leitura */
+.doc .prompt-box { display: none; }
+
+.doc-det > summary {
+  font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none;
+  color: var(--faint);
+}
+.doc-det > summary:hover { color: var(--text-2); }
+
+/* barra da transcrição: uma linha de metadado, o resto no title */
+#tr-meta { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#chat.modo-doc .msg-speaker { font-size: 11.5px; letter-spacing: 0; text-transform: none; font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sum-tools, .doc-chips .tag .chip-x, .vista-nota button { transition: none; }
+}
+
+/* ============================================ perguntar ao acervo inteiro */
+.ask-col { width: 100%; max-width: 660px; margin: 0 auto; padding: 32px 24px 120px; }
+.ask-sub { margin: 6px 0 22px; font-size: 13px; color: var(--dim); }
+.ask-sugs { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.ask-sugs.hidden { display: none; }
+.ask-sug {
+  border: 1px solid var(--border); border-radius: 999px; background: transparent;
+  padding: 6px 13px; font: inherit; font-size: 12.5px; color: var(--text-3); cursor: pointer;
+  text-align: left;
+}
+.ask-sug:hover { border-color: var(--border-2); color: var(--text); }
+.ask-log { display: flex; flex-direction: column; gap: 22px; }
+.ask-log .cp-msg { font-size: 14.5px; line-height: 1.65; }
+.ask-log .cp-msg.me { color: var(--text); font-weight: 500; font-size: 15px; }
+.ask-log .cp-msg .who { display: none; }
+.ask-log .cp-msg.bot p, .ask-log .cp-msg.bot li { color: var(--text-2); }
+.ask-log .cp-msg.bot ul, .ask-log .cp-msg.bot ol { padding-left: 18px; margin: 0 0 10px; }
+
+.fonte {
+  display: inline-flex; align-items: center; gap: 6px; vertical-align: 1px;
+  border: 0; background: transparent; padding: 0 2px; cursor: pointer;
+  font: inherit; color: var(--text-3);
+}
+.fonte-n {
+  display: inline-grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 5px; background: var(--surface-2); color: var(--text-3);
+  font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.fonte:hover .fonte-n { background: var(--accent-bg-2); color: var(--accent-text-2); }
+.fontes {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-faint);
+}
+.fonte-linha { font-size: 12px; color: var(--dim); text-align: left; }
+.fonte-linha:hover { color: var(--text); }
+.cp-msg.pensando { color: var(--faint); font-style: italic; }
+.cp-msg.pensando p { color: var(--faint); }

@@ -448,6 +448,18 @@ Duas consequências que o desenho assume:
 - a conversa é por reunião e vive na janela: o daemon responde uma pergunta por vez e não guarda
   sessão. Fechar a janela perde o histórico (o resumo e as notas, não).
 
+#### Perguntar sobre todas as reuniões
+
+O alcance do chat é **o lugar de onde se pergunta**, como no Granola: dentro de uma reunião, só
+ela; em **Perguntar** (sidebar) ou na home, o acervo inteiro. O acervo não cabe num pedido, então
+`ask.answer_library` escolhe até 8 reuniões: cada palavra da pergunta (sem as que toda pergunta
+tem) vai sozinha na busca do catálogo — nome, tags, participantes, notas, resumo e falas —, quem
+casa com mais palavras entra primeiro, e as mais recentes completam ("o que ficou pendente essa
+semana?" não tem palavra para buscar). Cada reunião vai com resumo, notas e as falas que casaram,
+ordenada por data e rotulada `[R1]`, `[R2]`…; a resposta cita os rótulos e a janela troca cada um
+por um número que abre a reunião, com a lista das fontes embaixo. As reuniões citadas numa
+resposta ficam fixas na pergunta seguinte, senão "e na mais recente?" buscaria outras.
+
 ### A página só existe com a janela aberta
 
 `fireball daemon start` sobe a janela **escondida**, e janela escondida não carrega o app: ela fica

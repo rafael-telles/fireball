@@ -38,14 +38,14 @@
       <div class="sb-list" id="meeting-list"></div>
 
       <div class="sb-foot">
-        <div class="util">
-          <button id="settings-btn" title="Configurações">⚙</button>
-        </div>
-        <div class="trial">
+        <div class="trial idle" id="local-card">
           <b>Gravação local</b>
           <span id="local-note">Nada gravando agora</span>
         </div>
-        <div class="ws"><span class="avatar">R</span><span id="ws-name">Fireball</span></div>
+        <div class="ws">
+          <span class="avatar">R</span><span id="ws-name">Fireball</span>
+          <button class="ws-gear" id="settings-btn" title="Configurações" aria-label="Configurações">⚙</button>
+        </div>
       </div>
     </aside>
 
@@ -70,7 +70,7 @@
           <div class="home-col">
             <div class="home-head">
               <div>
-                <div class="kicker" id="home-kicker">Ocioso · nada gravando</div>
+                <div class="kicker" id="home-kicker"></div>
                 <h1 class="home-title" id="home-greeting">Fireball</h1>
               </div>
               <span class="home-today" id="home-today"></span>
@@ -114,6 +114,21 @@
           </div>
         </div>
         <div class="hint">Fechar a janela mantém o Fireball na bandeja.</div>
+      </main>
+
+      <!-- Perguntar sobre todas as reuniões: o alcance do chat é o lugar de onde
+           se pergunta — aqui, o acervo; dentro de uma reunião, só ela. -->
+      <main class="view hidden" id="view-ask">
+        <div class="ask-col">
+          <h1 class="home-title">Perguntar</h1>
+          <p class="ask-sub">Sobre todas as suas reuniões. Cada resposta diz de qual reunião veio.</p>
+          <div class="ask-sugs" id="ask-sugs">
+            <button type="button" class="ask-sug">O que ficou pendente nas reuniões desta semana?</button>
+            <button type="button" class="ask-sug">Quais decisões tomamos na última reunião?</button>
+            <button type="button" class="ask-sug">Quem me pediu alguma coisa recentemente?</button>
+          </div>
+          <div class="ask-log" id="ask-log-all"></div>
+        </div>
       </main>
 
           <!-- ------------------------------- acervo ------------------- -->
@@ -639,7 +654,7 @@ nele o e-mail com que a agenda te convida."
         <div class="composer" id="composer">
           <button class="cbtn wave" id="btn-transcricao" title="Transcrição">▮▮▮</button>
           <div class="ask" id="ask-bar">
-            <input type="text" id="ask-input" placeholder="Perguntar qualquer coisa" autocomplete="off" />
+            <input type="text" id="ask-input" placeholder="Perguntar sobre todas as reuniões" autocomplete="off" />
             <button class="send" id="ask-send" title="Perguntar">↑</button>
           </div>
         </div>

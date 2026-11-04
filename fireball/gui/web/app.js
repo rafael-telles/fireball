@@ -106,6 +106,7 @@ const VIEWS = {
   browse: "view-browse",
   meeting: "view-meeting",
   settings: "view-settings",
+  ask: "view-ask",
 };
 const TABS = {
   visao: "pane-visao",
@@ -130,6 +131,10 @@ function showView(name) {
   // (nota + transcrição). Com ela aberta, o scroller sai de cena inteiro.
   const rolagem = document.querySelector(".nota-scroll");
   if (rolagem) rolagem.classList.toggle("hidden", name === "meeting");
+  el("new-meeting-btn").classList.toggle("on", name === "home");
+  el("nav-perguntar").classList.toggle("on", name === "ask");
+  el("ask-input").placeholder =
+    name === "meeting" ? "Perguntar sobre esta reunião" : "Perguntar sobre todas as reuniões";
 }
 
 // ------------------------------------------------------------------ ponte
@@ -148,6 +153,7 @@ function pintarEstadoLocal() {
   const alvo = el("local-note");
   if (!alvo) return;
   const ativo = state.active;
+  el("local-card").classList.toggle("idle", !ativo);
   if (!ativo) {
     alvo.textContent = "Nada gravando agora";
     return;
@@ -709,6 +715,7 @@ function renderTranscriptBar() {
   // sem isto, quem desligou a passada final não entende por que o botão sumiu
   if (!enabled && !o.live) bits.push("transcrição final desligada");
   el("tr-meta").textContent = bits.join(" · ");
+  el("tr-meta").title = bits.join(" · ");
 
   // Retranscrever é a transcrição final sobre o áudio inteiro. Só faz sentido
   // depois que a gravação fechou os .wav — antes disso não há áudio completo.
@@ -1700,7 +1707,8 @@ function renderHome() {
   const active = state.active;
   el("home-kicker").textContent = active
     ? `${active.status === "paused" ? "Pausada" : "Gravando agora"} · ${nameOf(active)}`
-    : "Ocioso · nada gravando";
+    : "";
+  el("home-kicker").classList.toggle("accent", Boolean(active));
 
   const first = ((state.profile && state.profile.name) || "").trim().split(/\s+/)[0] || "";
   const hello = greetingFor(new Date().getHours());
@@ -4296,8 +4304,8 @@ function resetChat(meetingId) {
   log.appendChild(vazio);
 }
 
-function chatMensagem(papel, texto) {
-  const log = el("ask-log");
+function chatMensagem(papel, texto, logId = "ask-log") {
+  const log = el(logId);
   if (!log) return null;
   const vazio = log.querySelector(".cp-empty");
   if (vazio) vazio.remove();
@@ -4314,19 +4322,130 @@ function chatMensagem(papel, texto) {
   }
   log.appendChild(bloco);
   log.scrollTop = log.scrollHeight;
+  if (logId !== "ask-log") bloco.scrollIntoView({ block: "end" });
   return bloco;
+}
+
+// ------------------------------------------- perguntar ao acervo inteiro
+
+const acervo = { history: [], busy: false };
+const ROTULO_FONTE = /\[(R\d+(?:\s*[,;]\s*R\d+)*)\]/g;
+
+function goAsk() {
+  flushNotes();
+  state.open = null;
+  abrirChat(false);
+  showView("ask");
+  el("ask-sugs").classList.toggle("hidden", acervo.history.length > 0);
+  el("ask-input").focus();
+}
+
+/* Os rótulos [R3] da resposta viram links para a reunião. A tabela rótulo →
+   reunião vale só para a resposta que a trouxe: a próxima pergunta escolhe
+   outras reuniões e numera de novo. */
+function ligarFontes(bloco, fontes) {
+  const porRotulo = new Map((fontes || []).map((f) => [f.label, f]));
+  const citadas = new Map();
+  const andador = document.createTreeWalker(bloco, NodeFilter.SHOW_TEXT);
+  const nos = [];
+  while (andador.nextNode()) nos.push(andador.currentNode);
+  for (const no of nos) {
+    const texto = no.nodeValue;
+    ROTULO_FONTE.lastIndex = 0;
+    if (!ROTULO_FONTE.test(texto)) continue;
+    const frag = document.createDocumentFragment();
+    let resto = 0;
+    texto.replace(ROTULO_FONTE, (inteiro, lista, pos) => {
+      frag.append(texto.slice(resto, pos));
+      for (const rotulo of lista.split(/\s*[,;]\s*/)) {
+        const fonte = porRotulo.get(rotulo);
+        if (!fonte) continue;
+        citadas.set(fonte.id, fonte);
+        frag.append(botaoFonte(fonte, String([...citadas.keys()].indexOf(fonte.id) + 1)));
+      }
+      resto = pos + inteiro.length;
+      return inteiro;
+    });
+    frag.append(texto.slice(resto));
+    no.replaceWith(frag);
+  }
+  if (!citadas.size) return [];
+  const lista = document.createElement("div");
+  lista.className = "fontes";
+  [...citadas.values()].forEach((fonte, i) => {
+    const linha = botaoFonte(fonte, String(i + 1));
+    linha.classList.add("fonte-linha");
+    linha.append(` ${fonte.name} · ${dateLabel(fonte.started_at)}`);
+    lista.appendChild(linha);
+  });
+  bloco.appendChild(lista);
+  return [...citadas.keys()];
+}
+
+function botaoFonte(fonte, numero) {
+  const botao = document.createElement("button");
+  botao.type = "button";
+  botao.className = "fonte";
+  botao.title = fonte.name;
+  const marca = document.createElement("span");
+  marca.className = "fonte-n";
+  marca.textContent = numero;
+  botao.appendChild(marca);
+  botao.addEventListener("click", () => openMeeting(fonte.id));
+  return botao;
+}
+
+function semRotulos(texto, fontes) {
+  const nomes = new Map((fontes || []).map((f) => [f.label, f.name]));
+  return (texto || "").replace(ROTULO_FONTE, (_, lista) =>
+    `(${lista.split(/\s*[,;]\s*/).map((r) => nomes.get(r) || r).join("; ")})`,
+  );
+}
+
+async function perguntarAcervo(pergunta) {
+  if (acervo.busy) return;
+  if (state.view !== "ask") goAsk();
+  el("ask-sugs").classList.add("hidden");
+  acervo.busy = true;
+  chatMensagem("user", pergunta, "ask-log-all");
+  const pensando = chatMensagem("assistant", "procurando nas reuniões…", "ask-log-all");
+  if (pensando) pensando.classList.add("pensando");
+  const botao = el("ask-send");
+  if (botao) botao.disabled = true;
+  try {
+    const resposta = await api("ask_library", pergunta, acervo.history);
+    if (pensando) pensando.remove();
+    const bloco = chatMensagem("assistant", resposta.answer || "(resposta vazia)", "ask-log-all");
+    const citadas = bloco ? ligarFontes(bloco, resposta.sources) : [];
+    acervo.history.push({ role: "user", content: pergunta });
+    acervo.history.push({
+      role: "assistant",
+      content: semRotulos(resposta.answer, resposta.sources),
+      sources: citadas,
+    });
+    setBanner("");
+  } catch (err) {
+    if (pensando) pensando.remove();
+    chatMensagem("assistant", `Não consegui responder: ${errText(err)}`, "ask-log-all");
+  } finally {
+    acervo.busy = false;
+    if (botao) botao.disabled = false;
+  }
 }
 
 async function perguntar(texto) {
   const pergunta = (texto || "").trim();
   const aberto = state.open;
-  if (!pergunta || chat.busy || !aberto) return;
+  if (!pergunta) return;
+  if (!aberto) return perguntarAcervo(pergunta);
+  if (chat.busy) return;
 
   abrirChat(true);
   resetChat(aberto.id);
   chat.busy = true;
   chatMensagem("user", pergunta);
-  const pensando = chatMensagem("assistant", "_pensando…_");
+  const pensando = chatMensagem("assistant", "pensando…");
+  if (pensando) pensando.classList.add("pensando");
   const botao = el("ask-send");
   if (botao) botao.disabled = true;
 
@@ -4557,7 +4676,10 @@ async function boot() {
   // casco do Granola: painel de transcrição, chat e o "＋ Nova nota"
   painelTranscricaoInicial();
   el("btn-transcricao").addEventListener("click", () => painelTranscricao());
-  el("nav-perguntar").addEventListener("click", () => abrirChat());
+  el("nav-perguntar").addEventListener("click", goAsk);
+  for (const sugestao of document.querySelectorAll(".ask-sug")) {
+    sugestao.addEventListener("click", () => perguntar(sugestao.textContent));
+  }
   el("cp-close").addEventListener("click", () => abrirChat(false));
   el("nova-nota-btn").addEventListener("click", () => {
     // o formulário mora na home: sem esta volta, clicar aqui dentro de uma
@@ -4574,7 +4696,9 @@ async function boot() {
         onPerguntar();
       }
     });
-    el(id).addEventListener("focus", () => abrirChat(true));
+    el(id).addEventListener("focus", () => {
+      if (state.open) abrirChat(true);
+    });
   }
   el("mv-diarize").addEventListener("change", onDiarizeChange);
   el("files-tab").addEventListener("click", onOpenFolder);

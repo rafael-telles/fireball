@@ -93,5 +93,78 @@ class ProvedorTest(unittest.TestCase):
             ask.answer("qualquer", "   ")
 
 
+class AcervoTest(unittest.TestCase):
+    def test_termos_sem_palavras_de_pergunta(self):
+        termos = ask.question_terms("O que decidimos com a Totvs sobre o MCP na reunião?")
+        self.assertEqual(termos, ["totvs", "mcp"])
+
+    def test_cada_termo_busca_sozinho_e_quem_casa_mais_sobe(self):
+        indice = {
+            "totvs": ["a", "b"],
+            "mcp": ["b"],
+        }
+
+        def busca(termo, limit=20):
+            return {"meetings": [
+                {"id": mid, "started_at": "2026-11-01T10:00:00+00:00", "hits": []}
+                for mid in indice.get(termo, [])
+            ]}
+
+        escolhidas = ask.pick_meetings("totvs e mcp", busca, lambda: [], limit=5)
+        self.assertEqual([m["id"] for m in escolhidas], ["b", "a"])
+
+    def test_recentes_completam_sem_repetir_e_sem_reuniao_vazia(self):
+        def busca(termo, limit=20):
+            return {"meetings": [{"id": "a", "started_at": None, "hits": []}]}
+
+        recentes = [
+            {"id": "a", "segments": 10},
+            {"id": "vazia", "segments": 0},
+            {"id": "c", "segments": 3},
+        ]
+        escolhidas = ask.pick_meetings("totvs", busca, lambda: recentes, limit=5)
+        self.assertEqual([m["id"] for m in escolhidas], ["a", "c"])
+
+    def test_reunioes_da_resposta_anterior_ficam_e_tudo_sai_por_data(self):
+        def busca(termo, limit=20):
+            return {"meetings": [
+                {"id": f"busca{i}", "started_at": f"2026-10-0{i}T10:00:00+00:00", "hits": []}
+                for i in range(1, 4)
+            ]}
+
+        recentes = [{"id": "antiga", "started_at": "2026-09-01T10:00:00+00:00", "segments": 5}]
+        escolhidas = ask.pick_meetings(
+            "pendente", busca, lambda: recentes, limit=3, pinned=["antiga"]
+        )
+        self.assertEqual([m["id"] for m in escolhidas], ["busca3", "busca2", "antiga"])
+
+    def test_contexto_rotula_e_devolve_as_fontes(self):
+        reunioes = [
+            {"id": "x", "name": "Kickoff", "started_at": "2026-11-03T19:03:38+00:00",
+             "tags": ["produto"], "hits": [{"speaker": "Ana", "snippet": "prazo em dezembro"}]},
+            {"id": "y", "name": "", "started_at": None, "hits": []},
+        ]
+        ctx, fontes = ask.build_library_context(
+            reunioes, lambda mid: "## Ata\nresumo" if mid == "x" else "", lambda mid: ""
+        )
+        self.assertIn("=== [R1] Kickoff", ctx)
+        self.assertIn("tags: produto", ctx)
+        self.assertIn("- Ana: prazo em dezembro", ctx)
+        self.assertIn("[R2] Sem nome · data desconhecida", ctx)
+        self.assertEqual([f["label"] for f in fontes], ["R1", "R2"])
+        self.assertEqual(fontes[0]["id"], "x")
+
+    def test_corte_mantem_ao_menos_uma_reuniao(self):
+        reunioes = [{"id": str(i), "name": f"r{i}", "hits": []} for i in range(5)]
+        _, fontes = ask.build_library_context(
+            reunioes, lambda mid: "x" * 500, lambda mid: "", limit=100
+        )
+        self.assertEqual(len(fontes), 1)
+
+    def test_pergunta_vazia_recusa(self):
+        with self.assertRaises(ask.AskUnavailable):
+            ask.answer_library("  ")
+
+
 if __name__ == "__main__":
     unittest.main()
