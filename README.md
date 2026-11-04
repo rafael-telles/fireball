@@ -210,16 +210,15 @@ pip install -e '.[parakeet]'    # inclui onnx-asr + whisper (pro VAD)
 ```
 
 O checkpoint pt-BR do Parakeet não está na lista curada do onnx-asr, então precisa ser
-baixado manualmente uma vez (± 2.4GB, fp32) antes do primeiro uso:
+baixado uma vez (± 2.4GB, fp32) antes do primeiro uso:
 
 ```bash
-python -c "from huggingface_hub import snapshot_download; snapshot_download(
-    repo_id='alefiury/parakeet-tdt-0.6b-v3-ptBR-TAGARELA-onnx',
-    local_dir='.models/parakeet-ptbr')"
+fireball download-model parakeet    # no AppImage: ./Fireball-*.AppImage download-model parakeet
 ```
 
-Por padrão o backend procura em `<repo>/.models/parakeet-ptbr`; aponte para outro lugar com
-`FIREBALL_PARAKEET_MODEL_DIR=/caminho/pro/modelo`.
+Ele vai para `~/.fireball/models/parakeet-ptbr` (segue `FIREBALL_HOME`). Um
+`<repo>/.models/parakeet-ptbr` de checkouts antigos continua valendo; aponte para outro lugar
+com `FIREBALL_PARAKEET_MODEL_DIR=/caminho/pro/modelo`.
 
 Usar:
 
