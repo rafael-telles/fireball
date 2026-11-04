@@ -391,21 +391,37 @@ A bandeja tem status em três estados (ocioso, gravando, parando) e menu (abrir 
 reunião atual, sair). Fechar a janela só esconde — o Fireball continua ligado, e continua na
 bandeja.
 
-### Aparência e modo da transcrição
+### Aparência, nota e chat
 
-A pele fica em `gui/web/theme-ember-doc.css`, carregada **depois** de `styles.css`: ela só
+A pele fica em `gui/web/theme-granola.css`, carregada **depois** de `styles.css`: ela só
 sobrescreve — cor escura quente, título em serifada editorial (Newsreader empacotada em
-`gui/web/fonts/`, sem rede) e metadado fantasma. O vermelho é reservado ao que grava ou
-para a gravação; o botão que inicia usa o claro de alto contraste, para as duas ações não
-competirem. Tirar o `<link>` do `index.html` volta ao tema anterior inteiro.
+`gui/web/fonts/`, sem rede) e metadado fantasma. O vermelho é reservado ao que grava ou para a
+gravação; o botão que inicia usa o claro de alto contraste, para as duas ações não competirem.
 
-A aba **Transcrição** tem dois modos, escolhidos no seletor ao lado de `Exportar`:
+O esqueleto é o de um app de notas, e não de um painel de abas:
 
-- **Documento** (padrão) — texto corrido em coluna de 660px, nome do falante em caixa alta com
-  um ponto da cor dele e hora só no hover. É o modo de leitura, para reunião longa.
-- **Chat** — o balão de mensageiro, melhor para varrer quem falou por último.
+- **Sidebar** — busca (`⌘K`), Início, Perguntar, "Minhas reuniões" e a lista agrupada por dia.
+- **Home** — "Próximas" em serifada, agenda do dia com a próxima reunião em cartão e o resto em
+  linhas; as recentes vêm desbotadas embaixo.
+- **Reunião** — é **um documento**: anotações, resumo e ficha empilhados na mesma coluna. A
+  transcrição vive num **painel ao lado**, aberto pelo botão de onda na barra de baixo (`#painel-tr`).
+  O painel tem dois modos: **Documento** (texto corrido, para ler) e **Chat** (legenda por falante,
+  cinza para o áudio do sistema e ember para o microfone). A escolha fica no `localStorage` do
+  renderer, não no `settings.json`.
 
-A escolha é de tela, não do daemon: mora no `localStorage` do renderer, não no `settings.json`.
+### Chat da reunião
+
+"Perguntar qualquer coisa" na barra de baixo abre o painel de perguntas. O contexto é montado em
+`fireball/ask.py` — transcrição com falante e horário, mais as notas e o resumo já gerado — e vai
+no **mesmo provedor do resumo**, com as últimas voltas da conversa para "e ele?" funcionar. A
+resposta cita quem falou.
+
+Duas consequências que o desenho assume:
+
+- o chat usa o provedor `openai_api`. Com `claude_code` escolhido, a janela explica que aquele
+  provedor não mantém conversa, em vez de responder a primeira pergunta e errar a segunda;
+- a conversa é por reunião e vive na janela: o daemon responde uma pergunta por vez e não guarda
+  sessão. Fechar a janela perde o histórico (o resumo e as notas, não).
 
 ### A página só existe com a janela aberta
 

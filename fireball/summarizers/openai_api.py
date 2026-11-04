@@ -140,6 +140,30 @@ class OpenAICompatibleSummarizer:
 
     # -------------------------------------------------------------- api
 
+    def chat(self, messages: list[dict], temperature: float = 0.3, session: str = "") -> str:
+        """Uma resposta de conversa, com a mesma URL/chave/modelo do resumo.
+
+        Existe separado de `summarize` porque o pedido é outro: aqui as
+        mensagens já vêm prontas (system, contexto, histórico, pergunta) e o
+        que interessa é o texto — não nome, tags e markdown em JSON.
+        """
+        if not self.base_url:
+            raise SummarizerUnavailable(
+                "Falta a URL da API compatível com OpenAI. Preencha em Configurações → "
+                f"Resumo, ou defina {ENV_BASE_URL} no ambiente."
+            )
+        if not self.model:
+            raise SummarizerUnavailable(
+                "Falta o id do modelo da API compatível com OpenAI. Preencha em "
+                f"Configurações → Resumo, ou defina {ENV_MODEL} no ambiente."
+            )
+        payload = {"model": self.model, "temperature": temperature, "messages": messages}
+        # o gateway que roteia modelos (o zen do opencode) recusa a requisição
+        # sem um id de conversa no cabeçalho — o mesmo motivo que fez o resumo
+        # mandar o id da reunião. Perguntar sobre a mesma reunião cai na mesma
+        # conversa, e é isso que faz "e ele?" lembrar da pergunta anterior.
+        return _content(self._post(payload, session=session))
+
     def summarize(self, transcript: str, meeting: dict, instructions: str = "") -> dict:
         if not self.base_url:
             raise SummarizerUnavailable(

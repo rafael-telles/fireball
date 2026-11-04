@@ -798,6 +798,19 @@ class DaemonCore:
         with self._lock:
             return control.delete_summary(meeting_id, summary_id)
 
+    def ask(self, meeting_id: str, question: str, history: list | None = None) -> dict:
+        """Responde uma pergunta sobre a reunião já transcrita.
+
+        Fora do `self._lock` de propósito: a chamada ao provedor demora e o
+        lock é o que serializa tudo o que toca o estado — segurá-lo durante uma
+        requisição HTTP de 30 s pararia a gravação, o polling da janela e o
+        catálogo junto. A leitura é só de arquivos já fechados (transcrição,
+        notas, resumo), então não há corrida com o engine.
+        """
+        from fireball import ask as ask_engine
+
+        return ask_engine.answer(meeting_id, question, history or [])
+
     def summarize(
         self,
         meeting_id: str,

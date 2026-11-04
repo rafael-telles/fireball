@@ -126,6 +126,10 @@ const SETTINGS_TABS = {
 function showView(name) {
   state.view = name;
   for (const [key, id] of Object.entries(VIEWS)) el(id).classList.toggle("hidden", key !== name);
+  // A reunião é a única tela que não mora no scroller: ela tem colunas próprias
+  // (nota + transcrição). Com ela aberta, o scroller sai de cena inteiro.
+  const rolagem = document.querySelector(".nota-scroll");
+  if (rolagem) rolagem.classList.toggle("hidden", name === "meeting");
 }
 
 // ------------------------------------------------------------------ ponte
@@ -1319,23 +1323,17 @@ function silenceChart(stats) {
 
 function showTab(name) {
   state.tab = name;
-  for (const [key, id] of Object.entries(TABS)) el(id).classList.toggle("hidden", key !== name);
+  // A nota é UM documento: as seções (anotações, resumo, ficha) ficam
+  // empilhadas na mesma coluna, como no Granola. Não há aba para esconder —
+  // `name` só diz qual delas pediu a abertura, e todas carregam juntas.
   for (const tab of document.querySelectorAll(".tab[data-tab]")) {
     tab.classList.toggle("selected", tab.dataset.tab === name);
   }
-  if (name === "notas") loadNotes();
-  // desenha antes de ir buscar: sem isto a caixa fica em branco entre abrir a
-  // aba e o dado chegar, o que se lê como "não tem nada aqui"
-  if (name === "visao") {
-    renderStats();
-    loadStats();
-  }
-  if (name === "resumo") {
-    renderSummary();
-    loadSummary();
-  }
-  // sair do editor sem esperar o debounce: trocar de aba é uma pausa
-  if (name !== "notas") flushNotes();
+  loadNotes();
+  renderSummary();
+  loadSummary();
+  renderStats();
+  loadStats();
 }
 
 function revealSeq(seq) {
@@ -1385,6 +1383,7 @@ async function openMeeting(id, row, jumpSeq) {
   };
   state.notes.loadedFor = null;
   state.playing = null;
+  resetChat(id); // a conversa é desta reunião, não da janela
 
   resetDelete(); // confirmação pendente não atravessa para outra reunião
   renderMeetingHeader();
@@ -4148,6 +4147,128 @@ function tick() {
   }
 }
 
+// ---------------------------------------------------- painel da transcrição
+
+/* No Granola a transcrição não é aba: é um painel que abre ao lado da nota,
+   pelo botão de onda na barra de baixo. Aqui ele começa aberto — durante uma
+   reunião a legenda é o que se olha — e a escolha fica no aparelho. */
+const PAINEL_KEY = "fireball.transcricao.painel";
+
+function painelTranscricao(aberto) {
+  const painel = el("painel-tr");
+  if (!painel) return;
+  const quer = aberto === undefined ? !painel.classList.contains("open") : Boolean(aberto);
+  painel.classList.toggle("open", quer);
+  const botao = el("btn-transcricao");
+  if (botao) botao.classList.toggle("on", quer);
+  try {
+    localStorage.setItem(PAINEL_KEY, quer ? "1" : "0");
+  } catch (err) {
+    // sem storage, o painel volta aberto na próxima janela — nada quebra
+  }
+}
+
+function painelTranscricaoInicial() {
+  let guardado = null;
+  try {
+    guardado = localStorage.getItem(PAINEL_KEY);
+  } catch (err) {
+    guardado = null;
+  }
+  painelTranscricao(guardado === null ? true : guardado === "1");
+}
+
+// ------------------------------------------------------------------- perguntar
+
+/* A conversa é por reunião e vive na janela: o daemon responde uma pergunta por
+   vez, sem guardar sessão. O histórico vai junto no pedido (as últimas voltas),
+   que é o que faz "e ele?" funcionar depois de "quem falou do ts?". */
+const chat = { meetingId: null, history: [], busy: false };
+
+function abrirChat(aberto) {
+  const painel = el("chat-panel");
+  if (!painel) return;
+  painel.classList.toggle("hidden", !(aberto === undefined ? painel.classList.contains("hidden") : aberto));
+  if (!painel.classList.contains("hidden")) {
+    const campo = el("ask-input-2");
+    if (campo) campo.focus();
+  }
+}
+
+function resetChat(meetingId) {
+  if (chat.meetingId === meetingId) return;
+  chat.meetingId = meetingId;
+  chat.history = [];
+  chat.busy = false;
+  const log = el("ask-log");
+  if (!log) return;
+  log.innerHTML = "";
+  const vazio = document.createElement("div");
+  vazio.className = "cp-empty";
+  vazio.textContent =
+    "Pergunte sobre o que foi dito nesta reunião. A resposta usa a transcrição, " +
+    "suas anotações e o resumo — e diz quem falou.";
+  log.appendChild(vazio);
+}
+
+function chatMensagem(papel, texto) {
+  const log = el("ask-log");
+  if (!log) return null;
+  const vazio = log.querySelector(".cp-empty");
+  if (vazio) vazio.remove();
+  const bloco = document.createElement("div");
+  bloco.className = `cp-msg ${papel === "assistant" ? "bot" : "me"}`;
+  const quem = document.createElement("span");
+  quem.className = "who";
+  quem.textContent = papel === "assistant" ? "Resposta" : "Você";
+  bloco.appendChild(quem);
+  if (papel === "assistant") {
+    renderMarkdown(texto || "", bloco);
+  } else {
+    bloco.appendChild(document.createTextNode(texto));
+  }
+  log.appendChild(bloco);
+  log.scrollTop = log.scrollHeight;
+  return bloco;
+}
+
+async function perguntar(texto) {
+  const pergunta = (texto || "").trim();
+  const aberto = state.open;
+  if (!pergunta || chat.busy || !aberto) return;
+
+  abrirChat(true);
+  resetChat(aberto.id);
+  chat.busy = true;
+  chatMensagem("user", pergunta);
+  const pensando = chatMensagem("assistant", "_pensando…_");
+  const botao = el("ask-send");
+  if (botao) botao.disabled = true;
+
+  try {
+    const resposta = await api("ask", aberto.id, pergunta, chat.history);
+    if (pensando) pensando.remove();
+    chatMensagem("assistant", resposta.answer || "(resposta vazia)");
+    chat.history.push({ role: "user", content: pergunta });
+    chat.history.push({ role: "assistant", content: resposta.answer || "" });
+    setBanner("");
+  } catch (err) {
+    if (pensando) pensando.remove();
+    chatMensagem("assistant", `Não consegui responder: ${errText(err)}`);
+  } finally {
+    chat.busy = false;
+    if (botao) botao.disabled = false;
+  }
+}
+
+function onPerguntar() {
+  const campos = [el("ask-input"), el("ask-input-2")];
+  const campo = campos.find((c) => c && c.value.trim()) || el("ask-input");
+  const texto = campo ? campo.value : "";
+  if (campo) campo.value = "";
+  perguntar(texto);
+}
+
 // -------------------------------------------------------- modo da transcrição
 
 /* Documento é o padrão: texto corrido numa coluna estreita, que é o que se lê
@@ -4201,6 +4322,24 @@ async function boot() {
   el("finalize-btn").addEventListener("click", onFinalize);
   el("tr-export").addEventListener("click", onExportTranscript);
   ligarModoTranscricao();
+
+  // casco do Granola: painel de transcrição, chat e o "＋ Nova nota"
+  painelTranscricaoInicial();
+  el("btn-transcricao").addEventListener("click", () => painelTranscricao());
+  el("nav-perguntar").addEventListener("click", () => abrirChat());
+  el("cp-close").addEventListener("click", () => abrirChat(false));
+  el("nova-nota-btn").addEventListener("click", onAdHoc);
+  el("ask-send").addEventListener("click", onPerguntar);
+  el("ask-send-2").addEventListener("click", onPerguntar);
+  for (const id of ["ask-input", "ask-input-2"]) {
+    el(id).addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onPerguntar();
+      }
+    });
+    el(id).addEventListener("focus", () => abrirChat(true));
+  }
   el("mv-diarize").addEventListener("change", onDiarizeChange);
   el("files-tab").addEventListener("click", onOpenFolder);
   el("delete-btn").addEventListener("click", onDelete);
