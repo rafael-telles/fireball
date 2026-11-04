@@ -701,7 +701,7 @@ function renderTranscriptBar() {
   if (o.live) {
     bits.push(
       m.transcribe_live === false
-        ? "Só gravando — transcrição ao vivo desligada"
+        ? "Só gravando — ao vivo desligada"
         : "Transcrevendo ao vivo"
     );
     if (m.backend) bits.push(m.backend);
@@ -721,7 +721,7 @@ function renderTranscriptBar() {
     bits.push("Sem transcrição");
   }
   // sem isto, quem desligou a passada final não entende por que o botão sumiu
-  if (!enabled && !o.live) bits.push("transcrição final desligada");
+  if (!enabled && !o.live) bits.push("final desligada");
   el("tr-meta").textContent = bits.join(" · ");
   el("tr-meta").title = [...bits, ...detalhe].join(" · ");
 
