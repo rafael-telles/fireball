@@ -31,7 +31,6 @@
         <button class="nav-item" id="nav-perguntar"><span class="ic">✦</span>Perguntar</button>
       </nav>
 
-      <div class="sec">Espaços</div>
       <button class="folder" id="browse-btn">
         <span class="dot">▦</span>Minhas reuniões <span class="count" id="browse-count"></span>
       </button>
@@ -474,7 +473,6 @@ nele o e-mail com que a agenda te convida."
               </div>
               <button class="btn outline hidden" id="pause-btn">Pausar</button>
               <button class="btn primary hidden" id="stop-btn">Parar</button>
-              <button class="icon-btn" id="btn-notas" title="Ver as minhas notas">☰</button>
               <button class="icon-btn" id="files-tab" title="Abrir a pasta da reunião">🗀</button>
             </div>
 
@@ -482,8 +480,13 @@ nele o e-mail com que a agenda te convida."
 
             <div class="nota-col" id="nota-corpo">
               <div class="doc">
+                <div class="vista-nota" id="vista-nota" role="group" aria-label="O que a nota mostra">
+                  <button type="button" data-vista="cru" aria-pressed="false">Minhas notas</button>
+                  <button type="button" data-vista="doc" aria-pressed="true">Resumo</button>
+                </div>
+
                 <div class="doc-top">
-                  <div class="mv-name" id="mv-name"></div>
+                  <h1 class="mv-name" id="mv-name"></h1>
                   <div class="doc-tools">
                     <select class="mini" id="summary-prompt" title="Prompt do resumo"></select>
                     <button class="icon-btn" id="summary-btn" title="Gerar resumo com este prompt">✨</button>
@@ -496,7 +499,7 @@ nele o e-mail com que a agenda te convida."
                   <span class="chip-tags" id="mv-tags"></span>
                 </div>
 
-                <div class="doc-bloco">
+                <div class="doc-bloco anotacoes">
                   <div class="doc-lbl">O que eu anotei</div>
                   <div class="editor-toolbar">
                     <button class="tool" data-md="h2" title="Título">H2</button>
@@ -597,7 +600,7 @@ nele o e-mail com que a agenda te convida."
                 <div class="live-bar-title" id="live-bar-title">Transcrevendo ao vivo</div>
                 <div class="live-bar-detail" id="live-bar-detail"></div>
                 <div class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
-                <div class="live-bar-note">A transcrição final roda quando a reunião terminar.</div>
+                <div class="live-bar-note">A transcrição final roda no fim.</div>
               </div>
 
               <div class="player-bar hidden" id="player-bar">
@@ -618,6 +621,15 @@ nele o e-mail com que a agenda te convida."
               </div>
             </div>
 
+  <!-- chat da reunião: mora na mesma coluna do painel de transcrição -->
+  <aside class="chat-panel hidden" id="chat-panel">
+    <div class="cp-h">
+      <div class="grow"><b>Perguntar</b><span class="s">sobre esta reunião</span></div>
+      <button class="icon-btn" id="cp-close" title="Voltar para a transcrição">✕</button>
+    </div>
+    <div class="cp-log" id="ask-log"></div>
+  </aside>
+
             <div class="alert bad hidden" id="meeting-error"></div>
           </main>
 
@@ -636,17 +648,7 @@ nele o e-mail com que a agenda te convida."
   </div><!-- /app -->
 
   <!-- ============================ chat da reunião ================== -->
-  <aside class="chat-panel hidden" id="chat-panel">
-    <div class="cp-h">
-      <div class="grow"><b>Perguntar</b><span class="s" id="cp-sub">sobre esta reunião</span></div>
-      <button class="icon-btn" id="cp-close">✕</button>
-    </div>
-    <div class="cp-log" id="ask-log"></div>
-    <div class="cp-foot">
-      <input type="text" id="ask-input-2" placeholder="Perguntar qualquer coisa" autocomplete="off" />
-      <button class="send" id="ask-send-2">↑</button>
-    </div>
-  </aside>
+
 
   <div class="live-card-slot hidden" id="live-card-slot">
 <div class="live-card hidden" id="live-card">

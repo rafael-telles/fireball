@@ -29,7 +29,7 @@
   --text-2: #d5cfd6;
   --text-3: #b3acb8;
   --dim: #8d8592;
-  --faint: #6b646f;
+  --faint: #8a8391;
 
   --accent: #e01b24;
   --accent-bg: #1d1015;
@@ -676,3 +676,53 @@ html, body {
   position: absolute; top: 8px; right: 8px; border: 0; background: transparent;
   color: var(--faint); font-size: 11px; cursor: pointer;
 }
+
+/* =========================== alternador visível: Minhas notas | Resumo === */
+.vista-nota {
+  display: inline-flex; gap: 2px; padding: 3px; margin: 0 0 14px;
+  background: var(--surface); border: 1px solid var(--border-faint); border-radius: 999px;
+}
+.vista-nota button {
+  border: 0; background: transparent; color: var(--dim); cursor: pointer;
+  font: inherit; font-size: 11.5px; font-weight: 600; padding: 5px 13px; border-radius: 999px;
+  transition: background .15s, color .15s;
+}
+.vista-nota button:hover { color: var(--text-2); }
+.vista-nota button[aria-pressed="true"] { background: #322c39; color: var(--text); }
+
+/* na vista "minhas notas" o resumo e os detalhes saem de cena */
+.nota-col.cru .doc-bloco.resumo,
+.nota-col.cru .doc-det { display: none; }
+.nota-col.cru #notes { min-height: 220px; }
+/* e vice-versa: no resumo, o editor de notas cruas sai */
+.nota-col:not(.cru) .doc-bloco.anotacoes { display: none; }
+
+/* título como h1 de verdade, sem herdar margem de folha de estilo */
+.doc-top .mv-name { margin: 0; font-size: 30px; line-height: 1.18; }
+
+/* O metadado do cabeçalho some: o chip de REC já diz que está gravando e o
+   documento tem os chips de data. Três fontes para o mesmo "quando" era ruído. */
+#view-meeting .mv-head .mv-meta { display: none; }
+
+/* ===================== chat: coluna da direita, no lugar da transcrição === */
+#view-meeting .chat-panel {
+  grid-column: 2; grid-row: 3;
+  position: static; width: 400px; height: auto; max-height: none;
+  border: 0; border-left: 1px solid var(--border-faint); border-radius: 0;
+  background: var(--bg-sidebar); box-shadow: none;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+#view-meeting .chat-panel.hidden { display: none; }
+/* com o chat aberto, a transcrição sai de cena: um painel por vez, como no
+   app de referência — e o chat passa a citar a fala em vez de escondê-la */
+#view-meeting.chat-aberto .painel-tr { display: none; }
+
+/* a barra "Perguntar" é fixa: sem esta folga o fim do resumo ficava embaixo dela */
+#nota-corpo { padding-bottom: 112px; }
+
+/* o painel da transcrição não escolhe mais entre documento e chat: o documento
+   tem o alternador dele e o chat é o mesmo campo de pergunta do rodapé */
+#painel-tr #tr-modo { display: none; }
+
+/* um resumo só não precisa de chip de resumo */
+.sum-chips.single { display: none; }

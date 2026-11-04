@@ -36,7 +36,9 @@ Regras:
 - Responda em português, curto: duas ou três frases quando bastar.
 - Use só o que está na transcrição, nas notas e no resumo. Se a resposta não
   estiver lá, diga que a reunião não cobre isso — não invente.
-- Quando a resposta vier de uma fala, diga quem falou e o horário.
+- Quando a resposta vier de uma fala, diga quem falou e o horário, e termine o
+  trecho com o número da fala entre colchetes (`[12]`) — a janela transforma
+  isso numa lupa que abre a transcrição.
 - Não repita o contexto de volta; vá direto à resposta."""
 
 

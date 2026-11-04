@@ -141,6 +141,26 @@ async function api(name, ...args) {
   return res.result;
 }
 
+/* O cartão do rodapé da sidebar dizia "Nada gravando agora" para sempre — o id
+   existia no HTML e ninguém escrevia nele. Ele é o único lugar da sidebar que
+   fala do estado, então passa a sair do mesmo status que pinta o resto. */
+function pintarEstadoLocal() {
+  const alvo = el("local-note");
+  if (!alvo) return;
+  const ativo = state.active;
+  if (!ativo) {
+    alvo.textContent = "Nada gravando agora";
+    return;
+  }
+  const desde = ativo.started_at ? timeLabel(ativo.started_at) : "";
+  alvo.textContent =
+    ativo.status === "paused"
+      ? "Gravação pausada"
+      : desde
+        ? `Gravando desde ${desde}`
+        : "Gravando agora";
+}
+
 function setBanner(msg) {
   const banner = el("banner");
   banner.textContent = msg || "";
@@ -680,7 +700,7 @@ function renderTranscriptBar() {
     bits.push(`${meta.segments} ${meta.segments === 1 ? "segmento" : "segmentos"}`);
     if (meta.diarized) bits.push("com falantes separados");
   } else if (meta.kind === "live") {
-    bits.push("Transcrição do tempo real");
+    bits.push("Transcrição em tempo real");
     if (meta.backend) bits.push(meta.backend);
     bits.push(`${meta.segments} ${meta.segments === 1 ? "segmento" : "segmentos"}`);
   } else {
@@ -1519,7 +1539,8 @@ async function refreshOpenMeeting() {
   }
   renderMeetingHeader();
   renderFicha();
-  renderLiveBar();
+  renderLiveCard();
+  pintarEstadoLocal();
   renderMeetingList();
 }
 
@@ -2137,6 +2158,7 @@ async function refreshStatus() {
   const wasActive = state.active && state.active.id;
   state.active = detail ? detail.meeting : null;
   renderLiveCard();
+  pintarEstadoLocal();
   renderHome();
 
   // agenda junto do poll: o daemon cacheia, então isto não shella o gog a cada 2s
@@ -3234,6 +3256,8 @@ function renderSummaryList(list, running, info) {
     // senão a mesma frase aparece duas vezes na mesma dobra
     box.innerHTML = "";
   }
+  // com um resumo só, o chip repetiria o nome do resumo que já está logo abaixo
+  box.classList.toggle("single", !running && list.length <= 1);
 }
 
 function promptName(promptId) {
@@ -3249,6 +3273,21 @@ function renderSummaryView(list, loading, running, info) {
 
   box.innerHTML = "";
   box.classList.remove("empty");
+
+  // primeira abertura desta reunião sem preferência salva: quem tem resumo abre
+  // no resumo; quem ainda não tem abre nas notas, que é onde se escreve
+  if (state.vistaAuto !== (state.open && state.open.id)) {
+    state.vistaAuto = state.open && state.open.id;
+    let salvo = null;
+    try {
+      salvo = localStorage.getItem(VISTA_KEY);
+    } catch (err) {
+      salvo = null;
+    }
+    if (salvo !== "cru" && salvo !== "doc") {
+      vistaNota(current ? "doc" : "cru", false);
+    }
+  }
   head.classList.toggle("hidden", !current);
   promptBox.classList.toggle("hidden", !(current && current.prompt_instructions));
 
@@ -3898,9 +3937,17 @@ async function openSettings() {
   el("settings-note").textContent = "";
   closePromptEditor(); // edição pendente não atravessa uma saída da tela
   showSettingsTab(state.settingsTab);
-  await Promise.all([loadPrompts(), loadVoices()]);
-  renderSettings(); // sempre do estado conhecido, nunca do que ficou na tela
+  // A tela abre com o que já se sabe e só depois busca prompt e vozes: antes,
+  // uma falha nesses dois deixava a engrenagem sem efeito nenhum, sem aviso.
+  // a tela aparece primeiro; o que depende de dado chega depois (ou avisa)
   showView("settings");
+  try {
+    renderSettings(); // sempre do estado conhecido, nunca do que ficou na tela
+    await Promise.all([loadPrompts(), loadVoices()]);
+    renderSettings();
+  } catch (err) {
+    setAlert("settings-error", "Não consegui carregar tudo de Configurações", errText(err));
+  }
 }
 
 async function onSaveSettings() {
@@ -4220,9 +4267,14 @@ const chat = { meetingId: null, history: [], busy: false };
 function abrirChat(aberto) {
   const painel = el("chat-panel");
   if (!painel) return;
-  painel.classList.toggle("hidden", !(aberto === undefined ? painel.classList.contains("hidden") : aberto));
-  if (!painel.classList.contains("hidden")) {
-    const campo = el("ask-input-2");
+  const quer = aberto === undefined ? painel.classList.contains("hidden") : Boolean(aberto);
+  painel.classList.toggle("hidden", !quer);
+  // um painel por vez na coluna da direita: com o chat aberto a transcrição
+  // sai de cena, e voltar para ela é fechar o chat
+  const reuniao = el("view-meeting");
+  if (reuniao) reuniao.classList.toggle("chat-aberto", quer);
+  if (quer) {
+    const campo = el("ask-input");
     if (campo) campo.focus();
   }
 }
@@ -4294,8 +4346,7 @@ async function perguntar(texto) {
 }
 
 function onPerguntar() {
-  const campos = [el("ask-input"), el("ask-input-2")];
-  const campo = campos.find((c) => c && c.value.trim()) || el("ask-input");
+  const campo = el("ask-input");
   const texto = campo ? campo.value : "";
   if (campo) campo.value = "";
   perguntar(texto);
@@ -4347,36 +4398,41 @@ function ligarNotasRenderizadas() {
    no cabeçalho alterna — e a escolha fica no aparelho. */
 const VISTA_KEY = "fireball.nota.vista";
 
-function vistaNota(modo) {
+function vistaNota(modo, persistir = true) {
   const corpo = el("nota-corpo");
   if (!corpo) return;
   const cru = modo === "cru";
   corpo.classList.toggle("cru", cru);
-  const botao = el("btn-notas");
-  if (botao) {
-    botao.classList.toggle("on", cru);
-    botao.title = cru ? "Ver o resumo" : "Ver as minhas notas";
+  for (const botao of document.querySelectorAll("#vista-nota button[data-vista]")) {
+    const ativo = botao.dataset.vista === (cru ? "cru" : "doc");
+    botao.setAttribute("aria-pressed", ativo ? "true" : "false");
   }
-  try {
-    localStorage.setItem(VISTA_KEY, cru ? "cru" : "doc");
-  } catch (err) {
-    // sem storage a vista volta ao resumo na próxima janela
+  if (persistir) {
+    try {
+      localStorage.setItem(VISTA_KEY, cru ? "cru" : "doc");
+    } catch (err) {
+      // sem storage a vista volta ao resumo na próxima janela
+    }
   }
 }
 
 function ligarVistaNota() {
-  let guardado = "doc";
+  let salvo = null;
   try {
-    guardado = localStorage.getItem(VISTA_KEY) === "cru" ? "cru" : "doc";
+    salvo = localStorage.getItem(VISTA_KEY);
   } catch (err) {
-    guardado = "doc";
+    salvo = null;
   }
-  vistaNota(guardado);
-  const botao = el("btn-notas");
-  if (botao) {
-    botao.addEventListener("click", () =>
-      vistaNota(el("nota-corpo").classList.contains("cru") ? "doc" : "cru")
-    );
+  // A abertura não grava preferência: quem nunca escolheu recebe a vista que
+  // combina com a reunião (resumo se já existe, notas se ainda não)
+  const guardado = salvo === "cru" ? "cru" : "doc";
+  vistaNota(guardado, Boolean(salvo));
+  const grupo = el("vista-nota");
+  if (grupo) {
+    grupo.addEventListener("click", (ev) => {
+      const botao = ev.target.closest("button[data-vista]");
+      if (botao) vistaNota(botao.dataset.vista);
+    });
   }
 }
 
@@ -4502,10 +4558,15 @@ async function boot() {
   el("btn-transcricao").addEventListener("click", () => painelTranscricao());
   el("nav-perguntar").addEventListener("click", () => abrirChat());
   el("cp-close").addEventListener("click", () => abrirChat(false));
-  el("nova-nota-btn").addEventListener("click", onAdHoc);
+  el("nova-nota-btn").addEventListener("click", () => {
+    // o formulário mora na home: sem esta volta, clicar aqui dentro de uma
+    // reunião não mostrava nada
+    goHome();
+    onAdHoc();
+  });
   el("ask-send").addEventListener("click", onPerguntar);
-  el("ask-send-2").addEventListener("click", onPerguntar);
-  for (const id of ["ask-input", "ask-input-2"]) {
+  // um campo de pergunta só: o do chat era o mesmo pedido em dois lugares
+  for (const id of ["ask-input"]) {
     el(id).addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();

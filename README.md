@@ -407,9 +407,12 @@ O esqueleto é o de um app de notas, não um painel de abas:
 
 #### Notas cruas ↔ resumo
 
-O botão **☰** no cabeçalho da reunião alterna entre as duas vistas — as notas de quem gravou e o
-resumo gerado. Uma por vez, nunca lado a lado (a escolha fica no `localStorage`). As notas são
-editáveis: o texto aparece renderizado e o editor só assume quando se clica nele.
+O alternador **Minhas notas | Resumo**, no topo do documento, mostra **uma coisa por vez** — como no
+app de referência, nunca as duas na mesma rolagem. A escolha fica no `localStorage`
+(`fireball.nota.vista`); sem escolha salva, a reunião abre no resumo se ele já existe e nas suas
+notas se ainda não existe (é onde se escreve durante a reunião).
+
+As anotações continuam editáveis: aparecem renderizadas e o editor assume ao clicar.
 
 #### De onde veio cada ponto
 
@@ -418,13 +421,20 @@ devolve duas marcas que a janela usa:
 
 - `[12]` depois de um item → vira a **lupa** ao lado do ponto; ao clicar, abre a fala daquele
   número com falante e horário (a transcrição é buscada uma vez por reunião e fica na janela).
+  O chat também cita assim, e a resposta dele abre a mesma lupa.
 - `==texto==` → vira **destaque**, para o trecho que veio das notas de quem gravou e não da
   transcrição.
 
 Sem `notes.md`, o bloco de notas não entra no pedido e o modelo não marca nada — o destaque só
 aparece quando existe nota para destacar.
 
-### Chat da reunião
+### Chat da reunião e o painel da direita
+
+A pergunta é uma só, no campo do rodapé; **não existe outro campo dentro do chat**. Com o chat
+aberto, ele ocupa **a coluna da direita no lugar da transcrição** (um painel por vez, e fechar o
+chat devolve a transcrição) — antes ele flutuava por cima justamente da fonte que cita.
+
+
 
 "Perguntar qualquer coisa" na barra de baixo abre o painel de perguntas. O contexto é montado em
 `fireball/ask.py` — transcrição com falante e horário, mais as notas e o resumo já gerado — e vai
