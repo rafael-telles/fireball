@@ -3274,19 +3274,20 @@ function renderSummaryView(list, loading, running, info) {
   box.innerHTML = "";
   box.classList.remove("empty");
 
-  // primeira abertura desta reunião sem preferência salva: quem tem resumo abre
-  // no resumo; quem ainda não tem abre nas notas, que é onde se escreve
-  if (state.vistaAuto !== (state.open && state.open.id)) {
-    state.vistaAuto = state.open && state.open.id;
-    let salvo = null;
-    try {
-      salvo = localStorage.getItem(VISTA_KEY);
-    } catch (err) {
-      salvo = null;
-    }
-    if (salvo !== "cru" && salvo !== "doc") {
-      vistaNota(current ? "doc" : "cru", false);
-    }
+  // Sem preferência salva, a vista segue a reunião: com resumo, resumo; sem
+  // resumo, as notas (é onde se escreve). Quando o resumo termina de gerar, a
+  // nota vira o resumo sozinha — e o clique em qualquer aba salva a preferência,
+  // que a partir daí manda.
+  let salvo = null;
+  try {
+    salvo = localStorage.getItem(VISTA_KEY);
+  } catch (err) {
+    salvo = null;
+  }
+  if (salvo !== "cru" && salvo !== "doc") {
+    const quer = current ? "doc" : "cru";
+    const esta = el("nota-corpo").classList.contains("cru") ? "cru" : "doc";
+    if (quer !== esta) vistaNota(quer, false);
   }
   head.classList.toggle("hidden", !current);
   promptBox.classList.toggle("hidden", !(current && current.prompt_instructions));
