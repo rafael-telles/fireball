@@ -13,13 +13,28 @@ frente.
 from __future__ import annotations
 
 import sys
+import time
 
 from fireball.daemon import client, protocol
+
+# Qt + WebEngine levam alguns segundos para subir, mais ainda dentro do AppImage.
+SHELL_TIMEOUT = 30.0
+
+
+def _wait_for_shell(timeout: float = SHELL_TIMEOUT) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if client.call("daemon_status", autostart=False).get("shell"):
+            return
+        time.sleep(0.2)
 
 
 def main() -> None:
     try:
+        was_running = client.is_running()
         client.ensure_daemon()
+        if not was_running:
+            _wait_for_shell()
         client.call("show_window")
     except protocol.DaemonError as exc:
         # caso típico: daemon subiu sem sessão gráfica, então não há janela
