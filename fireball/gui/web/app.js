@@ -354,11 +354,6 @@ function speakerColor(name) {
   return SPEAKER_COLORS[hash % SPEAKER_COLORS.length];
 }
 
-function isLocalSpeaker(name, seg = null) {
-  if (seg && (seg.track === "mic" || String(seg.speaker_key || "").startsWith("mic:"))) return true;
-  return name === "Você" || name.startsWith("Sala ");
-}
-
 // ------------------------------------------------------------------ chat
 
 function isNearBottom(node) {
@@ -374,7 +369,10 @@ function chatMessage(seg, previousSpeaker) {
   const wrap = document.createElement("div");
   wrap.className = "msg";
   wrap.dataset.seq = seg.seq;
-  if (isLocalSpeaker(speaker, seg)) wrap.classList.add("mine");
+  // Só a própria fala vai para a direita. "Sala 1" também vem do microfone,
+  // mas é outra pessoa na sala: do lado de lá ela se confundia com "você"
+  // (mesma bolha, mesma cor). O que o leitor quer saber é quem falou.
+  if (speaker === "Você") wrap.classList.add("mine");
   if (groupStart) wrap.classList.add("group-start");
 
   if (groupStart) {
@@ -401,10 +399,14 @@ function chatMessage(seg, previousSpeaker) {
   bubble.className = "bubble";
   bubble.textContent = seg.text || "";
   row.appendChild(bubble);
-  row.appendChild(segmentActions(seg));
   wrap.appendChild(row);
 
-  wrap.appendChild(segmentStamp(seg));
+  // o horário e as ações do trecho dividem a linha de cima, como no Granola.
+  // As ações moram aqui, e não ao lado da bolha: em fluxo ali elas ocupavam
+  // ~130px e espremiam toda fala a dois terços da coluna.
+  const stamp = segmentStamp(seg);
+  stamp.appendChild(segmentActions(seg));
+  wrap.appendChild(stamp);
   return wrap;
 }
 

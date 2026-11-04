@@ -416,60 +416,69 @@ html, body {
 }
 #chat.modo-chat .msg.mine .bubble { background: #26141a; border-color: #3d1c22; color: #f2cfc9; }
 
-/* modo documento (leitura): a fala é legenda, não balão de um lado só.
+/* modo documento (leitura): bolha de um lado só, como no Granola.
 
-   Hora e falante dividem a primeira linha e o texto ocupa a largura toda.
-   O `row-reverse` das bolhas (`styles.css`, `.msg.mine .bubble-row`) empurrava
-   o texto de "Você" para a direita mantendo o nome à esquerda — dentro da
-   mesma fala, metade de um lado e metade do outro. Era isso que deixava a
-   coluna torta: cada mensagem parecia estar em dois lugares. */
+   Cinza à esquerda é o áudio do sistema, ember à direita é o microfone. O que
+   deixava a coluna torta não era a bolha, era a execução:
+
+   - o horário vinha DEPOIS da bolha e ficava solto no canto oposto, então o
+     topo de cada fala parecia de outra mensagem;
+   - as ações (ouvir/editar, invisíveis até o hover) ficavam ao lado da bolha
+     em fluxo, ocupando ~130px e espremendo toda fala a 63% da coluna;
+   - a bolha não declarava cor, então "Você" e "Outros participantes" tinham o
+     mesmo peso visual.
+
+   Agora a fala é uma pilha do próprio lado: horário (+ ações) em cima, nome e
+   bolha embaixo. O horário não depende da largura da bolha porque a linha de
+   cima é uma linha flex própria. */
 #chat.modo-doc .msg {
-  display: grid; grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 8px; row-gap: 2px; margin-bottom: 14px; max-width: none;
-  /* sem isto o `.msg.mine` de `styles.css` (align-self: flex-end) alinha a
-     fala inteira à direita, cada uma numa coluna de largura diferente — a
-     última peça da torção que sobrava */
-  align-self: stretch; width: 100%;
+  display: flex; flex-direction: column;
+  max-width: 86%; align-self: flex-start;
+  align-items: flex-start; margin-bottom: 14px;
 }
+#chat.modo-doc .msg.mine { align-self: flex-end; align-items: flex-end; }
 #chat.modo-doc .msg-av { display: none; }
+
+/* a ordem visual é a do Granola (horário, nome, bolha), e o `order` é o que
+   garante isso: no DOM o horário vem por último porque é ele que carrega as
+   ações do trecho, que só existem depois que a bolha está montada */
 #chat.modo-doc .msg-time {
-  order: 1; margin: 0; font: 10px ui-monospace, monospace;
+  order: 1; display: flex; align-items: center; gap: 6px;
+  margin: 0 2px 4px; font: 10px ui-monospace, monospace;
   color: var(--faint); font-variant-numeric: tabular-nums;
-  grid-column: 1; grid-row: 1; align-self: baseline;
 }
+#chat.modo-doc .msg.mine .msg-time { flex-direction: row-reverse; }
+
 #chat.modo-doc .msg-speaker {
-  order: 2; font-size: 10px; font-weight: 600; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--text-3); padding: 0; margin: 0;
+  order: 2;
+  font-size: 10px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-3); padding: 0; margin: 0 2px 4px;
   background: none; border: 0; text-align: left;
-  grid-column: 2; grid-row: 1; align-self: baseline;
 }
 #chat.modo-doc .msg-speaker::before { content: ""; display: inline-block; width: 6px; height: 6px;
   border-radius: 50%; background: var(--speaker-color, var(--dim)); margin-right: 7px; }
-#chat.modo-doc .bubble-row {
-  order: 3; flex: 1 0 100%; display: flex; align-items: flex-start;
-  gap: 8px; margin-top: 2px;
-  grid-column: 1 / -1; grid-row: 2;
+
+#chat.modo-doc .bubble-row { order: 3; display: flex; align-items: flex-start; max-width: 100%; }
+
+/* a bolha do sistema precisa existir como superfície: em #ffffff07 sobre o
+   fundo do painel ela sumia, e só as falas do microfone pareciam bolha */
+#chat.modo-doc .bubble {
+  background: #ffffff0d; border: 1px solid var(--border);
+  border-radius: 12px; padding: 8px 12px;
+  font-size: 13.5px; line-height: 1.6; color: var(--text-3);
+  max-width: 100%;
 }
-/* as ações (ouvir/editar) só existem no hover, mas ocupavam ~130px de largura
-   e espremiam toda fala a 63% da coluna — a "torção" que sobrava. Fora do
-   fluxo, elas aparecem em cima do canto da fala, sem mexer no texto. */
-#chat.modo-doc .msg { position: relative; }
-#chat.modo-doc .seg-actions {
-  position: absolute; top: 0; right: 0; padding-left: 8px;
-  background: linear-gradient(to left, var(--bg-sidebar) 78%, transparent);
+/* a fala do microfone é a sua: ember, não cinza */
+#chat.modo-doc .msg.mine .bubble {
+  background: var(--accent-bg-2); border-color: var(--accent-border); color: #f2cfc9;
 }
-/* o falante é clicável (confirma quem é a voz), mas sublinhado pontilhado em
-   cima de cada nome lia como erro de corretor: a affordance fica no hover */
-#chat.modo-doc .msg-speaker.voice-link {
-  text-decoration: none; border-radius: 4px;
-}
+/* o falante é clicável (confirma quem é a voz); sublinhado pontilhado em cima
+   de cada nome lia como erro de corretor, então a affordance fica no hover */
+#chat.modo-doc .msg-speaker.voice-link { text-decoration: none; border-radius: 4px; }
 #chat.modo-doc .msg-speaker.voice-link:hover,
 #chat.modo-doc .msg-speaker.voice-link:focus-visible {
   text-decoration: underline; text-decoration-style: solid; text-underline-offset: 3px;
 }
-#chat.modo-doc .msg.mine .bubble-row { flex-direction: row; }
-#chat.modo-doc .bubble { flex: 1; min-width: 0; background: none; border: 0; padding: 0;
-  font-size: 13.5px; line-height: 1.6; color: var(--text); }
 
 /* --------------------------------------------------------- composer */
 .composer {
