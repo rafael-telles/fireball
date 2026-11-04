@@ -302,6 +302,10 @@ html, body {
 .nota-scroll { flex: 1; min-width: 0; overflow-y: auto; }
 .nota-col {
   flex: 1; min-width: 0; min-height: 0; overflow-y: auto;
+  /* width: 100% é o que faz a coluna ser o documento (660 no máximo, centrado)
+     em vez de encolher até a largura do texto — sem isso, a nota vazia abre
+     numa tira estreita e as linhas quebram cedo demais */
+  width: 100%;
   max-width: 660px; margin: 0 auto; padding: 4px 24px 40px;
 }
 .nota-col .pane { display: block; }
@@ -525,20 +529,28 @@ html, body {
 .doc-count { font-size: 10px; letter-spacing: 0; text-transform: none; color: var(--faint); }
 
 /* anotações: texto no documento, não uma caixa */
-.editor-toolbar { display: flex; gap: 2px; margin: 0 0 2px; opacity: 0; transition: opacity .15s; }
+/* a barra de formatação mora na linha do rótulo "O que eu anotei" (canto
+   direito), em vez de empurrar a nota para baixo com uma faixa que fica
+   invisível até o hover: o espaço vazio entre o rótulo e o texto parecia
+   conteúdo faltando */
+.doc-bloco.anotacoes { position: relative; }
+.editor-toolbar {
+  display: flex; gap: 2px; margin: 0; opacity: 0; transition: opacity .15s;
+  position: absolute; top: -4px; right: 0; z-index: 2;
+}
 .doc-bloco:hover .editor-toolbar, .editor-toolbar:focus-within { opacity: 1; }
 .editor-toolbar .tool {
   border: 0; background: transparent; color: var(--faint); border-radius: 5px;
   padding: 2px 6px; font: inherit; font-size: 11px; cursor: pointer;
 }
 .editor-toolbar .tool:hover { color: var(--text-2); background: #ffffff08; }
-.editor-wrap { border: 0; background: transparent; border-radius: 0; }
+.editor-wrap { border: 0; background: transparent; border-radius: 0;
+  display: block; padding: 0; overflow: visible; }
 #notes {
-  width: 100%; min-height: 62px; resize: none; border: 0; outline: 0;
+  width: 100%; min-height: 62px; border: 0; outline: 0;
   background: transparent; color: var(--text);
   font: inherit; font-size: 14.5px; line-height: 1.62; padding: 0;
 }
-#notes::placeholder { color: var(--faint); }
 .editor-foot { padding: 4px 0 0; }
 
 /* resumo: corpo do documento */
@@ -620,25 +632,40 @@ html, body {
 /* o contador de resumos não paga o espaço que ocupa ao lado dos links */
 .doc-count { display: none; }
 
-/* notas: texto renderizado quando não está em edição */
-.notes-view { font-size: 14.5px; line-height: 1.62; color: var(--text); min-height: 40px; cursor: text; }
-.notes-view:empty { min-height: 0; }
-.notes-view p { margin: 0 0 8px; }
-.notes-view h2, .notes-view h3 { font-family: "Newsreader", Georgia, serif; font-weight: 400;
-  letter-spacing: -.01em; margin: 14px 0 6px; font-size: 17px; }
-.notes-view ul, .notes-view ol { margin: 0 0 8px; padding-left: 18px; }
-.notes-view li { margin-bottom: 3px; }
-.notes-view code { font-family: ui-monospace, monospace; font-size: .86em;
+/* notas: o documento é o próprio editor — não há vista renderizada ao lado */
+.notes-doc {
+  font-size: 14.5px; line-height: 1.62; color: var(--text);
+  min-height: 44px; outline: 0; overflow-wrap: anywhere;
+  cursor: text;
+}
+/* o placeholder só existe enquanto a nota está vazia: é o convite para
+   escrever, no mesmo lugar onde o texto vai aparecer */
+.notes-doc.vazia::before {
+  content: attr(data-placeholder);
+  color: var(--faint);
+  pointer-events: none;
+}
+.notes-doc p { margin: 0 0 8px; }
+.notes-doc h1, .notes-doc h2, .notes-doc h3 {
+  font-family: "Newsreader", Georgia, serif; font-weight: 400;
+  letter-spacing: -.01em; margin: 14px 0 6px; font-size: 17px;
+}
+.notes-doc h1 { font-size: 20px; }
+.notes-doc ul, .notes-doc ol { margin: 0 0 8px; padding-left: 18px; }
+.notes-doc li { margin-bottom: 3px; }
+.notes-doc blockquote {
+  margin: 0 0 8px; padding: 1px 0 1px 12px;
+  border-left: 2px solid var(--border-2); color: var(--text-3);
+}
+.notes-doc code { font-family: ui-monospace, monospace; font-size: .86em;
   background: #ffffff0c; border: 1px solid var(--border-faint); border-radius: 4px; padding: 0 4px; }
-.editor-wrap.editing .notes-view { display: none; }
-
-/* um dos dois aparece por vez: texto (leitura) ou editor (escrita) */
-.editor-wrap:not(.editing) #notes { display: none; }
-.editor-wrap.editing .notes-view { display: none; }
+.notes-doc pre { margin: 0 0 8px; padding: 10px 12px; background: #ffffff07;
+  border: 1px solid var(--border-faint); border-radius: 8px; overflow-x: auto; }
+.notes-doc pre code { background: transparent; border: 0; padding: 0; }
+.notes-doc a { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
 
 /* o que veio das suas notas: mais claro/forte que o resto do texto gerado */
-.summary-box mark.de-notas,
-.notes-view mark.de-notas {
+.summary-box mark.de-notas {
   background: #ff8a3d1f; color: var(--text); border-radius: 3px;
   padding: 0 2px; box-shadow: inset 0 -1px 0 #ff8a3d55;
 }

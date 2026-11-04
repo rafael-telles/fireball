@@ -69,9 +69,10 @@ def run_summary(meeting_dir: Path, provider: str, prompt_id: str = "") -> dict:
     # o provedor pode querer a pasta (o claude_code roda com o cwd nela)
     prompt = prompts_store.resolve(prompt_id)
     # o que a pessoa anotou durante a reunião é contexto de primeira: o modelo
-    # destaca o que veio dali (`==assim==`) em vez de diluir no resumo
-    notes_path = meeting_dir / "notes.md"
-    notes = notes_path.read_text(encoding="utf-8") if notes_path.exists() else ""
+    # destaca o que veio dali (`==assim==`) em vez de diluir no resumo. Sem
+    # anotação o bloco não entra — e a semente de exemplo das reuniões antigas
+    # não passa por anotação (ver `storage.read_notes_text`).
+    notes = storage.read_notes_text(meeting_dir)
     written = get_summary_provider(provider).summarize(
         dialogue, {**meeting, "_dir": str(meeting_dir)}, prompt["instructions"], notes=notes
     )

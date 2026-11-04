@@ -84,6 +84,42 @@ def meeting_path(meeting_id: str) -> Path:
     return path
 
 
+# O cabeçalho de exemplo que o app escrevia no notes.md ao criar a reunião.
+# Hoje a nota nasce vazia, mas as pastas antigas continuam com ele — e esse
+# texto não é anotação de ninguém: alimentava o prompt do resumo como se fosse
+# e era o que aparecia na tela sob "O que eu anotei".
+_SEMENTE_NOTA = (
+    "_Notas ao vivo tomadas pelo Claude e por você._",
+    "## Notas",
+)
+
+
+def is_note_seed(text: str) -> bool:
+    """True quando o notes.md é **só** o cabeçalho de exemplo (nada escrito).
+
+    A assinatura que não dá para confundir com anotação é a linha em itálico
+    "Notas ao vivo tomadas pelo Claude e por você." — ela veio do app, não de
+    gente. Título e "## Notas" sozinhos não bastam para chamar de semente: um
+    "# Pauta" escrito à mão não pode virar nota vazia na tela.
+    """
+    linhas = [linha.strip() for linha in text.splitlines() if linha.strip()]
+    if _SEMENTE_NOTA[0] not in linhas:
+        return False
+    # fora a assinatura, os cabeçalhos e o "## Notas", não pode sobrar texto
+    return all(
+        linha in _SEMENTE_NOTA or linha.startswith("# ") for linha in linhas
+    )
+
+
+def read_notes_text(meeting_dir: Path) -> str:
+    """O notes.md como anotação de verdade: semente de exemplo conta como vazio."""
+    path = Path(meeting_dir) / "notes.md"
+    if not path.exists():
+        return ""
+    text = path.read_text(encoding="utf-8")
+    return "" if is_note_seed(text) else text
+
+
 def read_json(path: Path, default=None):
     if not path.exists():
         return default

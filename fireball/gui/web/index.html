@@ -488,6 +488,17 @@ nele o e-mail com que a agenda te convida."
               </div>
               <button class="btn outline hidden" id="pause-btn">Pausar</button>
               <button class="btn primary hidden" id="stop-btn">Parar</button>
+              <!-- Apagar mora aqui, junto do cabeçalho, porque "Detalhes da
+                   reunião" só existe na vista de resumo: na de notas o botão
+                   de excluir ficava inalcançável. -->
+              <button
+                class="btn danger-outline small hidden"
+                id="delete-meeting-btn"
+                data-label="Excluir"
+                title="Apaga o áudio, a transcrição e as notas. Não tem desfazer."
+              >
+                Excluir
+              </button>
               <button class="icon-btn" id="files-tab" title="Abrir a pasta da reunião">🗀</button>
             </div>
 
@@ -525,11 +536,21 @@ nele o e-mail com que a agenda te convida."
                     <button class="tool" data-md="ol" title="Lista numerada">1.</button>
                     <button class="tool" data-md="task" title="Tarefa">☑</button>
                     <button class="tool" data-md="quote" title="Citação">❝</button>
-                    <button class="tool" data-md="link" title="Link">🔗</button>
                   </div>
+                  <!-- Uma superfície só: o texto que se lê é o texto que se
+                       edita. Não existe "ver" e "editar" como estados — por
+                       isso não há textarea nem vista renderizada ao lado. -->
                   <div class="editor-wrap">
-                    <textarea id="notes" spellcheck="false" placeholder="Escreva enquanto a reunião acontece…"></textarea>
-                    <div class="notes-view hidden" id="notes-view" title="Clique para editar"></div>
+                    <div
+                      class="notes-doc"
+                      id="notes"
+                      contenteditable="true"
+                      spellcheck="false"
+                      role="textbox"
+                      aria-multiline="true"
+                      aria-label="O que eu anotei"
+                      data-placeholder="Escreva o que importa enquanto a reunião acontece — o resumo destaca o que vier daqui."
+                    ></div>
                   </div>
                   <div class="editor-foot">
                     <span id="notes-status"></span>

@@ -672,6 +672,11 @@ function renderMeetingHeader() {
   pause.disabled = false;
   pause.textContent = m.status === "paused" ? "Retomar" : "Pausar";
 
+  // apagar no cabeçalho: fora da gravação (o áudio está aberto) e fora da
+  // finalização (há um job lendo a pasta)
+  const apagar = el("delete-meeting-btn");
+  apagar.classList.toggle("hidden", o.live || m.status === "finalizing");
+
   renderTranscriptBar();
 }
 
@@ -757,9 +762,15 @@ function renderFicha() {
   const day = longDate(m.started_at);
   const from = timeLabel(m.started_at);
   const to = m.ended_at ? timeLabel(m.ended_at) : null;
-  el("mv-when").textContent = [day, to ? `${from} – ${to}` : `${from} — em andamento`]
-    .filter(Boolean)
-    .join(" · ");
+  // "11:28 – 11:28" não informa nada: o fim só entra quando diz outra hora
+  // que a de início. Reunião de segundos (ou encerrada no mesmo minuto) fica
+  // com a hora de começo, e a duração real já está na linha de metadados.
+  const faixa = !to
+    ? `${from} — em andamento`
+    : to === from
+      ? from
+      : `${from} – ${to}`;
+  el("mv-when").textContent = [day, faixa].filter(Boolean).join(" · ");
   const diarize = el("mv-diarize");
   diarize.checked = Boolean(m.diarize);
   diarize.disabled = o.live || m.status === "finalizing";
@@ -988,8 +999,10 @@ function renderPeople() {
   }
 
   const detected = groups.filter((group) => group.tracks.size || group.slot || group.seconds).length;
+  // "2 detectadas" era um número sem substantivo: ninguém sabia de quê. O chip
+  // fica ao lado da data e conta quem passou pela reunião.
   el("mv-people-count").textContent = detected
-    ? `${detected} ${detected === 1 ? "detectada" : "detectadas"}`
+    ? `${detected} ${detected === 1 ? "pessoa" : "pessoas"}`
     : "";
 }
 
@@ -2659,6 +2672,20 @@ function weekBlock(row, begin, firstHour) {
 
 // ------------------------------------------------------------------ notas
 
+/* A nota é UMA superfície: o texto que se lê é o texto que se edita.
+
+   Antes havia duas — o markdown renderizado (`#notes-view`) e um textarea que
+   aparecia no clique — e a troca de um pelo outro no meio da escrita era o que
+   mais atrapalhava. Agora é um `contenteditable` só: clicar em qualquer lugar
+   é editar, não trocar de modo.
+
+   O arquivo continua **markdown**, porque é o que a CLI, o Claude e o prompt do
+   resumo leem. Então a conversão acontece nas duas pontas do documento:
+   `renderNoteDoc` traz markdown para o DOM editável na abertura, `noteMarkdown`
+   devolve o DOM para markdown no salvamento. É o mesmo subconjunto nos dois
+   sentidos (título, parágrafo, lista, citação, negrito, itálico, código,
+   link) — e por isso a nota não muda de forma entre abrir e salvar. */
+
 async function loadNotes() {
   const o = state.open;
   if (!o || state.notes.loadedFor === o.id) return;
@@ -2666,19 +2693,16 @@ async function loadNotes() {
   try {
     const text = await api("notes", o.id);
     if (state.open !== o) return;
-    box.value = text;
+    renderNoteDoc(text, box);
     state.notes.loadedFor = o.id;
-    state.notes.saved = text;
+    // o que está salvo é o markdown do que a tela mostra: comparar com o
+    // arquivo cru daria "alterado" a cada abertura por causa de espaço em branco
+    state.notes.saved = noteMarkdown(box);
+    atualizarNotaVazia();
     setNotesStatus("");
-    renderNotesView(); // o documento mostra texto, não markdown cru
   } catch (err) {
     setBanner(errText(err));
   }
-}
-
-function onNotesTyping() {
-  const editor = el("notes");
-  if (editor && editor.parentElement) editor.parentElement.classList.add("editing");
 }
 
 function setNotesStatus(text, ok) {
@@ -2693,7 +2717,9 @@ async function flushNotes() {
   const o = state.open;
   if (!o || state.notes.loadedFor !== o.id) return;
   clearTimeout(state.notes.timer);
-  const text = el("notes").value;
+  const box = el("notes");
+  if (!box) return;
+  const text = noteMarkdown(box);
   if (text === state.notes.saved) return;
   try {
     await api("save_notes", o.id, text);
@@ -2706,49 +2732,293 @@ async function flushNotes() {
 }
 
 function onNotesInput() {
-  onNotesTyping();
+  atualizarNotaVazia();
   setNotesStatus("editando…");
   clearTimeout(state.notes.timer);
   state.notes.timer = setTimeout(flushNotes, NOTES_SAVE_MS);
 }
 
-// Botões da barra do editor: markdown de verdade no texto, não formatação
-// simulada — o arquivo é markdown e é isso que a CLI e o Claude também leem.
-const MD_WRAP = { bold: "**", italic: "_", code: "`" };
-const MD_PREFIX = { h2: "## ", ul: "- ", ol: "1. ", task: "- [ ] ", quote: "> " };
+/** O documento está sem nada escrito? Decide o placeholder (CSS, `.vazia`). */
+function notaVazia() {
+  const box = el("notes");
+  if (!box) return true;
+  if (box.querySelector("ul, ol, pre, blockquote, h1, h2, h3, a, img")) return false;
+  return !box.textContent.replace(/[\u200b\s]/g, "");
+}
 
+function atualizarNotaVazia() {
+  const box = el("notes");
+  if (box) box.classList.toggle("vazia", notaVazia());
+}
+
+/* A barra do editor formata **o documento**, não injeta markdown: o que você
+   vê é o que vai ser salvo. No salvamento, `noteMarkdown` transforma o negrito
+   do DOM em `**negrito**`. `styleWithCSS=false` faz o Chromium escrever
+   `<b>`/`<i>` em vez de `<span style>`, que é o que o serializador entende. */
 function applyMarkdown(kind) {
   const box = el("notes");
-  const { selectionStart: from, selectionEnd: to, value } = box;
-  const selected = value.slice(from, to);
-
-  let replacement;
-  let caret;
-  if (MD_WRAP[kind]) {
-    const mark = MD_WRAP[kind];
-    replacement = `${mark}${selected}${mark}`;
-    caret = selected ? from + replacement.length : from + mark.length;
-  } else if (kind === "link") {
-    replacement = `[${selected || "texto"}](url)`;
-    caret = from + replacement.length - 4;
-  } else {
-    // prefixo de bloco: cai no começo de cada linha da seleção
-    const lineStart = value.lastIndexOf("\n", from - 1) + 1;
-    const block = value.slice(lineStart, to) || "";
-    replacement = block
-      .split("\n")
-      .map((line) => MD_PREFIX[kind] + line)
-      .join("\n");
-    box.setRangeText(replacement, lineStart, to, "end");
-    box.focus();
-    onNotesInput();
-    return;
-  }
-
-  box.setRangeText(replacement, from, to, "end");
-  box.selectionStart = box.selectionEnd = caret;
+  if (!box) return;
   box.focus();
+  document.execCommand("styleWithCSS", false, false);
+  switch (kind) {
+    case "bold":
+      document.execCommand("bold");
+      break;
+    case "italic":
+      document.execCommand("italic");
+      break;
+    case "code":
+      envolverNaSelecao("code");
+      break;
+    case "h2":
+      document.execCommand("formatBlock", false, "h2");
+      break;
+    case "quote":
+      document.execCommand("formatBlock", false, "blockquote");
+      break;
+    case "ul":
+      document.execCommand("insertUnorderedList");
+      break;
+    case "ol":
+      document.execCommand("insertOrderedList");
+      break;
+    case "task":
+      document.execCommand("insertText", false, "- [ ] ");
+      break;
+    default:
+      return;
+  }
+  desembrulharBlocos(box);
   onNotesInput();
+}
+
+/** O execCommand de lista às vezes escreve `<p><ul><li>…</li></ul></p>`: o
+    parágrafo em volta é inválido e sobra na serialização. Aqui ele é aberto.
+    O mesmo vale para `<span style>`, que o editor deixa ao desligar a lista —
+    formatação de verdade vem em `<b>`/`<i>`, não em estilo inline. */
+function desembrulharBlocos(box) {
+  for (const p of [...box.querySelectorAll("p")]) {
+    if (!p.querySelector("ul, ol, pre, blockquote, h1, h2, h3")) continue;
+    p.replaceWith(...p.childNodes);
+  }
+  for (const span of [...box.querySelectorAll("span[style]")]) {
+    span.replaceWith(...span.childNodes);
+  }
+}
+
+/** Envolve a seleção num elemento — o execCommand não tem "code". */
+function envolverNaSelecao(tag) {
+  const sel = window.getSelection();
+  const texto = sel ? sel.toString() : "";
+  const node = document.createElement(tag);
+  node.textContent = texto || "\u200b";
+  document.execCommand("insertHTML", false, node.outerHTML);
+}
+
+// ---- markdown ↔ documento editável
+
+/** Links markdown viram âncora; sem href, ficam como texto (âncora sem
+    endereço não teria como ser corrigida dentro do documento). */
+function notaInlineMarkdown(text, parent) {
+  const padrao = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|(?<![\w])_[^_]+_(?![\w])|\[[^\]]+\]\([^)\s]+\))/g;
+  let ultimo = 0;
+  let achado;
+  while ((achado = padrao.exec(text)) !== null) {
+    if (achado.index > ultimo) {
+      parent.appendChild(document.createTextNode(text.slice(ultimo, achado.index)));
+    }
+    const token = achado[0];
+    let node;
+    if (token.startsWith("**")) {
+      node = document.createElement("strong");
+      node.textContent = token.slice(2, -2);
+    } else if (token.startsWith("`")) {
+      node = document.createElement("code");
+      node.textContent = token.slice(1, -1);
+    } else if (token.startsWith("[")) {
+      const partes = /^\[([^\]]+)\]\(([^)\s]+)\)$/.exec(token);
+      node = document.createElement("a");
+      node.textContent = partes[1];
+      node.setAttribute("href", partes[2]);
+      node.setAttribute("target", "_blank");
+    } else {
+      node = document.createElement("em");
+      node.textContent = token.slice(1, -1);
+    }
+    parent.appendChild(node);
+    ultimo = achado.index + token.length;
+  }
+  if (ultimo < text.length) parent.appendChild(document.createTextNode(text.slice(ultimo)));
+}
+
+/** Markdown → DOM editável. Mesmas regras de `renderMarkdown` (o do resumo),
+    sem as marcas de proveniência: `[12]` e `==` são coisas do resumo, e na nota
+    viram botão/lupa impossíveis de editar. */
+function renderNoteDoc(markdown, box) {
+  box.innerHTML = "";
+  let lista = null;
+  let codigo = null;
+  const fecharLista = () => {
+    lista = null;
+  };
+
+  for (const bruto of String(markdown || "").split("\n")) {
+    const linha = bruto.trimEnd();
+    if (codigo) {
+      if (/^```/.test(linha)) {
+        const pre = document.createElement("pre");
+        pre.textContent = codigo.join("\n");
+        box.appendChild(pre);
+        codigo = null;
+      } else {
+        codigo.push(bruto);
+      }
+      continue;
+    }
+    if (/^```/.test(linha)) {
+      fecharLista();
+      codigo = [];
+      continue;
+    }
+    if (!linha.trim()) {
+      fecharLista();
+      continue;
+    }
+
+    const titulo = /^(#{1,3})\s+(.*)$/.exec(linha);
+    const item = /^\s*[-*]\s+(.*)$/.exec(linha);
+    const numerado = /^\s*\d+[.)]\s+(.*)$/.exec(linha);
+    const citacao = /^>\s?(.*)$/.exec(linha);
+
+    if (titulo) {
+      fecharLista();
+      const node = document.createElement(`h${Math.min(3, titulo[1].length)}`);
+      notaInlineMarkdown(titulo[2], node);
+      box.appendChild(node);
+      continue;
+    }
+    if (item || numerado) {
+      const alvo = item ? "UL" : "OL";
+      if (!lista || lista.tagName !== alvo) {
+        lista = document.createElement(item ? "ul" : "ol");
+        box.appendChild(lista);
+      }
+      const li = document.createElement("li");
+      notaInlineMarkdown((item || numerado)[1], li);
+      lista.appendChild(li);
+      continue;
+    }
+    fecharLista();
+    if (citacao) {
+      const node = document.createElement("blockquote");
+      notaInlineMarkdown(citacao[1], node);
+      box.appendChild(node);
+      continue;
+    }
+    const para = document.createElement("p");
+    notaInlineMarkdown(linha, para);
+    box.appendChild(para);
+  }
+  if (codigo) {
+    const pre = document.createElement("pre");
+    pre.textContent = codigo.join("\n");
+    box.appendChild(pre);
+  }
+}
+
+/** Texto de um nó inline do documento, na forma markdown. */
+function notaInline(node) {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return (node.nodeValue || "").replace(/\u00a0/g, " ").replace(/\u200b/g, "");
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  const dentro = [...node.childNodes].map(notaInline).join("");
+  switch (node.tagName) {
+    case "BR":
+      return "\n";
+    case "B":
+    case "STRONG":
+      return dentro.trim() ? `**${dentro.trim()}**` : dentro;
+    case "I":
+    case "EM":
+      return dentro.trim() ? `*${dentro.trim()}*` : dentro;
+    case "CODE":
+      return dentro ? `\`${dentro}\`` : "";
+    case "A":
+      return `[${dentro}](${node.getAttribute("href") || ""})`;
+    default:
+      return dentro;
+  }
+}
+
+/** DOM editável → markdown. Cada bloco vira um parágrafo de markdown separado
+    por linha em branco, o que é o que `renderNoteDoc` espera de volta. */
+function noteMarkdown(root) {
+  const blocos = [];
+  const guardar = (texto) => {
+    if (texto) blocos.push(texto);
+  };
+  // o navegador às vezes aninha um bloco dentro de um parágrafo
+  // (`<p><ul>…`, que o execCommand de lista produz): aí quem manda são os
+  // blocos de dentro, e não o texto do parágrafo
+  const temBlocoDentro = (node) =>
+    Boolean(node.querySelector && node.querySelector("ul, ol, pre, blockquote, h1, h2, h3"));
+
+  const bloco = (node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      // texto solto direto no contenteditable (acontece ao digitar sem bloco)
+      guardar(notaInline(node).trim());
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const tag = node.tagName;
+    if (tag === "H1" || tag === "H2" || tag === "H3") {
+      guardar(`${"#".repeat(Number(tag[1]))} ${notaInline(node).trim()}`);
+      return;
+    }
+    if (tag === "UL" || tag === "OL") {
+      let n = 0;
+      const itens = [];
+      for (const li of node.children) {
+        if (li.tagName !== "LI") continue;
+        n += 1;
+        itens.push(`${tag === "OL" ? `${n}. ` : "- "}${notaInline(li).trim()}`);
+      }
+      guardar(itens.join("\n"));
+      return;
+    }
+    if (tag === "BLOCKQUOTE" && !temBlocoDentro(node)) {
+      guardar(
+        notaInline(node)
+          .trim()
+          .split("\n")
+          .map((linha) => `> ${linha}`)
+          .join("\n")
+      );
+      return;
+    }
+    if (tag === "PRE") {
+      const texto = node.textContent.replace(/\n$/, "");
+      if (texto.trim()) guardar(`\`\`\`\n${texto}\n\`\`\``);
+      return;
+    }
+    if (temBlocoDentro(node)) {
+      for (const filho of node.childNodes) bloco(filho);
+      return;
+    }
+    // P, DIV (que o Chromium cria ao apertar Enter) e o que mais aparecer:
+    // um bloco por linha, com as quebras internas preservadas
+    guardar(notaInline(node).trim());
+  };
+
+  for (const node of root.childNodes) bloco(node);
+
+  return blocos
+    .join("\n\n")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // ----------------------------------------------------------------- avisos
@@ -4088,22 +4358,39 @@ async function togglePause(id, paused, button) {
     Um diálogo do sistema aqui seria um modal que a janela do pywebview não
     desenha bem, e um "tem certeza?" solto é fácil demais de confirmar no
     automático. Pedindo o segundo clique no mesmo lugar, o botão muda de cor e
-    de texto antes de apagar — e desiste sozinho se ninguém confirmar. */
+    de texto antes de apagar — e desiste sozinho se ninguém confirmar.
+
+    Dois botões, um fluxo: o do cabeçalho (sempre visível) e o do fim da ficha,
+    que mora dentro de "Detalhes da reunião" — e essa ficha só existe na vista
+    de resumo. Sem o do cabeçalho, não havia como apagar uma reunião aberta na
+    vista de notas. */
+const BOTOES_EXCLUIR = ["delete-meeting-btn", "delete-btn"];
+
 function resetDelete() {
-  const button = el("delete-btn");
-  button.classList.remove("confirming");
-  button.textContent = "Excluir reunião";
-  el("delete-note").textContent = "";
+  for (const id of BOTOES_EXCLUIR) {
+    const button = el(id);
+    if (!button) continue;
+    button.classList.remove("confirming");
+    button.textContent = button.dataset.label || "Excluir reunião";
+    button.disabled = false;
+  }
+  const nota = el("delete-note");
+  if (nota) nota.textContent = "";
   clearTimeout(state.deleteTimer);
   state.deleteTimer = null;
 }
 
-async function onDelete() {
+async function onDelete(event) {
   const o = state.open;
   if (!o) return;
-  const button = el("delete-btn");
+  const button = (event && event.currentTarget) || el("delete-btn");
+  if (!button) return;
+  if (!button.dataset.label) button.dataset.label = button.textContent.trim();
 
   if (!button.classList.contains("confirming")) {
+    // o outro botão desiste: dois "confirmar" na tela pedindo coisas diferentes
+    // não é confirmação
+    resetDelete();
     button.classList.add("confirming");
     button.textContent = "Confirmar exclusão";
     el("delete-note").textContent = "Apaga o áudio, a transcrição e as notas. Não tem desfazer.";
@@ -4116,10 +4403,8 @@ async function onDelete() {
   try {
     await api("delete_meeting", o.id);
     resetDelete();
-    button.disabled = false;
     goHome();
   } catch (err) {
-    button.disabled = false;
     resetDelete();
     setAlert("meeting-error", "Não foi possível excluir", errText(err));
   }
@@ -4472,43 +4757,41 @@ function onPerguntar() {
   perguntar(texto);
 }
 
-// ------------------------------------------------- notas: texto ou edição
+// ------------------------------------------- notas: o documento é o editor
 
-/* No documento a nota aparece como texto — igual ao que se lê depois. O
-   textarea só assume quando a pessoa vai escrever: clicar no texto o troca pelo
-   editor, sair do editor devolve o markdown renderizado. Sem isso, quem escreve
-   markdown vê "# Título" e "_ênfase_" no meio da nota. */
-function renderNotesView() {
-  const editor = el("notes");
-  const view = el("notes-view");
-  if (!editor || !view) return;
-  const texto = editor.value.trim();
-  view.innerHTML = "";
-  if (texto) renderMarkdown(texto, view);
-  view.classList.toggle("hidden", !texto);
-  editor.parentElement.classList.toggle("editing", false);
-  if (!texto) editor.parentElement.classList.add("editing");
-}
-
-function editarNotas() {
-  const editor = el("notes");
-  const view = el("notes-view");
-  if (!editor) return;
-  if (view) view.classList.add("hidden");
-  if (editor.parentElement) editor.parentElement.classList.add("editing");
-  editor.focus();
-}
-
-function ligarNotasRenderizadas() {
-  const editor = el("notes");
-  const view = el("notes-view");
-  if (!editor || !view) return;
-  view.addEventListener("click", editarNotas);
-  editor.addEventListener("blur", () => {
-    // espera o flush do debounce antes de trocar a vista
-    setTimeout(renderNotesView, 0);
+/* Não existe mais "ver" ↔ "editar": a nota é um `contenteditable`
+   (ver a seção "notas" em loadNotes). Aqui só ficam os fios que o navegador
+   não faz sozinho — colar texto puro e manter o placeholder em dia. */
+function ligarNotaEditavel() {
+  const box = el("notes");
+  if (!box) return;
+  // colar HTML de fora traria fonte, cor e tabela para dentro do markdown: o
+  // que entra é o texto, e quem formata é a barra do editor
+  box.addEventListener("paste", (event) => {
+    const texto = (event.clipboardData || window.clipboardData).getData("text/plain");
+    if (!texto) return;
+    event.preventDefault();
+    document.execCommand("insertText", false, texto);
   });
-  renderNotesView();
+  atualizarNotaVazia();
+}
+
+/* O título do documento já tinha `cursor: text` e não respondia a clique
+   nenhum: renomear exigia abrir "Detalhes da reunião" e achar o campo lá
+   dentro, longe do nome que se quer trocar. Clicar aqui abre a ficha e põe o
+   cursor no campo, com o texto selecionado para sobrescrever de uma vez. */
+function ligarTituloEditavel() {
+  const titulo = el("mv-name");
+  if (!titulo) return;
+  titulo.title = "Clique para renomear";
+  titulo.addEventListener("click", () => {
+    const campo = el("mv-rename");
+    if (!campo) return;
+    const ficha = campo.closest("details");
+    if (ficha) ficha.open = true;
+    campo.focus();
+    campo.select();
+  });
 }
 
 // ------------------------------------- notas cruas ↔ resumo, e a citação
@@ -4670,8 +4953,9 @@ async function boot() {
   el("finalize-btn").addEventListener("click", onFinalize);
   el("tr-export").addEventListener("click", onExportTranscript);
   ligarModoTranscricao();
-  ligarNotasRenderizadas();
+  ligarNotaEditavel();
   ligarVistaNota();
+  ligarTituloEditavel();
 
   // casco do Granola: painel de transcrição, chat e o "＋ Nova nota"
   painelTranscricaoInicial();
@@ -4703,6 +4987,7 @@ async function boot() {
   el("mv-diarize").addEventListener("change", onDiarizeChange);
   el("files-tab").addEventListener("click", onOpenFolder);
   el("delete-btn").addEventListener("click", onDelete);
+  el("delete-meeting-btn").addEventListener("click", onDelete);
   el("pause-btn").addEventListener("click", (event) => {
     const o = state.open;
     if (o) togglePause(o.id, o.meeting.status === "paused", event.currentTarget);
