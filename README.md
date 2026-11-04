@@ -424,8 +424,9 @@ devolve duas marcas que a janela usa:
 - `==texto==` → vira **destaque**, para o trecho que veio das notas de quem gravou e não da
   transcrição.
 
-Sem `notes.md`, o bloco de notas não entra no pedido e o modelo não marca nada — o destaque só
-aparece quando existe nota para destacar.
+Sem anotação, o bloco de notas não entra no pedido e o modelo não marca nada — o destaque só
+aparece quando existe nota para destacar. Nota vazia aqui quer dizer `notes.md` ausente, em
+branco **ou** só com o cabeçalho de exemplo das reuniões antigas (`storage.read_notes_text`).
 
 ### Chat da reunião e o painel da direita
 
@@ -576,10 +577,22 @@ e isso não é layout, é conta errada.
   quando e com quantos segmentos, e é ali que ficam *Exportar* (grava um `transcript.md` legível
   na pasta da reunião) e *Retranscrever*: é uma ação sobre *este* texto, e o que justifica
   clicá-la é justamente a linha ao lado. Ao vivo, o rodapé conta o que o pipeline está fazendo.
-- **Notas** — o `notes.md` num editor de markdown, salvo sozinho depois que você para de
-  digitar (e na hora de sair da aba, que o debounce sozinho perderia as últimas teclas). A
-  barra de cima insere markdown de verdade no texto; o arquivo é markdown, e é o mesmo que a
-  CLI e o Claude leem e escrevem.
+- **Notas** — o `notes.md` num documento **editável**, salvo sozinho depois que você para de
+  digitar (e na hora de sair, que o debounce sozinho perderia as últimas teclas). Não existe
+  "ver" e "editar" como dois estados: o texto que se lê é o que se edita, e clicar em qualquer
+  ponto é digitar — nada de trocar de vista no meio da nota. O arquivo continua **markdown** (é o
+  que a CLI, o Claude e o prompt do resumo leem): o documento é convertido nas duas pontas,
+  `renderNoteDoc` na abertura e `noteMarkdown` no salvamento. A barra de formatação (no canto do
+  rótulo) formata o documento — negrito, itálico, código, título, listas, citação — e voltar a
+  clicar no mesmo botão desfaz.
+  A nota **nasce vazia** — o editor diz onde escrever, e o documento não ganha texto que ninguém
+  escreveu (o cabeçalho de exemplo das reuniões antigas é reconhecido e mostrado como nota vazia,
+  tanto na tela quanto no prompt do resumo). O título no topo do documento é o lugar de renomear:
+  clicar nele abre a ficha com o campo em foco.
+- **Excluir a reunião** — botão no cabeçalho da reunião (ao lado de *Parar* e da pasta), em dois
+  toques: o primeiro pede confirmação no mesmo lugar e desiste sozinho em 6 segundos. Fica oculto
+  durante a gravação e a transcrição final (o áudio está aberto). O mesmo botão existe no fim de
+  "Detalhes da reunião" — que só aparece na vista de resumo, e por isso não bastava.
 
 **Arquivos** fica na mesma fileira das abas, empurrado para a direita e com uma seta: não é aba,
 abre a pasta da reunião no gerenciador de arquivos do sistema, e a tela não muda.

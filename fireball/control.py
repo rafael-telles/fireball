@@ -79,9 +79,13 @@ def create_meeting(
     if name_source is None:
         name_source = "user" if name else None
     meeting_dir = storage.new_meeting_dir(name)
-    (meeting_dir / "notes.md").write_text(
-        f"# {name or 'Notas da reunião'}\n\n_Notas ao vivo tomadas pelo Claude e por você._\n\n## Notas\n"
-    )
+    # A nota nasce VAZIA. Ela já nasceu com um cabeçalho de exemplo
+    # ("# Notas da reunião" + "_Notas ao vivo tomadas pelo Claude e por você._"
+    # + "## Notas"), e o resultado era o pior dos dois mundos: texto que a
+    # pessoa não escreveu aparecendo sob "O que eu anotei", título duplicado
+    # na tela e o nome do Claude carimbado mesmo com outro provedor. O editor
+    # já tem placeholder — é ele que diz onde escrever.
+    (meeting_dir / "notes.md").write_text("")
     (meeting_dir / "transcript.ndjson").touch()
 
     meeting = {
@@ -640,9 +644,12 @@ def search_meetings(query: str, limit: int = 50) -> dict:
 
 
 def read_notes(meeting_id: str) -> str:
-    """O notes.md inteiro, como texto — é o que o editor da janela abre."""
-    path = storage.meeting_path(meeting_id) / "notes.md"
-    return path.read_text() if path.exists() else ""
+    """O notes.md inteiro, como texto — é o que o editor da janela abre.
+
+    Vem por `storage.read_notes_text` para que o cabeçalho de exemplo das
+    reuniões antigas apareça como nota vazia em vez de anotação de alguém.
+    """
+    return storage.read_notes_text(storage.meeting_path(meeting_id))
 
 
 def write_notes(meeting_id: str, text: str) -> None:

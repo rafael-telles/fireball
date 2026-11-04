@@ -302,6 +302,10 @@ html, body {
 .nota-scroll { flex: 1; min-width: 0; overflow-y: auto; }
 .nota-col {
   flex: 1; min-width: 0; min-height: 0; overflow-y: auto;
+  /* width: 100% é o que faz a coluna ser o documento (660 no máximo, centrado)
+     em vez de encolher até a largura do texto — sem isso, a nota vazia abre
+     numa tira estreita e as linhas quebram cedo demais */
+  width: 100%;
   max-width: 660px; margin: 0 auto; padding: 4px 24px 40px;
 }
 .nota-col .pane { display: block; }
@@ -378,7 +382,16 @@ html, body {
 .painel-tr .tr-bar {
   display: flex; align-items: center; gap: 8px; padding: 12px 14px;
   border-bottom: 1px solid var(--border-faint); flex: none;
+  /* a linha diz qual transcrição é esta, com que motor, de quando e quantos
+     segmentos. Em 400px de coluna isso não cabe ao lado dos dois botões: o
+     metadado ganha a linha inteira e as ações descem alinhadas à direita. */
+  flex-wrap: wrap; align-items: center; row-gap: 8px;
 }
+.painel-tr .tr-bar > .grow { flex: 1 1 100%; min-width: 0; white-space: normal; }
+.painel-tr .tr-bar .btn { flex: none; }
+/* só o primeiro empurra: `margin-left:auto` nos dois abria um buraco no meio
+   e os botões pareciam centralizados na coluna */
+.painel-tr .tr-bar #tr-export { margin-left: auto; }
 #tr-meta { font-size: 11px; color: var(--faint); }
 .painel-tr .chat { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; }
 .painel-tr .live-bar, .painel-tr .player-bar {
@@ -403,18 +416,69 @@ html, body {
 }
 #chat.modo-chat .msg.mine .bubble { background: #26141a; border-color: #3d1c22; color: #f2cfc9; }
 
-/* modo documento (leitura) */
-#chat.modo-doc .msg { display: block; margin-bottom: 16px; max-width: none; }
+/* modo documento (leitura): bolha de um lado só, como no Granola.
+
+   Cinza à esquerda é o áudio do sistema, ember à direita é o microfone. O que
+   deixava a coluna torta não era a bolha, era a execução:
+
+   - o horário vinha DEPOIS da bolha e ficava solto no canto oposto, então o
+     topo de cada fala parecia de outra mensagem;
+   - as ações (ouvir/editar, invisíveis até o hover) ficavam ao lado da bolha
+     em fluxo, ocupando ~130px e espremendo toda fala a 63% da coluna;
+   - a bolha não declarava cor, então "Você" e "Outros participantes" tinham o
+     mesmo peso visual.
+
+   Agora a fala é uma pilha do próprio lado: horário (+ ações) em cima, nome e
+   bolha embaixo. O horário não depende da largura da bolha porque a linha de
+   cima é uma linha flex própria. */
+#chat.modo-doc .msg {
+  display: flex; flex-direction: column;
+  max-width: 86%; align-self: flex-start;
+  align-items: flex-start; margin-bottom: 14px;
+}
+#chat.modo-doc .msg.mine { align-self: flex-end; align-items: flex-end; }
 #chat.modo-doc .msg-av { display: none; }
+
+/* a ordem visual é a do Granola (horário, nome, bolha), e o `order` é o que
+   garante isso: no DOM o horário vem por último porque é ele que carrega as
+   ações do trecho, que só existem depois que a bolha está montada */
+#chat.modo-doc .msg-time {
+  order: 1; display: flex; align-items: center; gap: 6px;
+  margin: 0 2px 4px; font: 10px ui-monospace, monospace;
+  color: var(--faint); font-variant-numeric: tabular-nums;
+}
+#chat.modo-doc .msg.mine .msg-time { flex-direction: row-reverse; }
+
 #chat.modo-doc .msg-speaker {
-  display: inline-block; font-size: 10px; font-weight: 600; letter-spacing: .08em;
-  text-transform: uppercase; color: var(--text-3); padding: 0; margin: 0 0 4px;
+  order: 2;
+  font-size: 10px; font-weight: 600; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-3); padding: 0; margin: 0 2px 4px;
   background: none; border: 0; text-align: left;
 }
 #chat.modo-doc .msg-speaker::before { content: ""; display: inline-block; width: 6px; height: 6px;
   border-radius: 50%; background: var(--speaker-color, var(--dim)); margin-right: 7px; }
-#chat.modo-doc .bubble { background: none; border: 0; padding: 0; font-size: 13.5px; line-height: 1.6; color: var(--text); }
-#chat.modo-doc .msg-time { display: block; font-size: 10px; color: var(--faint); }
+
+#chat.modo-doc .bubble-row { order: 3; display: flex; align-items: flex-start; max-width: 100%; }
+
+/* a bolha do sistema precisa existir como superfície: em #ffffff07 sobre o
+   fundo do painel ela sumia, e só as falas do microfone pareciam bolha */
+#chat.modo-doc .bubble {
+  background: #ffffff0d; border: 1px solid var(--border);
+  border-radius: 12px; padding: 8px 12px;
+  font-size: 13.5px; line-height: 1.6; color: var(--text-3);
+  max-width: 100%;
+}
+/* a fala do microfone é a sua: ember, não cinza */
+#chat.modo-doc .msg.mine .bubble {
+  background: var(--accent-bg-2); border-color: var(--accent-border); color: #f2cfc9;
+}
+/* o falante é clicável (confirma quem é a voz); sublinhado pontilhado em cima
+   de cada nome lia como erro de corretor, então a affordance fica no hover */
+#chat.modo-doc .msg-speaker.voice-link { text-decoration: none; border-radius: 4px; }
+#chat.modo-doc .msg-speaker.voice-link:hover,
+#chat.modo-doc .msg-speaker.voice-link:focus-visible {
+  text-decoration: underline; text-decoration-style: solid; text-underline-offset: 3px;
+}
 
 /* --------------------------------------------------------- composer */
 .composer {
@@ -451,11 +515,14 @@ html, body {
 .cp-h .grow { flex: 1; }
 .cp-h b { display: block; font-size: 12.5px; }
 .cp-h .s { font-size: 10.5px; color: var(--faint); }
-.cp-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+.cp-log { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 16px; }
 .cp-msg { font-size: 13px; line-height: 1.6; }
-.cp-msg.me { color: var(--text-3); }
+/* pergunta com peso de pergunta, resposta com peso de leitura: os dois em
+   cinza-claro deixavam a conversa plana, sem saber onde uma começa */
+.cp-msg.me { color: var(--text); font-weight: 500; }
+.cp-msg.bot .cp-corpo { color: var(--text-2); }
 .cp-msg .who { display: block; font-size: 9.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin-bottom: 3px; }
-.cp-msg.bot p { margin: 0 0 8px; color: var(--text); }
+.cp-msg.bot p { margin: 0 0 8px; }
 .cp-msg.bot code { font-family: ui-monospace, monospace; font-size: .86em; background: #ffffff0c; border: 1px solid var(--border-faint); border-radius: 4px; padding: 0 4px; }
 .cp-msg.bot ul { margin: 0 0 8px; padding-left: 18px; }
 .cp-empty { color: var(--faint); font-size: 12px; line-height: 1.6; }
@@ -525,20 +592,28 @@ html, body {
 .doc-count { font-size: 10px; letter-spacing: 0; text-transform: none; color: var(--faint); }
 
 /* anotações: texto no documento, não uma caixa */
-.editor-toolbar { display: flex; gap: 2px; margin: 0 0 2px; opacity: 0; transition: opacity .15s; }
+/* a barra de formatação mora na linha do rótulo "O que eu anotei" (canto
+   direito), em vez de empurrar a nota para baixo com uma faixa que fica
+   invisível até o hover: o espaço vazio entre o rótulo e o texto parecia
+   conteúdo faltando */
+.doc-bloco.anotacoes { position: relative; }
+.editor-toolbar {
+  display: flex; gap: 2px; margin: 0; opacity: 0; transition: opacity .15s;
+  position: absolute; top: -4px; right: 0; z-index: 2;
+}
 .doc-bloco:hover .editor-toolbar, .editor-toolbar:focus-within { opacity: 1; }
 .editor-toolbar .tool {
   border: 0; background: transparent; color: var(--faint); border-radius: 5px;
   padding: 2px 6px; font: inherit; font-size: 11px; cursor: pointer;
 }
 .editor-toolbar .tool:hover { color: var(--text-2); background: #ffffff08; }
-.editor-wrap { border: 0; background: transparent; border-radius: 0; }
+.editor-wrap { border: 0; background: transparent; border-radius: 0;
+  display: block; padding: 0; overflow: visible; }
 #notes {
-  width: 100%; min-height: 62px; resize: none; border: 0; outline: 0;
+  width: 100%; min-height: 62px; border: 0; outline: 0;
   background: transparent; color: var(--text);
   font: inherit; font-size: 14.5px; line-height: 1.62; padding: 0;
 }
-#notes::placeholder { color: var(--faint); }
 .editor-foot { padding: 4px 0 0; }
 
 /* resumo: corpo do documento */
@@ -620,25 +695,40 @@ html, body {
 /* o contador de resumos não paga o espaço que ocupa ao lado dos links */
 .doc-count { display: none; }
 
-/* notas: texto renderizado quando não está em edição */
-.notes-view { font-size: 14.5px; line-height: 1.62; color: var(--text); min-height: 40px; cursor: text; }
-.notes-view:empty { min-height: 0; }
-.notes-view p { margin: 0 0 8px; }
-.notes-view h2, .notes-view h3 { font-family: "Newsreader", Georgia, serif; font-weight: 400;
-  letter-spacing: -.01em; margin: 14px 0 6px; font-size: 17px; }
-.notes-view ul, .notes-view ol { margin: 0 0 8px; padding-left: 18px; }
-.notes-view li { margin-bottom: 3px; }
-.notes-view code { font-family: ui-monospace, monospace; font-size: .86em;
+/* notas: o documento é o próprio editor — não há vista renderizada ao lado */
+.notes-doc {
+  font-size: 14.5px; line-height: 1.62; color: var(--text);
+  min-height: 44px; outline: 0; overflow-wrap: anywhere;
+  cursor: text;
+}
+/* o placeholder só existe enquanto a nota está vazia: é o convite para
+   escrever, no mesmo lugar onde o texto vai aparecer */
+.notes-doc.vazia::before {
+  content: attr(data-placeholder);
+  color: var(--faint);
+  pointer-events: none;
+}
+.notes-doc p { margin: 0 0 8px; }
+.notes-doc h1, .notes-doc h2, .notes-doc h3 {
+  font-family: "Newsreader", Georgia, serif; font-weight: 400;
+  letter-spacing: -.01em; margin: 14px 0 6px; font-size: 17px;
+}
+.notes-doc h1 { font-size: 20px; }
+.notes-doc ul, .notes-doc ol { margin: 0 0 8px; padding-left: 18px; }
+.notes-doc li { margin-bottom: 3px; }
+.notes-doc blockquote {
+  margin: 0 0 8px; padding: 1px 0 1px 12px;
+  border-left: 2px solid var(--border-2); color: var(--text-3);
+}
+.notes-doc code { font-family: ui-monospace, monospace; font-size: .86em;
   background: #ffffff0c; border: 1px solid var(--border-faint); border-radius: 4px; padding: 0 4px; }
-.editor-wrap.editing .notes-view { display: none; }
-
-/* um dos dois aparece por vez: texto (leitura) ou editor (escrita) */
-.editor-wrap:not(.editing) #notes { display: none; }
-.editor-wrap.editing .notes-view { display: none; }
+.notes-doc pre { margin: 0 0 8px; padding: 10px 12px; background: #ffffff07;
+  border: 1px solid var(--border-faint); border-radius: 8px; overflow-x: auto; }
+.notes-doc pre code { background: transparent; border: 0; padding: 0; }
+.notes-doc a { color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; }
 
 /* o que veio das suas notas: mais claro/forte que o resto do texto gerado */
-.summary-box mark.de-notas,
-.notes-view mark.de-notas {
+.summary-box mark.de-notas {
   background: #ff8a3d1f; color: var(--text); border-radius: 3px;
   padding: 0 2px; box-shadow: inset 0 -1px 0 #ff8a3d55;
 }
@@ -692,6 +782,14 @@ html, body {
 /* O metadado do cabeçalho some: o chip de REC já diz que está gravando e o
    documento tem os chips de data. Três fontes para o mesmo "quando" era ruído. */
 #view-meeting .mv-head .mv-meta { display: none; }
+
+/* a barra "Perguntar" pertence à nota: com o painel da direita aberto ela
+   para na divisória em vez de atravessar embaixo da transcrição (era o que
+   deixava o rodapé torto, com a pílula passando por baixo do painel) */
+#view-meeting:has(.painel-tr.open):not(.chat-aberto) ~ .composer { padding-right: 424px; }
+/* o mesmo vale para o cabeçalho da reunião: "Excluir" e a pasta são da nota e
+   ficavam pendurados por cima da coluna da transcrição */
+#view-meeting:has(.painel-tr.open):not(.chat-aberto) .mv-head { grid-column: 1; }
 
 /* ===================== chat: coluna da direita, no lugar da transcrição === */
 #view-meeting .chat-panel {
@@ -779,8 +877,10 @@ html, body {
 }
 .doc-det > summary:hover { color: var(--text-2); }
 
-/* barra da transcrição: uma linha de metadado, o resto no title */
-#tr-meta { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* barra da transcrição: o metadado quebra em duas linhas em vez de sumir —
+   dizer qual transcrição é esta, de quando e com que motor é o motivo da
+   linha existir; reticências escondiam justamente o fim */
+#tr-meta { min-width: 0; white-space: normal; overflow: visible; text-overflow: clip; }
 #chat.modo-doc .msg-speaker { font-size: 11.5px; letter-spacing: 0; text-transform: none; font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
