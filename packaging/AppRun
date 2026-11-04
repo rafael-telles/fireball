@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Sem argumentos abre a janela (fireball-gui); com argumentos é a CLI:
+#   Fireball.AppImage start --real    Fireball.AppImage daemon status
+set -euo pipefail
+
+APPDIR="${APPDIR:-$(dirname "$(readlink -f "$0")")}"
+export APPDIR
+PY="$APPDIR/@PYTHON@"
+
+if [ -f "$APPDIR/opt/_internal/certs.pem" ]; then
+  export SSL_CERT_FILE="${SSL_CERT_FILE:-$APPDIR/opt/_internal/certs.pem}"
+fi
+# O sandbox do Chromium depende de user namespaces, que várias distros
+# bloqueiam para binários fora do sistema; a página é local.
+export QTWEBENGINE_DISABLE_SANDBOX="${QTWEBENGINE_DISABLE_SANDBOX:-1}"
+
+if [ "$#" -eq 0 ] || [ "$1" = "gui" ]; then
+  exec "$PY" -m fireball.gui.app
+fi
+exec "$PY" -m fireball.cli "$@"
