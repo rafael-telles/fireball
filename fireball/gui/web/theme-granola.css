@@ -285,7 +285,7 @@ html, body {
   display: flex; align-items: center; gap: 10px;
   padding: 6px 24px 12px; flex: none;
 }
-.mv-head .headline { flex: 1; min-width: 0; }
+.mv-head .headline { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; }
 .mv-name {
   font-family: "Newsreader", Georgia, serif; font-weight: 400;
   font-size: 25px; line-height: 1.2; letter-spacing: -.012em;
@@ -487,3 +487,154 @@ html, body {
   .painel-tr { width: 320px; }
   .sidebar { width: 200px; }
 }
+
+/* ============================================ a nota como UM documento */
+.doc { padding: 2px 0 40px; }
+.doc-top { display: flex; align-items: flex-start; gap: 12px; }
+.doc-top .mv-name {
+  flex: 1; min-width: 0; white-space: normal;
+  font-family: "Newsreader", Georgia, serif; font-weight: 400;
+  font-size: 30px; line-height: 1.18; letter-spacing: -.014em;
+  cursor: text;
+}
+.doc-tools { display: flex; align-items: center; gap: 6px; flex: none; padding-top: 4px; }
+.doc-tools select.mini {
+  background: transparent; border: 1px solid var(--border); border-radius: 999px;
+  color: var(--dim); font: inherit; font-size: 11px; padding: 4px 8px; max-width: 150px;
+}
+.doc-tools .icon-btn { width: 26px; height: 26px; border-radius: 999px; }
+.doc-meta { font-size: 11.5px; color: var(--faint); margin-top: 4px; }
+
+.doc-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin: 14px 0 4px; }
+.doc-chips .chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 10px; font-size: 11.5px; color: var(--dim); background: transparent;
+}
+.doc-chips .chip b { font-weight: 500; color: var(--text-3); }
+.doc-chips #mv-tags { display: inline-flex; gap: 5px; border: 0; padding: 0; }
+.doc-chips .tag-chip {
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 9px; font-size: 11px; color: var(--dim);
+}
+
+.doc-bloco { margin-top: 26px; }
+.doc-lbl {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 9.5px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--faint); margin-bottom: 8px;
+}
+.doc-lbl .grow { flex: 1; }
+.doc-count { font-size: 10px; letter-spacing: 0; text-transform: none; color: var(--faint); }
+
+/* anotações: texto no documento, não uma caixa */
+.editor-toolbar { display: flex; gap: 2px; margin: 0 0 2px; opacity: 0; transition: opacity .15s; }
+.doc-bloco:hover .editor-toolbar, .editor-toolbar:focus-within { opacity: 1; }
+.editor-toolbar .tool {
+  border: 0; background: transparent; color: var(--faint); border-radius: 5px;
+  padding: 2px 6px; font: inherit; font-size: 11px; cursor: pointer;
+}
+.editor-toolbar .tool:hover { color: var(--text-2); background: #ffffff08; }
+.editor-wrap { border: 0; background: transparent; border-radius: 0; }
+#notes {
+  width: 100%; min-height: 62px; resize: none; border: 0; outline: 0;
+  background: transparent; color: var(--text);
+  font: inherit; font-size: 14.5px; line-height: 1.62; padding: 0;
+}
+#notes::placeholder { color: var(--faint); }
+.editor-foot { padding: 4px 0 0; }
+
+/* resumo: corpo do documento */
+.resumo-lbl { margin-bottom: 6px; }
+.sum-tools { display: inline-flex; gap: 10px; align-items: center; }
+.sum-tools .linkish {
+  border: 0; background: transparent; color: var(--faint); font: inherit;
+  font-size: 10.5px; letter-spacing: 0; text-transform: none; cursor: pointer;
+  padding: 0; text-decoration: none;
+}
+.sum-tools .linkish:hover { color: var(--text-2); text-decoration: underline; text-underline-offset: 3px; }
+.sum-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.sum-chips:empty { display: none; }
+.sum-chips .sum-chip {
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 10px; font-size: 11px; color: var(--dim);
+  background: transparent; cursor: pointer; font-family: inherit;
+}
+.sum-chips .sum-chip.on { border-color: var(--border-2); color: var(--text); background: var(--surface); }
+.sum-empty { font-size: 13px; line-height: 1.6; color: var(--faint); }
+.sum-empty.hidden { display: none; }
+#summary-box:empty { display: none; }
+#summary-box { margin-top: 4px; }
+
+/* detalhes recolhidos */
+.doc-det { margin-top: 34px; border-top: 1px solid var(--border-faint); padding-top: 10px; }
+.doc-det > summary {
+  font-size: 10px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--faint); cursor: pointer; list-style: none;
+}
+.doc-det > summary::-webkit-details-marker { display: none; }
+.doc-det > summary::before { content: "▸ "; }
+.doc-det[open] > summary::before { content: "▾ "; }
+.doc-det .ficha { display: block; margin-top: 12px; }
+.doc-det .field-group { margin-bottom: 12px; }
+.doc-det .value { font-size: 12.5px; color: var(--text-2); }
+.doc-det .rename {
+  font-family: "Newsreader", Georgia, serif; font-size: 15px; background: transparent;
+  border: 0; border-bottom: 1px dashed var(--border); color: var(--text); width: 100%; padding: 2px 0;
+}
+.doc-det .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.doc-det .stat-tile { background: var(--surface); border: 1px solid var(--border-faint);
+  border-radius: 9px; padding: 9px 11px; font-size: 12px; }
+.doc-det .ficha-foot { margin-top: 16px; }
+
+/* os resumos de cada prompt viram chips, não uma lista lateral */
+.sum-chips .sum-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 10px; background: transparent; cursor: pointer;
+  font: inherit; font-size: 11px; color: var(--dim);
+}
+.sum-chips .sum-item .sum-item-meta { display: none; }
+.sum-chips .sum-item .sum-item-name { font-size: 11px; }
+.sum-chips .sum-item.selected { border-color: var(--border-2); background: var(--surface); color: var(--text); }
+.sum-chips .sum-item .pulse-dot { width: 5px; height: 5px; }
+
+/* estado vazio do resumo: uma linha, não um cartão */
+.summary-box.empty { font-size: 13px; line-height: 1.6; color: var(--faint); }
+.summary-box.empty .slab-note, .summary-box.empty .summary-running { color: var(--faint); font-size: 12.5px; }
+.summary-box.empty .summary-running { display: flex; align-items: center; gap: 7px; }
+
+/* chip sem conteúdo não vira pílula vazia */
+.doc-chips > .chip:has(b:empty) { display: none; }
+.doc-chips .chip-tags:empty { display: none; }
+.doc-chips .chip-tags { display: inline-flex; gap: 5px; }
+
+/* o estado vazio do resumo é texto, não cartão */
+.summary-box.empty .slab,
+.summary-box.empty .summary-empty {
+  border: 0; background: transparent; padding: 0; box-shadow: none;
+}
+.summary-box.empty h3, .summary-box.empty .slab-title {
+  font-family: "Inter", sans-serif; font-size: 13px; font-weight: 500;
+  letter-spacing: 0; text-transform: none; color: var(--faint); margin: 0 0 4px;
+}
+.summary-box.empty p, .summary-box.empty .slab-note { font-size: 12.5px; line-height: 1.6; color: var(--faint); margin: 0; }
+
+/* o contador de resumos não paga o espaço que ocupa ao lado dos links */
+.doc-count { display: none; }
+
+/* notas: texto renderizado quando não está em edição */
+.notes-view { font-size: 14.5px; line-height: 1.62; color: var(--text); min-height: 40px; cursor: text; }
+.notes-view:empty { min-height: 0; }
+.notes-view p { margin: 0 0 8px; }
+.notes-view h2, .notes-view h3 { font-family: "Newsreader", Georgia, serif; font-weight: 400;
+  letter-spacing: -.01em; margin: 14px 0 6px; font-size: 17px; }
+.notes-view ul, .notes-view ol { margin: 0 0 8px; padding-left: 18px; }
+.notes-view li { margin-bottom: 3px; }
+.notes-view code { font-family: ui-monospace, monospace; font-size: .86em;
+  background: #ffffff0c; border: 1px solid var(--border-faint); border-radius: 4px; padding: 0 4px; }
+.editor-wrap.editing .notes-view { display: none; }
+
+/* um dos dois aparece por vez: texto (leitura) ou editor (escrita) */
+.editor-wrap:not(.editing) #notes { display: none; }
+.editor-wrap.editing .notes-view { display: none; }

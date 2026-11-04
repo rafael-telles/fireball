@@ -2640,9 +2640,15 @@ async function loadNotes() {
     state.notes.loadedFor = o.id;
     state.notes.saved = text;
     setNotesStatus("");
+    renderNotesView(); // o documento mostra texto, não markdown cru
   } catch (err) {
     setBanner(errText(err));
   }
+}
+
+function onNotesTyping() {
+  const editor = el("notes");
+  if (editor && editor.parentElement) editor.parentElement.classList.add("editing");
 }
 
 function setNotesStatus(text, ok) {
@@ -2670,6 +2676,7 @@ async function flushNotes() {
 }
 
 function onNotesInput() {
+  onNotesTyping();
   setNotesStatus("editando…");
   clearTimeout(state.notes.timer);
   state.notes.timer = setTimeout(flushNotes, NOTES_SAVE_MS);
@@ -3142,7 +3149,13 @@ function renderSummary() {
   el("sum-count").textContent = list.length ? String(list.length) : "";
   const button = el("summary-btn");
   button.disabled = running || !state.prompts.list.length;
-  button.textContent = running ? "Gerando…" : list.length ? "Gerar com outro prompt" : "Gerar resumo";
+  // no documento o botão é o ✨ ao lado do título; o que ele faz vai no title
+  button.textContent = running ? "…" : "✨";
+  button.title = running
+    ? "Gerando o resumo…"
+    : list.length
+      ? "Gerar outro resumo com o prompt escolhido"
+      : "Gerar o resumo com o prompt escolhido";
 
   renderSummaryList(list, running, info);
   renderSummaryView(list, loading, running, info);
@@ -3197,10 +3210,9 @@ function renderSummaryList(list, running, info) {
   }
 
   if (!list.length && !running) {
-    const empty = document.createElement("div");
-    empty.className = "sum-empty";
-    empty.textContent = "Nenhum resumo ainda.";
-    box.appendChild(empty);
+    // lista vazia não escreve nada: o estado vazio mora no corpo do resumo,
+    // senão a mesma frase aparece duas vezes na mesma dobra
+    box.innerHTML = "";
   }
 }
 
@@ -3271,12 +3283,12 @@ function renderSummaryView(list, loading, running, info) {
 
   const title = document.createElement("div");
   title.className = "slab-title";
-  title.textContent = "Nenhum resumo ainda";
+  title.textContent = "Sem resumo ainda";
   const note = document.createElement("div");
   note.className = "slab-note";
   note.textContent =
-    "O resumo, o nome e as tags saem juntos da transcrição. Escolha um prompt ao lado e gere: " +
-    "cada prompt guarda o resumo dele, e o nome só é trocado se ninguém tiver dado um à mão.";
+    "O ✨ ao lado do título gera com o prompt escolhido ali em cima. Cada prompt " +
+    "guarda o resumo dele; o nome só é trocado se ninguém tiver dado um à mão.";
   box.append(title, note);
 }
 
@@ -4269,6 +4281,45 @@ function onPerguntar() {
   perguntar(texto);
 }
 
+// ------------------------------------------------- notas: texto ou edição
+
+/* No documento a nota aparece como texto — igual ao que se lê depois. O
+   textarea só assume quando a pessoa vai escrever: clicar no texto o troca pelo
+   editor, sair do editor devolve o markdown renderizado. Sem isso, quem escreve
+   markdown vê "# Título" e "_ênfase_" no meio da nota. */
+function renderNotesView() {
+  const editor = el("notes");
+  const view = el("notes-view");
+  if (!editor || !view) return;
+  const texto = editor.value.trim();
+  view.innerHTML = "";
+  if (texto) renderMarkdown(texto, view);
+  view.classList.toggle("hidden", !texto);
+  editor.parentElement.classList.toggle("editing", false);
+  if (!texto) editor.parentElement.classList.add("editing");
+}
+
+function editarNotas() {
+  const editor = el("notes");
+  const view = el("notes-view");
+  if (!editor) return;
+  if (view) view.classList.add("hidden");
+  if (editor.parentElement) editor.parentElement.classList.add("editing");
+  editor.focus();
+}
+
+function ligarNotasRenderizadas() {
+  const editor = el("notes");
+  const view = el("notes-view");
+  if (!editor || !view) return;
+  view.addEventListener("click", editarNotas);
+  editor.addEventListener("blur", () => {
+    // espera o flush do debounce antes de trocar a vista
+    setTimeout(renderNotesView, 0);
+  });
+  renderNotesView();
+}
+
 // -------------------------------------------------------- modo da transcrição
 
 /* Documento é o padrão: texto corrido numa coluna estreita, que é o que se lê
@@ -4322,6 +4373,7 @@ async function boot() {
   el("finalize-btn").addEventListener("click", onFinalize);
   el("tr-export").addEventListener("click", onExportTranscript);
   ligarModoTranscricao();
+  ligarNotasRenderizadas();
 
   // casco do Granola: painel de transcrição, chat e o "＋ Nova nota"
   painelTranscricaoInicial();
