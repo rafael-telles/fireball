@@ -39,4 +39,4 @@ build-backend = "setuptools.build_meta"
 include = ["fireball*"]
 
 [tool.setuptools.package-data]
-"fireball.gui" = ["web/*"]
+"fireball.gui" = ["web/*", "web/fonts/*"]
