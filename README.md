@@ -395,19 +395,34 @@ bandeja.
 
 A pele fica em `gui/web/theme-granola.css`, carregada **depois** de `styles.css`: ela só
 sobrescreve — cor escura quente, título em serifada editorial (Newsreader empacotada em
-`gui/web/fonts/`, sem rede) e metadado fantasma. O vermelho é reservado ao que grava ou para a
-gravação; o botão que inicia usa o claro de alto contraste, para as duas ações não competirem.
+`gui/web/fonts/`, sem rede). O vermelho é reservado ao que grava ou para a gravação.
 
-O esqueleto é o de um app de notas, e não de um painel de abas:
+O esqueleto é o de um app de notas, não um painel de abas:
 
-- **Sidebar** — busca (`⌘K`), Início, Perguntar, "Minhas reuniões" e a lista agrupada por dia.
-- **Home** — "Próximas" em serifada, agenda do dia com a próxima reunião em cartão e o resto em
-  linhas; as recentes vêm desbotadas embaixo.
-- **Reunião** — é **um documento**: anotações, resumo e ficha empilhados na mesma coluna. A
-  transcrição vive num **painel ao lado**, aberto pelo botão de onda na barra de baixo (`#painel-tr`).
-  O painel tem dois modos: **Documento** (texto corrido, para ler) e **Chat** (legenda por falante,
-  cinza para o áudio do sistema e ember para o microfone). A escolha fica no `localStorage` do
-  renderer, não no `settings.json`.
+- **Sidebar** — busca (`⌘K`), Início, Perguntar, "Minhas reuniões" e a lista por dia.
+- **Home** — "Próximas" em serifada, a próxima reunião em cartão e o resto em linhas.
+- **Reunião** — um **documento**: título com o prompt e o ✨, chips de data/participantes/tags,
+  "O que eu anotei" e o resumo no corpo. A transcrição vive num **painel ao lado**, aberto pelo
+  botão de onda na barra de baixo.
+
+#### Notas cruas ↔ resumo
+
+O botão **☰** no cabeçalho da reunião alterna entre as duas vistas — as notas de quem gravou e o
+resumo gerado. Uma por vez, nunca lado a lado (a escolha fica no `localStorage`). As notas são
+editáveis: o texto aparece renderizado e o editor só assume quando se clica nele.
+
+#### De onde veio cada ponto
+
+O prompt do resumo recebe a transcrição **numerada** (`[12] Falante: texto`) e as notas cruas, e
+devolve duas marcas que a janela usa:
+
+- `[12]` depois de um item → vira a **lupa** ao lado do ponto; ao clicar, abre a fala daquele
+  número com falante e horário (a transcrição é buscada uma vez por reunião e fica na janela).
+- `==texto==` → vira **destaque**, para o trecho que veio das notas de quem gravou e não da
+  transcrição.
+
+Sem `notes.md`, o bloco de notas não entra no pedido e o modelo não marca nada — o destaque só
+aparece quando existe nota para destacar.
 
 ### Chat da reunião
 

@@ -3020,12 +3020,32 @@ function startEdit(wrap, seg) {
     de linguagem sobre uma transcrição, ou seja, de fora — e concatenar isso em
     innerHTML seria deixar a transcrição escrever marcação na janela. */
 function inlineMarkdown(text, parent) {
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  // ==texto== = veio das notas de quem gravou | [12] = fala que sustenta o ponto
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|==[^=]+==|\[\d+\])/g;
   let last = 0;
   let match;
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > last) parent.appendChild(document.createTextNode(text.slice(last, match.index)));
     const token = match[0];
+    if (/^\[\d+\]$/.test(token)) {
+      const marca = document.createElement("button");
+      marca.className = "citacao";
+      marca.type = "button";
+      marca.dataset.seq = token.slice(1, -1);
+      marca.textContent = "⌕";
+      marca.title = "Ver a fala que sustenta este ponto";
+      parent.appendChild(marca);
+      last = match.index + token.length;
+      continue;
+    }
+    if (token.startsWith("==")) {
+      const marca = document.createElement("mark");
+      marca.className = "de-notas";
+      marca.textContent = token.slice(2, -2);
+      parent.appendChild(marca);
+      last = match.index + token.length;
+      continue;
+    }
     const node = document.createElement(token.startsWith("`") ? "code" : "strong");
     node.textContent = token.slice(token.startsWith("`") ? 1 : 2, token.startsWith("`") ? -1 : -2);
     parent.appendChild(node);
@@ -4320,6 +4340,107 @@ function ligarNotasRenderizadas() {
   renderNotesView();
 }
 
+// ------------------------------------- notas cruas ↔ resumo, e a citação
+
+/* O Granola mostra as duas coisas no MESMO lugar, uma por vez: as notas de quem
+   gravou e, depois, o texto gerado. Nunca lado a lado. O botão de três linhas
+   no cabeçalho alterna — e a escolha fica no aparelho. */
+const VISTA_KEY = "fireball.nota.vista";
+
+function vistaNota(modo) {
+  const corpo = el("nota-corpo");
+  if (!corpo) return;
+  const cru = modo === "cru";
+  corpo.classList.toggle("cru", cru);
+  const botao = el("btn-notas");
+  if (botao) {
+    botao.classList.toggle("on", cru);
+    botao.title = cru ? "Ver o resumo" : "Ver as minhas notas";
+  }
+  try {
+    localStorage.setItem(VISTA_KEY, cru ? "cru" : "doc");
+  } catch (err) {
+    // sem storage a vista volta ao resumo na próxima janela
+  }
+}
+
+function ligarVistaNota() {
+  let guardado = "doc";
+  try {
+    guardado = localStorage.getItem(VISTA_KEY) === "cru" ? "cru" : "doc";
+  } catch (err) {
+    guardado = "doc";
+  }
+  vistaNota(guardado);
+  const botao = el("btn-notas");
+  if (botao) {
+    botao.addEventListener("click", () =>
+      vistaNota(el("nota-corpo").classList.contains("cru") ? "doc" : "cru")
+    );
+  }
+}
+
+/* A lupa ao lado do ponto abre a fala que o sustenta. A transcrição é buscada
+   uma vez por reunião e guardada na janela — o resumo pode ter vinte lupas, e
+   vinte chamadas ao daemon para ler o mesmo arquivo seria desperdício. */
+const citacao = { id: null, segmentos: null };
+
+async function abrirCitacao(botao) {
+  const aberto = state.open;
+  if (!aberto) return;
+  const seq = Number(botao.dataset.seq);
+  if (citacao.id !== aberto.id || !citacao.segmentos) {
+    try {
+      citacao.segmentos = await api("transcript", aberto.id, 0);
+      citacao.id = aberto.id;
+    } catch (err) {
+      setBanner(errText(err));
+      return;
+    }
+  }
+  const segmento = (citacao.segmentos || []).find((s) => Number(s.seq) === seq);
+  document.querySelectorAll(".cit-pop").forEach((n) => n.remove());
+  const card = document.createElement("div");
+  card.className = "cit-pop";
+  const quem = (segmento && (segmento.speaker || segmento.speaker_key)) || "fala não encontrada";
+  const quando = segmento ? clock(segmento.start || 0) : "";
+  const titulo = document.createElement("div");
+  titulo.className = "cit-h";
+  titulo.textContent = [quando, quem].filter(Boolean).join(" · ");
+  const texto = document.createElement("p");
+  texto.textContent = segmento ? segmento.text : "esta fala não está mais na transcrição";
+  card.append(titulo, texto);
+  const fechar = document.createElement("button");
+  fechar.className = "cit-x";
+  fechar.type = "button";
+  fechar.textContent = "✕";
+  fechar.addEventListener("click", () => card.remove());
+  card.appendChild(fechar);
+
+  const caixa = botao.getBoundingClientRect();
+  card.style.left = `${Math.min(window.innerWidth - 340, caixa.left + 18)}px`;
+  card.style.top = `${caixa.bottom + window.scrollY + 6}px`;
+  document.body.appendChild(card);
+  setTimeout(() => {
+    const fora = (ev) => {
+      if (!card.contains(ev.target)) {
+        card.remove();
+        document.removeEventListener("mousedown", fora);
+      }
+    };
+    document.addEventListener("mousedown", fora);
+  }, 0);
+}
+
+document.addEventListener("click", (ev) => {
+  const lupa = ev.target.closest && ev.target.closest(".citacao");
+  if (lupa) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    abrirCitacao(lupa);
+  }
+});
+
 // -------------------------------------------------------- modo da transcrição
 
 /* Documento é o padrão: texto corrido numa coluna estreita, que é o que se lê
@@ -4374,6 +4495,7 @@ async function boot() {
   el("tr-export").addEventListener("click", onExportTranscript);
   ligarModoTranscricao();
   ligarNotasRenderizadas();
+  ligarVistaNota();
 
   // casco do Granola: painel de transcrição, chat e o "＋ Nova nota"
   painelTranscricaoInicial();

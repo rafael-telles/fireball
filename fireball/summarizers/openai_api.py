@@ -164,7 +164,9 @@ class OpenAICompatibleSummarizer:
         # conversa, e é isso que faz "e ele?" lembrar da pergunta anterior.
         return _content(self._post(payload, session=session))
 
-    def summarize(self, transcript: str, meeting: dict, instructions: str = "") -> dict:
+    def summarize(
+        self, transcript: str, meeting: dict, instructions: str = "", notes: str = ""
+    ) -> dict:
         if not self.base_url:
             raise SummarizerUnavailable(
                 "Falta a URL da API compatível com OpenAI. Preencha em Configurações → "
@@ -180,7 +182,7 @@ class OpenAICompatibleSummarizer:
             "model": self.model,
             "temperature": TEMPERATURE,
             "messages": [
-                {"role": "system", "content": build_prompt(meeting, instructions)},
+                {"role": "system", "content": build_prompt(meeting, instructions, notes)},
                 {"role": "user", "content": transcript},
             ],
             "response_format": {"type": "json_object"},

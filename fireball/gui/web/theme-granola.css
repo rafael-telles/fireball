@@ -638,3 +638,41 @@ html, body {
 /* um dos dois aparece por vez: texto (leitura) ou editor (escrita) */
 .editor-wrap:not(.editing) #notes { display: none; }
 .editor-wrap.editing .notes-view { display: none; }
+
+/* ------------------------------------------------- cru ↔ resumo (como no Granola) */
+#btn-notas.on { border-color: var(--border-2); color: var(--text); background: var(--surface); }
+
+/* na vista "minhas notas", o resumo e os detalhes saem de cena */
+.nota-col.cru .doc-bloco.resumo,
+.nota-col.cru .doc-det { display: none; }
+.nota-col.cru #notes { min-height: 220px; }
+
+/* o que veio das suas notas: mais claro/forte que o resto do texto gerado */
+.summary-box mark.de-notas,
+.notes-view mark.de-notas {
+  background: #ff8a3d1f; color: var(--text); border-radius: 3px;
+  padding: 0 2px; box-shadow: inset 0 -1px 0 #ff8a3d55;
+}
+
+/* a lupa da citação */
+.citacao {
+  border: 0; background: transparent; color: var(--faint); cursor: pointer;
+  font: inherit; font-size: 10px; padding: 0 3px; vertical-align: super;
+  border-radius: 4px;
+}
+.citacao:hover { color: var(--accent-text); background: var(--accent-bg); }
+.cit-pop {
+  position: absolute; z-index: 60; width: 320px;
+  background: var(--surface); border: 1px solid var(--border-2);
+  border-radius: 10px; padding: 12px 14px;
+  box-shadow: 0 24px 48px -28px #000;
+}
+.cit-pop .cit-h {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--faint); margin-bottom: 6px;
+}
+.cit-pop p { margin: 0; font-size: 13px; line-height: 1.6; color: var(--text-3); font-style: italic; }
+.cit-pop .cit-x {
+  position: absolute; top: 8px; right: 8px; border: 0; background: transparent;
+  color: var(--faint); font-size: 11px; cursor: pointer;
+}
