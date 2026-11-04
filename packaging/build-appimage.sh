@@ -36,8 +36,9 @@ install -m 755 "$ROOT/packaging/AppRun" "$APPDIR/AppRun"
 sed -i "s|@PYTHON@|opt/python$PYTHON_SERIES/bin/python$PYTHON_SERIES|" "$APPDIR/AppRun"
 sed -e 's|^Exec=.*|Exec=fireball|' -e 's|^Icon=.*|Icon=fireball|' \
   "$ROOT/packaging/fireball.desktop" > "$APPDIR/fireball.desktop"
-cp "$ROOT/packaging/fireball.svg" "$APPDIR/fireball.svg"
-ln -s fireball.svg "$APPDIR/.DirIcon"
+rsvg-convert -w 256 -h 256 "$ROOT/packaging/fireball.svg" -o "$APPDIR/fireball.png"
+ln -s fireball.png "$APPDIR/.DirIcon"
+chmod -R a+rX "$APPDIR"
 
 ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool --no-appstream "$APPDIR" "$OUT"
 echo "$OUT"
