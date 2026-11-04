@@ -45,7 +45,9 @@ TIMEOUT_S = 600
 class ClaudeCodeSummarizer:
     name = "claude_code"
 
-    def summarize(self, transcript: str, meeting: dict, instructions: str = "") -> dict:
+    def summarize(
+        self, transcript: str, meeting: dict, instructions: str = "", notes: str = ""
+    ) -> dict:
         binary = tools.find_binary("claude")
         if not binary:
             raise SummarizerUnavailable(
@@ -61,7 +63,7 @@ class ClaudeCodeSummarizer:
             "json",
             "--allowed-tools",
             "",
-            build_prompt(meeting, instructions),
+            build_prompt(meeting, instructions, notes),
         ]
 
         # a pasta da reunião existe e é o contexto natural deste trabalho

@@ -38,7 +38,11 @@ def as_dialogue(segments: list[dict]) -> str:
     for seg in segments:
         text = (seg.get("text") or "").strip()
         if text:
-            lines.append(f"{seg.get('speaker') or '?'}: {text}")
+            # o número da fala vai na frente porque o resumo cita a origem:
+            # sem ele o modelo não tem como dizer de qual fala tirou o ponto
+            seq = seg.get("seq")
+            prefixo = f"[{seq}] " if seq is not None else ""
+            lines.append(f"{prefixo}{seg.get('speaker') or '?'}: {text}")
     return "\n".join(lines)
 
 
@@ -64,8 +68,12 @@ def run_summary(meeting_dir: Path, provider: str, prompt_id: str = "") -> dict:
 
     # o provedor pode querer a pasta (o claude_code roda com o cwd nela)
     prompt = prompts_store.resolve(prompt_id)
+    # o que a pessoa anotou durante a reunião é contexto de primeira: o modelo
+    # destaca o que veio dali (`==assim==`) em vez de diluir no resumo
+    notes_path = meeting_dir / "notes.md"
+    notes = notes_path.read_text(encoding="utf-8") if notes_path.exists() else ""
     written = get_summary_provider(provider).summarize(
-        dialogue, {**meeting, "_dir": str(meeting_dir)}, prompt["instructions"]
+        dialogue, {**meeting, "_dir": str(meeting_dir)}, prompt["instructions"], notes=notes
     )
 
     result = {

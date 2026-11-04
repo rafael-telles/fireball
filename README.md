@@ -210,16 +210,15 @@ pip install -e '.[parakeet]'    # inclui onnx-asr + whisper (pro VAD)
 ```
 
 O checkpoint pt-BR do Parakeet não está na lista curada do onnx-asr, então precisa ser
-baixado manualmente uma vez (± 2.4GB, fp32) antes do primeiro uso:
+baixado uma vez (± 2.4GB, fp32) antes do primeiro uso:
 
 ```bash
-python -c "from huggingface_hub import snapshot_download; snapshot_download(
-    repo_id='alefiury/parakeet-tdt-0.6b-v3-ptBR-TAGARELA-onnx',
-    local_dir='.models/parakeet-ptbr')"
+fireball download-model parakeet    # no AppImage: ./Fireball-*.AppImage download-model parakeet
 ```
 
-Por padrão o backend procura em `<repo>/.models/parakeet-ptbr`; aponte para outro lugar com
-`FIREBALL_PARAKEET_MODEL_DIR=/caminho/pro/modelo`.
+Ele vai para `~/.fireball/models/parakeet-ptbr` (segue `FIREBALL_HOME`). Um
+`<repo>/.models/parakeet-ptbr` de checkouts antigos continua valendo; aponte para outro lugar
+com `FIREBALL_PARAKEET_MODEL_DIR=/caminho/pro/modelo`.
 
 Usar:
 
@@ -390,6 +389,75 @@ pra frente, como se espera de um app de bandeja.
 A bandeja tem status em três estados (ocioso, gravando, parando) e menu (abrir janela, parar
 reunião atual, sair). Fechar a janela só esconde — o Fireball continua ligado, e continua na
 bandeja.
+
+### Aparência, nota e chat
+
+A pele fica em `gui/web/theme-granola.css`, carregada **depois** de `styles.css`: ela só
+sobrescreve — cor escura quente, título em serifada editorial (Newsreader empacotada em
+`gui/web/fonts/`, sem rede). O vermelho é reservado ao que grava ou para a gravação.
+
+O esqueleto é o de um app de notas, não um painel de abas:
+
+- **Sidebar** — busca (`⌘K`), Início, Perguntar, "Minhas reuniões" e a lista por dia.
+- **Home** — "Próximas" em serifada, a próxima reunião em cartão e o resto em linhas.
+- **Reunião** — um **documento**: título com o prompt e o ✨, chips de data/participantes/tags,
+  "O que eu anotei" e o resumo no corpo. A transcrição vive num **painel ao lado**, aberto pelo
+  botão de onda na barra de baixo.
+
+#### Notas cruas ↔ resumo
+
+O alternador **Minhas notas | Resumo**, no topo do documento, mostra **uma coisa por vez** — como no
+app de referência, nunca as duas na mesma rolagem. A escolha fica no `localStorage`
+(`fireball.nota.vista`); sem escolha salva, a reunião abre no resumo se ele já existe e nas suas
+notas se ainda não existe (é onde se escreve durante a reunião).
+
+As anotações continuam editáveis: aparecem renderizadas e o editor assume ao clicar.
+
+#### De onde veio cada ponto
+
+O prompt do resumo recebe a transcrição **numerada** (`[12] Falante: texto`) e as notas cruas, e
+devolve duas marcas que a janela usa:
+
+- `[12]` depois de um item → vira a **lupa** ao lado do ponto; ao clicar, abre a fala daquele
+  número com falante e horário (a transcrição é buscada uma vez por reunião e fica na janela).
+  O chat também cita assim, e a resposta dele abre a mesma lupa.
+- `==texto==` → vira **destaque**, para o trecho que veio das notas de quem gravou e não da
+  transcrição.
+
+Sem `notes.md`, o bloco de notas não entra no pedido e o modelo não marca nada — o destaque só
+aparece quando existe nota para destacar.
+
+### Chat da reunião e o painel da direita
+
+A pergunta é uma só, no campo do rodapé; **não existe outro campo dentro do chat**. Com o chat
+aberto, ele ocupa **a coluna da direita no lugar da transcrição** (um painel por vez, e fechar o
+chat devolve a transcrição) — antes ele flutuava por cima justamente da fonte que cita.
+
+
+
+"Perguntar qualquer coisa" na barra de baixo abre o painel de perguntas. O contexto é montado em
+`fireball/ask.py` — transcrição com falante e horário, mais as notas e o resumo já gerado — e vai
+no **mesmo provedor do resumo**, com as últimas voltas da conversa para "e ele?" funcionar. A
+resposta cita quem falou.
+
+Duas consequências que o desenho assume:
+
+- o chat usa o provedor `openai_api`. Com `claude_code` escolhido, a janela explica que aquele
+  provedor não mantém conversa, em vez de responder a primeira pergunta e errar a segunda;
+- a conversa é por reunião e vive na janela: o daemon responde uma pergunta por vez e não guarda
+  sessão. Fechar a janela perde o histórico (o resumo e as notas, não).
+
+#### Perguntar sobre todas as reuniões
+
+O alcance do chat é **o lugar de onde se pergunta**, como no Granola: dentro de uma reunião, só
+ela; em **Perguntar** (sidebar) ou na home, o acervo inteiro. O acervo não cabe num pedido, então
+`ask.answer_library` escolhe até 8 reuniões: cada palavra da pergunta (sem as que toda pergunta
+tem) vai sozinha na busca do catálogo — nome, tags, participantes, notas, resumo e falas —, quem
+casa com mais palavras entra primeiro, e as mais recentes completam ("o que ficou pendente essa
+semana?" não tem palavra para buscar). Cada reunião vai com resumo, notas e as falas que casaram,
+ordenada por data e rotulada `[R1]`, `[R2]`…; a resposta cita os rótulos e a janela troca cada um
+por um número que abre a reunião, com a lista das fontes embaixo. As reuniões citadas numa
+resposta ficam fixas na pergunta seguinte, senão "e na mais recente?" buscaria outras.
 
 ### A página só existe com a janela aberta
 

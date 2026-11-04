@@ -106,6 +106,7 @@ const VIEWS = {
   browse: "view-browse",
   meeting: "view-meeting",
   settings: "view-settings",
+  ask: "view-ask",
 };
 const TABS = {
   visao: "pane-visao",
@@ -126,6 +127,14 @@ const SETTINGS_TABS = {
 function showView(name) {
   state.view = name;
   for (const [key, id] of Object.entries(VIEWS)) el(id).classList.toggle("hidden", key !== name);
+  // A reunião é a única tela que não mora no scroller: ela tem colunas próprias
+  // (nota + transcrição). Com ela aberta, o scroller sai de cena inteiro.
+  const rolagem = document.querySelector(".nota-scroll");
+  if (rolagem) rolagem.classList.toggle("hidden", name === "meeting");
+  el("new-meeting-btn").classList.toggle("on", name === "home");
+  el("nav-perguntar").classList.toggle("on", name === "ask");
+  el("ask-input").placeholder =
+    name === "meeting" ? "Perguntar sobre esta reunião" : "Perguntar sobre todas as reuniões";
 }
 
 // ------------------------------------------------------------------ ponte
@@ -135,6 +144,27 @@ async function api(name, ...args) {
   const res = await window.pywebview.api[name](...args);
   if (!res || res.ok !== true) throw new Error((res && res.error) || "falha falando com o daemon");
   return res.result;
+}
+
+/* O cartão do rodapé da sidebar dizia "Nada gravando agora" para sempre — o id
+   existia no HTML e ninguém escrevia nele. Ele é o único lugar da sidebar que
+   fala do estado, então passa a sair do mesmo status que pinta o resto. */
+function pintarEstadoLocal() {
+  const alvo = el("local-note");
+  if (!alvo) return;
+  const ativo = state.active;
+  el("local-card").classList.toggle("idle", !ativo);
+  if (!ativo) {
+    alvo.textContent = "Nada gravando agora";
+    return;
+  }
+  const desde = ativo.started_at ? timeLabel(ativo.started_at) : "";
+  alvo.textContent =
+    ativo.status === "paused"
+      ? "Gravação pausada"
+      : desde
+        ? `Gravando desde ${desde}`
+        : "Gravando agora";
 }
 
 function setBanner(msg) {
@@ -676,7 +706,7 @@ function renderTranscriptBar() {
     bits.push(`${meta.segments} ${meta.segments === 1 ? "segmento" : "segmentos"}`);
     if (meta.diarized) bits.push("com falantes separados");
   } else if (meta.kind === "live") {
-    bits.push("Transcrição do tempo real");
+    bits.push("Transcrição em tempo real");
     if (meta.backend) bits.push(meta.backend);
     bits.push(`${meta.segments} ${meta.segments === 1 ? "segmento" : "segmentos"}`);
   } else {
@@ -685,6 +715,7 @@ function renderTranscriptBar() {
   // sem isto, quem desligou a passada final não entende por que o botão sumiu
   if (!enabled && !o.live) bits.push("transcrição final desligada");
   el("tr-meta").textContent = bits.join(" · ");
+  el("tr-meta").title = bits.join(" · ");
 
   // Retranscrever é a transcrição final sobre o áudio inteiro. Só faz sentido
   // depois que a gravação fechou os .wav — antes disso não há áudio completo.
@@ -1319,23 +1350,17 @@ function silenceChart(stats) {
 
 function showTab(name) {
   state.tab = name;
-  for (const [key, id] of Object.entries(TABS)) el(id).classList.toggle("hidden", key !== name);
+  // A nota é UM documento: as seções (anotações, resumo, ficha) ficam
+  // empilhadas na mesma coluna, como no Granola. Não há aba para esconder —
+  // `name` só diz qual delas pediu a abertura, e todas carregam juntas.
   for (const tab of document.querySelectorAll(".tab[data-tab]")) {
     tab.classList.toggle("selected", tab.dataset.tab === name);
   }
-  if (name === "notas") loadNotes();
-  // desenha antes de ir buscar: sem isto a caixa fica em branco entre abrir a
-  // aba e o dado chegar, o que se lê como "não tem nada aqui"
-  if (name === "visao") {
-    renderStats();
-    loadStats();
-  }
-  if (name === "resumo") {
-    renderSummary();
-    loadSummary();
-  }
-  // sair do editor sem esperar o debounce: trocar de aba é uma pausa
-  if (name !== "notas") flushNotes();
+  loadNotes();
+  renderSummary();
+  loadSummary();
+  renderStats();
+  loadStats();
 }
 
 function revealSeq(seq) {
@@ -1385,6 +1410,7 @@ async function openMeeting(id, row, jumpSeq) {
   };
   state.notes.loadedFor = null;
   state.playing = null;
+  resetChat(id); // a conversa é desta reunião, não da janela
 
   resetDelete(); // confirmação pendente não atravessa para outra reunião
   renderMeetingHeader();
@@ -1520,7 +1546,8 @@ async function refreshOpenMeeting() {
   }
   renderMeetingHeader();
   renderFicha();
-  renderLiveBar();
+  renderLiveCard();
+  pintarEstadoLocal();
   renderMeetingList();
 }
 
@@ -1680,7 +1707,8 @@ function renderHome() {
   const active = state.active;
   el("home-kicker").textContent = active
     ? `${active.status === "paused" ? "Pausada" : "Gravando agora"} · ${nameOf(active)}`
-    : "Ocioso · nada gravando";
+    : "";
+  el("home-kicker").classList.toggle("accent", Boolean(active));
 
   const first = ((state.profile && state.profile.name) || "").trim().split(/\s+/)[0] || "";
   const hello = greetingFor(new Date().getHours());
@@ -2138,6 +2166,7 @@ async function refreshStatus() {
   const wasActive = state.active && state.active.id;
   state.active = detail ? detail.meeting : null;
   renderLiveCard();
+  pintarEstadoLocal();
   renderHome();
 
   // agenda junto do poll: o daemon cacheia, então isto não shella o gog a cada 2s
@@ -2641,9 +2670,15 @@ async function loadNotes() {
     state.notes.loadedFor = o.id;
     state.notes.saved = text;
     setNotesStatus("");
+    renderNotesView(); // o documento mostra texto, não markdown cru
   } catch (err) {
     setBanner(errText(err));
   }
+}
+
+function onNotesTyping() {
+  const editor = el("notes");
+  if (editor && editor.parentElement) editor.parentElement.classList.add("editing");
 }
 
 function setNotesStatus(text, ok) {
@@ -2671,6 +2706,7 @@ async function flushNotes() {
 }
 
 function onNotesInput() {
+  onNotesTyping();
   setNotesStatus("editando…");
   clearTimeout(state.notes.timer);
   state.notes.timer = setTimeout(flushNotes, NOTES_SAVE_MS);
@@ -3014,12 +3050,32 @@ function startEdit(wrap, seg) {
     de linguagem sobre uma transcrição, ou seja, de fora — e concatenar isso em
     innerHTML seria deixar a transcrição escrever marcação na janela. */
 function inlineMarkdown(text, parent) {
-  const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  // ==texto== = veio das notas de quem gravou | [12] = fala que sustenta o ponto
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|==[^=]+==|\[\d+\])/g;
   let last = 0;
   let match;
   while ((match = pattern.exec(text)) !== null) {
     if (match.index > last) parent.appendChild(document.createTextNode(text.slice(last, match.index)));
     const token = match[0];
+    if (/^\[\d+\]$/.test(token)) {
+      const marca = document.createElement("button");
+      marca.className = "citacao";
+      marca.type = "button";
+      marca.dataset.seq = token.slice(1, -1);
+      marca.textContent = "⌕";
+      marca.title = "Ver a fala que sustenta este ponto";
+      parent.appendChild(marca);
+      last = match.index + token.length;
+      continue;
+    }
+    if (token.startsWith("==")) {
+      const marca = document.createElement("mark");
+      marca.className = "de-notas";
+      marca.textContent = token.slice(2, -2);
+      parent.appendChild(marca);
+      last = match.index + token.length;
+      continue;
+    }
     const node = document.createElement(token.startsWith("`") ? "code" : "strong");
     node.textContent = token.slice(token.startsWith("`") ? 1 : 2, token.startsWith("`") ? -1 : -2);
     parent.appendChild(node);
@@ -3143,7 +3199,13 @@ function renderSummary() {
   el("sum-count").textContent = list.length ? String(list.length) : "";
   const button = el("summary-btn");
   button.disabled = running || !state.prompts.list.length;
-  button.textContent = running ? "Gerando…" : list.length ? "Gerar com outro prompt" : "Gerar resumo";
+  // no documento o botão é o ✨ ao lado do título; o que ele faz vai no title
+  button.textContent = running ? "…" : "✨";
+  button.title = running
+    ? "Gerando o resumo…"
+    : list.length
+      ? "Gerar outro resumo com o prompt escolhido"
+      : "Gerar o resumo com o prompt escolhido";
 
   renderSummaryList(list, running, info);
   renderSummaryView(list, loading, running, info);
@@ -3198,11 +3260,12 @@ function renderSummaryList(list, running, info) {
   }
 
   if (!list.length && !running) {
-    const empty = document.createElement("div");
-    empty.className = "sum-empty";
-    empty.textContent = "Nenhum resumo ainda.";
-    box.appendChild(empty);
+    // lista vazia não escreve nada: o estado vazio mora no corpo do resumo,
+    // senão a mesma frase aparece duas vezes na mesma dobra
+    box.innerHTML = "";
   }
+  // com um resumo só, o chip repetiria o nome do resumo que já está logo abaixo
+  box.classList.toggle("single", !running && list.length <= 1);
 }
 
 function promptName(promptId) {
@@ -3218,6 +3281,22 @@ function renderSummaryView(list, loading, running, info) {
 
   box.innerHTML = "";
   box.classList.remove("empty");
+
+  // Sem preferência salva, a vista segue a reunião: com resumo, resumo; sem
+  // resumo, as notas (é onde se escreve). Quando o resumo termina de gerar, a
+  // nota vira o resumo sozinha — e o clique em qualquer aba salva a preferência,
+  // que a partir daí manda.
+  let salvo = null;
+  try {
+    salvo = localStorage.getItem(VISTA_KEY);
+  } catch (err) {
+    salvo = null;
+  }
+  if (salvo !== "cru" && salvo !== "doc") {
+    const quer = current ? "doc" : "cru";
+    const esta = el("nota-corpo").classList.contains("cru") ? "cru" : "doc";
+    if (quer !== esta) vistaNota(quer, false);
+  }
   head.classList.toggle("hidden", !current);
   promptBox.classList.toggle("hidden", !(current && current.prompt_instructions));
 
@@ -3272,12 +3351,12 @@ function renderSummaryView(list, loading, running, info) {
 
   const title = document.createElement("div");
   title.className = "slab-title";
-  title.textContent = "Nenhum resumo ainda";
+  title.textContent = "Sem resumo ainda";
   const note = document.createElement("div");
   note.className = "slab-note";
   note.textContent =
-    "O resumo, o nome e as tags saem juntos da transcrição. Escolha um prompt ao lado e gere: " +
-    "cada prompt guarda o resumo dele, e o nome só é trocado se ninguém tiver dado um à mão.";
+    "O ✨ ao lado do título gera com o prompt escolhido ali em cima. Cada prompt " +
+    "guarda o resumo dele; o nome só é trocado se ninguém tiver dado um à mão.";
   box.append(title, note);
 }
 
@@ -3867,9 +3946,17 @@ async function openSettings() {
   el("settings-note").textContent = "";
   closePromptEditor(); // edição pendente não atravessa uma saída da tela
   showSettingsTab(state.settingsTab);
-  await Promise.all([loadPrompts(), loadVoices()]);
-  renderSettings(); // sempre do estado conhecido, nunca do que ficou na tela
+  // A tela abre com o que já se sabe e só depois busca prompt e vozes: antes,
+  // uma falha nesses dois deixava a engrenagem sem efeito nenhum, sem aviso.
+  // a tela aparece primeiro; o que depende de dado chega depois (ou avisa)
   showView("settings");
+  try {
+    renderSettings(); // sempre do estado conhecido, nunca do que ficou na tela
+    await Promise.all([loadPrompts(), loadVoices()]);
+    renderSettings();
+  } catch (err) {
+    setAlert("settings-error", "Não consegui carregar tudo de Configurações", errText(err));
+  }
 }
 
 async function onSaveSettings() {
@@ -4148,12 +4235,471 @@ function tick() {
   }
 }
 
+// ---------------------------------------------------- painel da transcrição
+
+/* No Granola a transcrição não é aba: é um painel que abre ao lado da nota,
+   pelo botão de onda na barra de baixo. Aqui ele começa aberto — durante uma
+   reunião a legenda é o que se olha — e a escolha fica no aparelho. */
+const PAINEL_KEY = "fireball.transcricao.painel";
+
+function painelTranscricao(aberto) {
+  const painel = el("painel-tr");
+  if (!painel) return;
+  const quer = aberto === undefined ? !painel.classList.contains("open") : Boolean(aberto);
+  painel.classList.toggle("open", quer);
+  const botao = el("btn-transcricao");
+  if (botao) botao.classList.toggle("on", quer);
+  try {
+    localStorage.setItem(PAINEL_KEY, quer ? "1" : "0");
+  } catch (err) {
+    // sem storage, o painel volta aberto na próxima janela — nada quebra
+  }
+}
+
+function painelTranscricaoInicial() {
+  let guardado = null;
+  try {
+    guardado = localStorage.getItem(PAINEL_KEY);
+  } catch (err) {
+    guardado = null;
+  }
+  painelTranscricao(guardado === null ? true : guardado === "1");
+}
+
+// ------------------------------------------------------------------- perguntar
+
+/* A conversa é por reunião e vive na janela: o daemon responde uma pergunta por
+   vez, sem guardar sessão. O histórico vai junto no pedido (as últimas voltas),
+   que é o que faz "e ele?" funcionar depois de "quem falou do ts?". */
+const chat = { meetingId: null, history: [], busy: false };
+
+function abrirChat(aberto) {
+  const painel = el("chat-panel");
+  if (!painel) return;
+  const quer = aberto === undefined ? painel.classList.contains("hidden") : Boolean(aberto);
+  painel.classList.toggle("hidden", !quer);
+  // um painel por vez na coluna da direita: com o chat aberto a transcrição
+  // sai de cena, e voltar para ela é fechar o chat
+  const reuniao = el("view-meeting");
+  if (reuniao) reuniao.classList.toggle("chat-aberto", quer);
+  if (quer) {
+    const campo = el("ask-input");
+    if (campo) campo.focus();
+  }
+}
+
+function resetChat(meetingId) {
+  if (chat.meetingId === meetingId) return;
+  chat.meetingId = meetingId;
+  chat.history = [];
+  chat.busy = false;
+  const log = el("ask-log");
+  if (!log) return;
+  log.innerHTML = "";
+  const vazio = document.createElement("div");
+  vazio.className = "cp-empty";
+  vazio.textContent =
+    "Pergunte sobre o que foi dito nesta reunião. A resposta usa a transcrição, " +
+    "suas anotações e o resumo — e diz quem falou.";
+  log.appendChild(vazio);
+}
+
+function chatMensagem(papel, texto, logId = "ask-log") {
+  const log = el(logId);
+  if (!log) return null;
+  const vazio = log.querySelector(".cp-empty");
+  if (vazio) vazio.remove();
+  const bloco = document.createElement("div");
+  bloco.className = `cp-msg ${papel === "assistant" ? "bot" : "me"}`;
+  const quem = document.createElement("span");
+  quem.className = "who";
+  quem.textContent = papel === "assistant" ? "Resposta" : "Você";
+  bloco.appendChild(quem);
+  if (papel === "assistant") {
+    renderMarkdown(texto || "", bloco);
+  } else {
+    bloco.appendChild(document.createTextNode(texto));
+  }
+  log.appendChild(bloco);
+  log.scrollTop = log.scrollHeight;
+  if (logId !== "ask-log") bloco.scrollIntoView({ block: "end" });
+  return bloco;
+}
+
+// ------------------------------------------- perguntar ao acervo inteiro
+
+const acervo = { history: [], busy: false };
+const ROTULO_FONTE = /\[(R\d+(?:\s*[,;]\s*R\d+)*)\]/g;
+
+function goAsk() {
+  flushNotes();
+  state.open = null;
+  abrirChat(false);
+  showView("ask");
+  el("ask-sugs").classList.toggle("hidden", acervo.history.length > 0);
+  el("ask-input").focus();
+}
+
+/* Os rótulos [R3] da resposta viram links para a reunião. A tabela rótulo →
+   reunião vale só para a resposta que a trouxe: a próxima pergunta escolhe
+   outras reuniões e numera de novo. */
+function ligarFontes(bloco, fontes) {
+  const porRotulo = new Map((fontes || []).map((f) => [f.label, f]));
+  const citadas = new Map();
+  const andador = document.createTreeWalker(bloco, NodeFilter.SHOW_TEXT);
+  const nos = [];
+  while (andador.nextNode()) nos.push(andador.currentNode);
+  for (const no of nos) {
+    const texto = no.nodeValue;
+    ROTULO_FONTE.lastIndex = 0;
+    if (!ROTULO_FONTE.test(texto)) continue;
+    const frag = document.createDocumentFragment();
+    let resto = 0;
+    texto.replace(ROTULO_FONTE, (inteiro, lista, pos) => {
+      frag.append(texto.slice(resto, pos));
+      for (const rotulo of lista.split(/\s*[,;]\s*/)) {
+        const fonte = porRotulo.get(rotulo);
+        if (!fonte) continue;
+        citadas.set(fonte.id, fonte);
+        frag.append(botaoFonte(fonte, String([...citadas.keys()].indexOf(fonte.id) + 1)));
+      }
+      resto = pos + inteiro.length;
+      return inteiro;
+    });
+    frag.append(texto.slice(resto));
+    no.replaceWith(frag);
+  }
+  if (!citadas.size) return [];
+  const lista = document.createElement("div");
+  lista.className = "fontes";
+  [...citadas.values()].forEach((fonte, i) => {
+    const linha = botaoFonte(fonte, String(i + 1));
+    linha.classList.add("fonte-linha");
+    linha.append(` ${fonte.name} · ${dateLabel(fonte.started_at)}`);
+    lista.appendChild(linha);
+  });
+  bloco.appendChild(lista);
+  return [...citadas.keys()];
+}
+
+function botaoFonte(fonte, numero) {
+  const botao = document.createElement("button");
+  botao.type = "button";
+  botao.className = "fonte";
+  botao.title = fonte.name;
+  const marca = document.createElement("span");
+  marca.className = "fonte-n";
+  marca.textContent = numero;
+  botao.appendChild(marca);
+  botao.addEventListener("click", () => openMeeting(fonte.id));
+  return botao;
+}
+
+function semRotulos(texto, fontes) {
+  const nomes = new Map((fontes || []).map((f) => [f.label, f.name]));
+  return (texto || "").replace(ROTULO_FONTE, (_, lista) =>
+    `(${lista.split(/\s*[,;]\s*/).map((r) => nomes.get(r) || r).join("; ")})`,
+  );
+}
+
+async function perguntarAcervo(pergunta) {
+  if (acervo.busy) return;
+  if (state.view !== "ask") goAsk();
+  el("ask-sugs").classList.add("hidden");
+  acervo.busy = true;
+  chatMensagem("user", pergunta, "ask-log-all");
+  const pensando = chatMensagem("assistant", "procurando nas reuniões…", "ask-log-all");
+  if (pensando) pensando.classList.add("pensando");
+  const botao = el("ask-send");
+  if (botao) botao.disabled = true;
+  try {
+    const resposta = await api("ask_library", pergunta, acervo.history);
+    if (pensando) pensando.remove();
+    const bloco = chatMensagem("assistant", resposta.answer || "(resposta vazia)", "ask-log-all");
+    const citadas = bloco ? ligarFontes(bloco, resposta.sources) : [];
+    acervo.history.push({ role: "user", content: pergunta });
+    acervo.history.push({
+      role: "assistant",
+      content: semRotulos(resposta.answer, resposta.sources),
+      sources: citadas,
+    });
+    setBanner("");
+  } catch (err) {
+    if (pensando) pensando.remove();
+    chatMensagem("assistant", `Não consegui responder: ${errText(err)}`, "ask-log-all");
+  } finally {
+    acervo.busy = false;
+    if (botao) botao.disabled = false;
+  }
+}
+
+async function perguntar(texto) {
+  const pergunta = (texto || "").trim();
+  const aberto = state.open;
+  if (!pergunta) return;
+  if (!aberto) return perguntarAcervo(pergunta);
+  if (chat.busy) return;
+
+  abrirChat(true);
+  resetChat(aberto.id);
+  chat.busy = true;
+  chatMensagem("user", pergunta);
+  const pensando = chatMensagem("assistant", "pensando…");
+  if (pensando) pensando.classList.add("pensando");
+  const botao = el("ask-send");
+  if (botao) botao.disabled = true;
+
+  try {
+    const resposta = await api("ask", aberto.id, pergunta, chat.history);
+    if (pensando) pensando.remove();
+    chatMensagem("assistant", resposta.answer || "(resposta vazia)");
+    chat.history.push({ role: "user", content: pergunta });
+    chat.history.push({ role: "assistant", content: resposta.answer || "" });
+    setBanner("");
+  } catch (err) {
+    if (pensando) pensando.remove();
+    chatMensagem("assistant", `Não consegui responder: ${errText(err)}`);
+  } finally {
+    chat.busy = false;
+    if (botao) botao.disabled = false;
+  }
+}
+
+function onPerguntar() {
+  const campo = el("ask-input");
+  const texto = campo ? campo.value : "";
+  if (campo) campo.value = "";
+  perguntar(texto);
+}
+
+// ------------------------------------------------- notas: texto ou edição
+
+/* No documento a nota aparece como texto — igual ao que se lê depois. O
+   textarea só assume quando a pessoa vai escrever: clicar no texto o troca pelo
+   editor, sair do editor devolve o markdown renderizado. Sem isso, quem escreve
+   markdown vê "# Título" e "_ênfase_" no meio da nota. */
+function renderNotesView() {
+  const editor = el("notes");
+  const view = el("notes-view");
+  if (!editor || !view) return;
+  const texto = editor.value.trim();
+  view.innerHTML = "";
+  if (texto) renderMarkdown(texto, view);
+  view.classList.toggle("hidden", !texto);
+  editor.parentElement.classList.toggle("editing", false);
+  if (!texto) editor.parentElement.classList.add("editing");
+}
+
+function editarNotas() {
+  const editor = el("notes");
+  const view = el("notes-view");
+  if (!editor) return;
+  if (view) view.classList.add("hidden");
+  if (editor.parentElement) editor.parentElement.classList.add("editing");
+  editor.focus();
+}
+
+function ligarNotasRenderizadas() {
+  const editor = el("notes");
+  const view = el("notes-view");
+  if (!editor || !view) return;
+  view.addEventListener("click", editarNotas);
+  editor.addEventListener("blur", () => {
+    // espera o flush do debounce antes de trocar a vista
+    setTimeout(renderNotesView, 0);
+  });
+  renderNotesView();
+}
+
+// ------------------------------------- notas cruas ↔ resumo, e a citação
+
+/* O Granola mostra as duas coisas no MESMO lugar, uma por vez: as notas de quem
+   gravou e, depois, o texto gerado. Nunca lado a lado. O botão de três linhas
+   no cabeçalho alterna — e a escolha fica no aparelho. */
+const VISTA_KEY = "fireball.nota.vista";
+
+function vistaNota(modo, persistir = true) {
+  const corpo = el("nota-corpo");
+  if (!corpo) return;
+  const cru = modo === "cru";
+  corpo.classList.toggle("cru", cru);
+  for (const botao of document.querySelectorAll("#vista-nota button[data-vista]")) {
+    const ativo = botao.dataset.vista === (cru ? "cru" : "doc");
+    botao.setAttribute("aria-pressed", ativo ? "true" : "false");
+  }
+  if (persistir) {
+    try {
+      localStorage.setItem(VISTA_KEY, cru ? "cru" : "doc");
+    } catch (err) {
+      // sem storage a vista volta ao resumo na próxima janela
+    }
+  }
+}
+
+function ligarVistaNota() {
+  let salvo = null;
+  try {
+    salvo = localStorage.getItem(VISTA_KEY);
+  } catch (err) {
+    salvo = null;
+  }
+  // A abertura não grava preferência: quem nunca escolheu recebe a vista que
+  // combina com a reunião (resumo se já existe, notas se ainda não)
+  const guardado = salvo === "cru" ? "cru" : "doc";
+  vistaNota(guardado, Boolean(salvo));
+  const grupo = el("vista-nota");
+  if (grupo) {
+    grupo.addEventListener("click", (ev) => {
+      const botao = ev.target.closest("button[data-vista]");
+      if (botao) vistaNota(botao.dataset.vista);
+    });
+  }
+}
+
+/* A lupa ao lado do ponto abre a fala que o sustenta. A transcrição é buscada
+   uma vez por reunião e guardada na janela — o resumo pode ter vinte lupas, e
+   vinte chamadas ao daemon para ler o mesmo arquivo seria desperdício. */
+const citacao = { id: null, segmentos: null };
+
+async function abrirCitacao(botao) {
+  const aberto = state.open;
+  if (!aberto) return;
+  const seq = Number(botao.dataset.seq);
+  if (citacao.id !== aberto.id || !citacao.segmentos) {
+    try {
+      citacao.segmentos = await api("transcript", aberto.id, 0);
+      citacao.id = aberto.id;
+    } catch (err) {
+      setBanner(errText(err));
+      return;
+    }
+  }
+  const segmento = (citacao.segmentos || []).find((s) => Number(s.seq) === seq);
+  document.querySelectorAll(".cit-pop").forEach((n) => n.remove());
+  const card = document.createElement("div");
+  card.className = "cit-pop";
+  const quem = (segmento && (segmento.speaker || segmento.speaker_key)) || "fala não encontrada";
+  const quando = segmento ? clock(segmento.start || 0) : "";
+  const titulo = document.createElement("div");
+  titulo.className = "cit-h";
+  titulo.textContent = [quando, quem].filter(Boolean).join(" · ");
+  const texto = document.createElement("p");
+  texto.textContent = segmento ? segmento.text : "esta fala não está mais na transcrição";
+  card.append(titulo, texto);
+  const fechar = document.createElement("button");
+  fechar.className = "cit-x";
+  fechar.type = "button";
+  fechar.textContent = "✕";
+  fechar.addEventListener("click", () => card.remove());
+  card.appendChild(fechar);
+
+  const caixa = botao.getBoundingClientRect();
+  card.style.left = `${Math.min(window.innerWidth - 340, caixa.left + 18)}px`;
+  card.style.top = `${caixa.bottom + window.scrollY + 6}px`;
+  document.body.appendChild(card);
+  setTimeout(() => {
+    const fora = (ev) => {
+      if (!card.contains(ev.target)) {
+        card.remove();
+        document.removeEventListener("mousedown", fora);
+      }
+    };
+    document.addEventListener("mousedown", fora);
+  }, 0);
+}
+
+document.addEventListener("click", (ev) => {
+  const lupa = ev.target.closest && ev.target.closest(".citacao");
+  if (lupa) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    abrirCitacao(lupa);
+  }
+});
+
+// -------------------------------------------------------- modo da transcrição
+
+/* Documento é o padrão: texto corrido numa coluna estreita, que é o que se lê
+   depois. Chat mantém o balão de mensageiro, melhor para varrer quem falou por
+   último. É preferência de tela, não do daemon — por isso mora no localStorage
+   e não no settings.json: o daemon não precisa saber disso e a janela volta na
+   mesma escolha. Sem storage (file:// restrito), vale só nesta janela. */
+const MODO_KEY = "fireball.transcricao.modo";
+
+function modoTranscricao() {
+  try {
+    return localStorage.getItem(MODO_KEY) === "chat" ? "chat" : "doc";
+  } catch (err) {
+    return "doc";
+  }
+}
+
+function aplicarModoTranscricao(modo) {
+  const chat = el("chat");
+  if (!chat) return;
+  chat.classList.toggle("modo-doc", modo !== "chat");
+  chat.classList.toggle("modo-chat", modo === "chat");
+  for (const botao of document.querySelectorAll("#tr-modo button[data-modo]")) {
+    const ativo = botao.dataset.modo === modo;
+    botao.classList.toggle("on", ativo);
+    botao.setAttribute("aria-pressed", ativo ? "true" : "false");
+  }
+}
+
+function ligarModoTranscricao() {
+  const grupo = el("tr-modo");
+  if (grupo) {
+    grupo.addEventListener("click", (ev) => {
+      const botao = ev.target.closest("button[data-modo]");
+      if (!botao) return;
+      try {
+        localStorage.setItem(MODO_KEY, botao.dataset.modo);
+      } catch (err) {
+        // sem storage a escolha vale só nesta janela; não é motivo de banner
+      }
+      aplicarModoTranscricao(botao.dataset.modo);
+    });
+  }
+  aplicarModoTranscricao(modoTranscricao());
+}
+
 async function boot() {
   el("start-btn").addEventListener("click", onStart);
   el("adhoc-link").addEventListener("click", onAdHoc);
   el("stop-btn").addEventListener("click", onStop);
   el("finalize-btn").addEventListener("click", onFinalize);
   el("tr-export").addEventListener("click", onExportTranscript);
+  ligarModoTranscricao();
+  ligarNotasRenderizadas();
+  ligarVistaNota();
+
+  // casco do Granola: painel de transcrição, chat e o "＋ Nova nota"
+  painelTranscricaoInicial();
+  el("btn-transcricao").addEventListener("click", () => painelTranscricao());
+  el("nav-perguntar").addEventListener("click", goAsk);
+  for (const sugestao of document.querySelectorAll(".ask-sug")) {
+    sugestao.addEventListener("click", () => perguntar(sugestao.textContent));
+  }
+  el("cp-close").addEventListener("click", () => abrirChat(false));
+  el("nova-nota-btn").addEventListener("click", () => {
+    // o formulário mora na home: sem esta volta, clicar aqui dentro de uma
+    // reunião não mostrava nada
+    goHome();
+    onAdHoc();
+  });
+  el("ask-send").addEventListener("click", onPerguntar);
+  // um campo de pergunta só: o do chat era o mesmo pedido em dois lugares
+  for (const id of ["ask-input"]) {
+    el(id).addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onPerguntar();
+      }
+    });
+    el(id).addEventListener("focus", () => {
+      if (state.open) abrirChat(true);
+    });
+  }
   el("mv-diarize").addEventListener("change", onDiarizeChange);
   el("files-tab").addEventListener("click", onOpenFolder);
   el("delete-btn").addEventListener("click", onDelete);

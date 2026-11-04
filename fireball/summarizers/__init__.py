@@ -56,7 +56,9 @@ class SummaryProvider(Protocol):
 
     name: str
 
-    def summarize(self, transcript: str, meeting: dict, instructions: str = "") -> dict: ...
+    def summarize(
+        self, transcript: str, meeting: dict, instructions: str = "", notes: str = ""
+    ) -> dict: ...
 
 
 SUMMARY_PROVIDERS = ("claude_code", "openai_api")

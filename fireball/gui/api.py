@@ -195,6 +195,16 @@ class Api:
         pode levar minutos, e a janela acompanha o estado pelo polling."""
         return self._call(self._core.summarize, meeting_id=meeting_id, prompt=prompt, wait_timeout=0.0)
 
+    def ask(self, meeting_id: str, question: str, history: list | None = None) -> dict:
+        """Pergunta sobre a reunião. Espera a resposta (o painel mostra que está
+        pensando): é uma pergunta só, não um job como o resumo."""
+        return self._call(self._core.ask, meeting_id=meeting_id, question=question,
+                          history=history or [])
+
+    def ask_library(self, question: str, history: list | None = None) -> dict:
+        """Pergunta sobre todas as reuniões, a partir da tela inicial."""
+        return self._call(self._core.ask_library, question=question, history=history or [])
+
     def prompts(self) -> dict:
         return self._call(self._core.prompts)
 

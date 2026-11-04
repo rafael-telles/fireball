@@ -134,6 +134,17 @@ def devices():
         _echo(source)
 
 
+@cli.command(name="download-model")
+@click.argument("backend", type=click.Choice(["parakeet"]))
+def download_model(backend):
+    """Baixa o modelo de um backend de transcrição local (o Parakeet tem ± 2.4GB)."""
+    from fireball.backends import parakeet_backend
+
+    model_dir = parakeet_backend.default_model_dir()
+    click.echo(f"Baixando {parakeet_backend.MODEL_REPO} para {model_dir}...", err=True)
+    _echo({"backend": backend, "model_dir": str(parakeet_backend.download_model(model_dir))})
+
+
 @cli.command()
 @click.option(
     "--name",

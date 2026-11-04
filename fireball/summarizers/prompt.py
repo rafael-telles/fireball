@@ -43,7 +43,8 @@ HEAD = """\
 Você está lendo a transcrição de uma reunião gravada pelo Fireball. Seu
 trabalho é dar um nome à reunião, classificá-la com tags e escrever o resumo.
 
-A transcrição vem uma fala por linha, no formato `Falante: texto`. Ela é feita
+A transcrição vem uma fala por linha, no formato `[12] Falante: texto`, onde o
+número é a fala — é por ele que você cita a origem de um ponto. Ela é feita
 por transcrição automática: espere erros de palavra, pontuação estranha e
 frases cortadas. Interprete pelo contexto e não cite trechos que não fazem
 sentido.
@@ -89,6 +90,11 @@ repita — ele já vai em "title". As tags dizem assunto e tipo da reunião
 reuniões parecidas, então não use nome de pessoa nem tag que só valeria para
 esta reunião.
 
+A transcrição vem numerada: `[12] Falante: texto`. Cada item de decisão ou de
+pendência termina com a citação da fala que o sustenta, no formato `[12]` — só
+os números, sem texto entre eles. Se um item vier das notas de quem gravou e não
+de uma fala, dispense a citação.
+
 Não invente nada que não esteja na transcrição. Se ela for curta ou não tiver
 conteúdo real, diga isso em uma frase no "summary" em vez de preencher as
 seções, e dê um título honesto (por exemplo "Conversa curta sem assunto
@@ -96,7 +102,7 @@ definido").\
 """
 
 
-def build_prompt(meeting: dict, instructions: str = "") -> str:
+def build_prompt(meeting: dict, instructions: str = "", notes: str = "") -> str:
     """O pedido inteiro: as partes fixas com as instruções escolhidas no meio.
 
     Instruções vazias caem no padrão — um prompt salvo sem texto nenhum não
@@ -124,6 +130,17 @@ def build_prompt(meeting: dict, instructions: str = "") -> str:
             )
         else:
             parts.append(f"Esta reunião já tem um nome dado por quem gravou: {name}")
+
+    note_block = (notes or "").strip()
+    if note_block:
+        parts.append(
+            "NOTAS DE QUEM GRAVOU (escritas durante a reunião, podem estar em "
+            "taquigrafia e com erro de digitação):\n" + note_block[:4000]
+        )
+        parts.append(
+            "Toda frase do resumo que vier dessas notas — e não da transcrição — "
+            "vai entre ==assim==, para a tela poder mostrar o que é de quem gravou."
+        )
 
     event_block = _event_context(meeting.get("event"))
     if event_block:
