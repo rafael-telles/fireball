@@ -695,6 +695,9 @@ function renderTranscriptBar() {
   const enabled = !state.settings || state.settings.transcribe_final !== false;
 
   const bits = [];
+  // o que não cabe nos 400px da coluna vai só para o `title`: a data de
+  // geração é útil, mas a reunião já tem a data no cabeçalho da nota
+  const detalhe = [];
   if (o.live) {
     bits.push(
       m.transcribe_live === false
@@ -707,7 +710,7 @@ function renderTranscriptBar() {
   } else if (meta.kind === "final") {
     bits.push("Transcrição final");
     if (meta.backend) bits.push(meta.backend);
-    if (meta.generated_at) bits.push(`gerada em ${dateLabel(meta.generated_at)}`);
+    if (meta.generated_at) detalhe.push(`gerada em ${dateLabel(meta.generated_at)}`);
     bits.push(`${meta.segments} ${meta.segments === 1 ? "segmento" : "segmentos"}`);
     if (meta.diarized) bits.push("com falantes separados");
   } else if (meta.kind === "live") {
@@ -720,7 +723,7 @@ function renderTranscriptBar() {
   // sem isto, quem desligou a passada final não entende por que o botão sumiu
   if (!enabled && !o.live) bits.push("transcrição final desligada");
   el("tr-meta").textContent = bits.join(" · ");
-  el("tr-meta").title = bits.join(" · ");
+  el("tr-meta").title = [...bits, ...detalhe].join(" · ");
 
   // Retranscrever é a transcrição final sobre o áudio inteiro. Só faz sentido
   // depois que a gravação fechou os .wav — antes disso não há áudio completo.
@@ -4601,7 +4604,13 @@ function chatMensagem(papel, texto, logId = "ask-log") {
   quem.textContent = papel === "assistant" ? "Resposta" : "Você";
   bloco.appendChild(quem);
   if (papel === "assistant") {
-    renderMarkdown(texto || "", bloco);
+    // o markdown vai num filho próprio: `renderMarkdown` limpa o nó em que
+    // escreve, e escritos no próprio bloco apagavam o rótulo "Resposta" —
+    // a resposta ficava sem quem, colada na pergunta anterior
+    const corpo = document.createElement("div");
+    corpo.className = "cp-corpo";
+    renderMarkdown(texto || "", corpo);
+    bloco.appendChild(corpo);
   } else {
     bloco.appendChild(document.createTextNode(texto));
   }
