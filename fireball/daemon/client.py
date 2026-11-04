@@ -49,7 +49,10 @@ def spawn_daemon(tray: bool = True) -> subprocess.Popen:
     Com sessão gráfica, isso é também o que faz o ícone aparecer na bandeja:
     a casca gráfica mora no processo do daemon.
     """
-    cmd = [sys.executable, "-m", "fireball.daemon"]
+    # Dentro de um AppImage o sys.executable mora num mount que some quando o
+    # processo que o montou sai; o daemon destacado precisa montar o seu.
+    appimage = os.environ.get("APPIMAGE")
+    cmd = [appimage, "daemon", "run"] if appimage else [sys.executable, "-m", "fireball.daemon"]
     if not tray:
         cmd.append("--no-tray")
     log_file = open(protocol.log_path(), "a")

@@ -887,6 +887,19 @@ source .venv/bin/activate
 pip install -e .
 ```
 
+### AppImage
+
+Cada tag `v*` publica uma release com `Fireball-<versão>-x86_64.AppImage`, com todos os extras
+(glibc 2.35+). Pushes na `main` e PRs deixam o AppImage como artefato do workflow `build`.
+Sem argumentos ele abre a janela; com argumentos é a CLI (`./Fireball.AppImage daemon status`).
+`parecord`/`pactl` continuam vindo do sistema.
+
+```bash
+git tag v0.1.0 && git push origin v0.1.0
+```
+
+Para montar localmente: `packaging/build-appimage.sh` (sai em `dist/`).
+
 ## Usar as skills no Claude Code
 
 Duas skills neste repo:

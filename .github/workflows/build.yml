@@ -1,0 +1,66 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ".[whisper]"
+      - run: python -m unittest discover -s tests
+
+  appimage:
+    needs: test
+    # glibc 2.35: o piso dos wheels do PyQt6 é 2.34, e é o mais antigo que o AppImage vai rodar.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Versão
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          else
+            echo "VERSION=$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          fi
+      - run: packaging/build-appimage.sh
+      - name: Smoke test
+        run: |
+          app="dist/Fireball-$VERSION-x86_64.AppImage"
+          chmod +x "$app"
+          APPIMAGE_EXTRACT_AND_RUN=1 "$app" --help
+          APPIMAGE_EXTRACT_AND_RUN=1 "$app" daemon --help
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Fireball-${{ env.VERSION }}-x86_64.AppImage
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: appimage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publica a release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.AppImage \
+            --repo "$GITHUB_REPOSITORY" --title "Fireball $GITHUB_REF_NAME" --generate-notes
