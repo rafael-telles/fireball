@@ -317,6 +317,142 @@ class VoiceTests(unittest.TestCase):
         voices.save_label(meeting, "mic:0", assignment)
         self.assertEqual(recognizer.observe("mic", 0, chunk, 16000), assignment)
 
+    def _live_recognizer(self, meeting: Path, matcher) -> voices.LiveVoiceRecognizer:
+        recognizer = voices.LiveVoiceRecognizer.__new__(voices.LiveVoiceRecognizer)
+        recognizer.meeting_dir = meeting
+        recognizer._backend = None
+        recognizer.matcher = matcher
+        recognizer.buffers = {}
+        recognizer.samples = {}
+        recognizer.next_attempt = {}
+        recognizer.matches = voices.load_labels(meeting)
+        recognizer.has_profiles = True
+        recognizer._labels_stamp = voices._stamp(voices.labels_path(meeting))
+        recognizer._profiles_stamp = voices._stamp(voices.profiles_root())
+        return recognizer
+
+    def test_live_match_is_revalidated_with_the_audio_that_arrives(self):
+        """O 0,5503 de 5 s que virou "Guilherme Luiz" na reunião do Daniel.
+
+        Com a fala inteira o mesmo locutor cai para 0,46: o nome provisório tem
+        de sair, senão o erro fica na transcrição e no resumo.
+        """
+        answers = [
+            {"profile_id": "guilherme", "name": "Guilherme Luiz", "source": "voice", "confidence": 0.5503},
+            None,
+        ]
+
+        class DriftingMatcher:
+            profiles = [{}]
+
+            def __init__(self):
+                self.calls = 0
+
+            def identify(self, _audio, _samplerate):
+                self.calls += 1
+                return answers[min(self.calls, len(answers)) - 1]
+
+        meeting = Path(self.temp.name) / "meetings" / "meeting-drift"
+        meeting.mkdir(parents=True)
+        recognizer = self._live_recognizer(meeting, DriftingMatcher())
+
+        first = recognizer.observe("system", 0, np.ones(5 * 16000, dtype=np.float32), 16000) or {}
+        self.assertEqual(first["name"], "Guilherme Luiz")
+        self.assertIn("system:0", voices.load_labels(meeting))
+
+        # mais 16 s de fala: o áudio acumulado não sustenta o nome
+        self.assertIsNone(
+            recognizer.observe("system", 0, np.ones(16 * 16000, dtype=np.float32), 16000)
+        )
+        self.assertNotIn("system:0", voices.load_labels(meeting))
+
+    def test_live_match_is_revalidated_without_losing_a_name_that_holds(self):
+        class SameMatcher:
+            profiles = [{}]
+
+            def identify(self, _audio, _samplerate):
+                return {
+                    "profile_id": "rafael",
+                    "name": "Rafael Telles",
+                    "source": "voice",
+                    "confidence": 0.62,
+                }
+
+        meeting = Path(self.temp.name) / "meetings" / "meeting-holds"
+        meeting.mkdir(parents=True)
+        recognizer = self._live_recognizer(meeting, SameMatcher())
+
+        self.assertIsNotNone(recognizer.observe("mic", 0, np.ones(5 * 16000, dtype=np.float32), 16000))
+        kept = recognizer.observe("mic", 0, np.ones(16 * 16000, dtype=np.float32), 16000) or {}
+        self.assertEqual(kept["name"], "Rafael Telles")
+        self.assertEqual(voices.load_labels(meeting)["mic:0"]["source"], "voice")
+        # o áudio continua guardado: é ele que sustenta a reavaliação seguinte
+        self.assertIn("mic:0", recognizer.buffers)
+
+    def test_manual_label_is_never_revalidated(self):
+        class ExplodingMatcher:
+            profiles = [{}]
+
+            def identify(self, _audio, _samplerate):
+                raise AssertionError("nome confirmado por gente não é reavaliado")
+
+        meeting = Path(self.temp.name) / "meetings" / "meeting-manual"
+        meeting.mkdir(parents=True)
+        assignment = {"profile_id": "ana", "name": "Ana", "source": "manual", "confidence": 1.0}
+        voices.save_label(meeting, "system:0", assignment)
+        recognizer = self._live_recognizer(meeting, ExplodingMatcher())
+
+        self.assertEqual(
+            recognizer.observe("system", 0, np.ones(20 * 16000, dtype=np.float32), 16000),
+            assignment,
+        )
+
+    def test_apply_speaker_labels_reverts_a_name_the_audio_dropped(self):
+        meeting = Path(self.temp.name) / "meetings" / "meeting-revert"
+        meeting.mkdir(parents=True)
+        storage.append_ndjson(
+            meeting / "transcript.ndjson",
+            {
+                "seq": 1,
+                "speaker": "Guilherme Luiz",
+                "text": "oi",
+                "start": 0.0,
+                "end": 2.0,
+                "track": "system",
+                "speaker_id": 0,
+                "speaker_key": "system:0",
+                "voice_profile_id": "503d5c43",
+                "speaker_confidence": 0.5503,
+                "speaker_edited": False,
+            },
+        )
+        # fala sem nome de ninguém não é tocada
+        storage.append_ndjson(
+            meeting / "transcript.ndjson",
+            {
+                "seq": 2,
+                "speaker": "Outros participantes",
+                "text": "oi",
+                "start": 3.0,
+                "end": 4.0,
+                "track": "system",
+                "speaker_id": 0,
+                "speaker_key": "system:0",
+            },
+        )
+        # outro slot segue com nome, e é o único rótulo da reunião
+        voices.save_label(
+            meeting,
+            "mic:0",
+            {"profile_id": "rafa", "name": "Rafael Telles", "source": "manual", "confidence": 1.0},
+        )
+
+        self.assertEqual(control.apply_speaker_labels("meeting-revert"), 1)
+        rows = list(storage.read_ndjson(meeting / "transcript.ndjson"))
+        self.assertEqual([row["speaker"] for row in rows], ["Remoto 1", "Outros participantes"])
+        self.assertIsNone(rows[0]["voice_profile_id"])
+        self.assertIsNone(rows[0]["speaker_confidence"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -315,10 +315,30 @@ def _labelled(seg: dict, labels: dict) -> dict:
     key = seg.get("speaker_key")
     assignment = labels.get(key) if key else None
     if not assignment or not assignment.get("name"):
-        return seg
+        return _unlabelled(seg, key)
     if seg.get("speaker") == assignment["name"]:
         return seg
     return _assigned(seg, key, assignment)
+
+
+def _unlabelled(seg: dict, speaker_key) -> dict:
+    """Nome que a voz deu e o áudio deixou de sustentar volta a ser slot.
+
+    `voice_profile_id` no segmento é o que prova que o nome veio da voz: nome
+    confirmado por gente fica com `speaker_edited` e não é tocado. Segmento que
+    nunca teve nome de ninguém também não é tocado — só o que ficou órfão.
+    """
+    if not speaker_key or not seg.get("voice_profile_id") or seg.get("speaker_edited"):
+        return seg
+    track, sep, raw_id = speaker_key.partition(":")
+    if not sep:
+        return seg
+    try:
+        speaker_id = int(raw_id)
+    except ValueError:
+        return seg
+    fallback = f"{'Sala' if track == 'mic' else 'Remoto'} {speaker_id + 1}"
+    return {**seg, "speaker": fallback, "voice_profile_id": None, "speaker_confidence": None}
 
 
 def apply_speaker_labels(meeting_id: str) -> int:

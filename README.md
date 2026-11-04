@@ -293,6 +293,14 @@ quando o melhor perfil passa um limiar conservador e fica claramente à frente
 do segundo; sem confiança, mantém `Sala N`/`Remoto N`. Reconhecimentos
 automáticos nunca atualizam o perfil — apenas novos cadastros confirmados.
 
+**O nome automático é provisório.** Ele nasce de uns cinco segundos de fala — e é
+aí que erra: um score que passa raspando no limiar pode cair bem abaixo quando o
+locutor inteiro é ouvido. Por isso o slot com nome automático continua sendo
+avaliado com o áudio acumulado da reunião (a cada 15 s, sobre a janela de 30 s):
+se o perfil não se sustenta, o slot volta a ser `Sala N`/`Remoto N`, inclusive
+nas falas que já haviam saído com o nome. Nome confirmado por gente (clique na
+transcrição) não é reavaliado nunca.
+
 Os perfis podem ser renomeados ou apagados em **Configurações › Vozes**. Apagar
 um perfil impede reconhecimentos futuros, mas não reescreve nomes já gravados
 em transcrições antigas.
