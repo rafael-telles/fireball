@@ -253,6 +253,12 @@ nemo-speech --version
 O runtime baixa o Sortformer quantizado na primeira execução. Para usar um
 modelo local específico, defina `FIREBALL_SORTFORMER_MODEL=/caminho/modelo.gguf`.
 
+Ao vivo, o Sortformer de cada faixa fica pausado enquanto ela está em silêncio
+(ele custa o mesmo com fala ou sem, ~40% de um núcleo por faixa). Em reunião de
+um lado só isso corta perto de um terço da CPU do engine; a gravação e a
+transcrição continuam recebendo todo o áudio. `FIREBALL_DIARIZATION_GATE=0`
+desliga a pausa.
+
 ```bash
 fireball start --real --backend parakeet --diarize
 fireball finalize <meeting_id> --diarize

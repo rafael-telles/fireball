@@ -14,7 +14,7 @@ from typing import Callable
 
 import numpy as np
 
-from fireball import catalog, storage
+from fireball import catalog, diarization_gate, storage
 from fireball.backends import BackendUnavailable, RealtimeBackend
 from fireball.vad import Endpointer
 
@@ -69,7 +69,7 @@ def run_realtime_transcription(
     endpointers = {key: Endpointer(samplerate=samplerate) for key in SPEAKER_LABELS}
     try:
         diarization_streams = (
-            {key: diarization_backend.open_stream() for key in SPEAKER_LABELS}
+            {key: diarization_gate.wrap(diarization_backend.open_stream(), samplerate) for key in SPEAKER_LABELS}
             if diarization_backend is not None
             else None
         )
@@ -203,12 +203,18 @@ def run_realtime_transcription(
                 chunk = reader.read_new()
                 if chunk is not None and len(chunk) > 0:
                     made_progress = True
+                    # o VAD vem antes: é ele quem diz se a diarização desta
+                    # track pode ficar pausada (ver fireball.diarization_gate)
+                    utterances = endpointers[key].push(chunk)
                     if diarization_streams is not None:
                         try:
-                            diarization_streams[key].push(chunk, samplerate)
+                            diarization_streams[key].push(
+                                chunk,
+                                samplerate,
+                                last_speech_end=getattr(endpointers[key], "last_speech_end", float("inf")),
+                            )
                         except BackendUnavailable as exc:
                             _disable_diarization(exc)
-                    utterances = endpointers[key].push(chunk)
                     try:
                         _process(key, utterances)
                     except BackendUnavailable as exc:
