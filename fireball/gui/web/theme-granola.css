@@ -957,3 +957,191 @@ button.trial:hover { background: var(--accent-bg-2, #ffffff10); }
 .fonte-linha:hover { color: var(--text); }
 .cp-msg.pensando { color: var(--faint); font-style: italic; }
 .cp-msg.pensando p { color: var(--faint); }
+
+/* ------------------------------------------------------------ configurações
+
+   A tela de configuração deixa de ser pilha de caixas: seção é bloco de
+   texto separado por fio, campo é linha de base, e o que é clicável tem
+   raio de 3px. Tudo escopado em #view-settings para a nota e a home
+   continuarem como estão. O vermelho (--accent) segue reservado ao que
+   significa "está gravando": a aba ativa usa --text-2, não o acento. */
+
+/* Configurações — "fio", não caixa: a tela deixa de ser pilha de blocos com
+   contorno e vira um documento, com seção separada por uma linha. Borda só
+   onde separa assunto; raio 3px no que é clicável e zero no resto. */
+
+/* mesma margem do `.mv-head` e das abas: título, abas e conteúdo na mesma
+   coluna à esquerda (o `margin:0 auto` do casco centralizava o conteúdo e
+   deixava a tela com dois eixos) */
+#view-settings .settings-col {
+  width: 680px;
+  max-width: 100%;
+  margin: 0;
+  padding: 8px 0 56px;
+}
+
+/* seção = bloco de texto com fio em cima, não cartão */
+#view-settings .card {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  border-top: 1px solid var(--border-faint);
+  padding: 20px 0 18px;
+}
+#view-settings .card:first-child { border-top: 0; padding-top: 6px; }
+
+#view-settings .card-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  margin-bottom: 5px;
+  color: var(--text);
+}
+
+#view-settings .card-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dim);
+  margin: 0 0 14px;
+  max-width: 54ch;
+}
+
+#view-settings .lbl {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .1em;
+  color: var(--dim);
+  margin: 18px 0 5px;
+}
+
+/* campos: linha de base, não caixa */
+#view-settings select,
+#view-settings input[type="text"],
+#view-settings input[type="password"],
+#view-settings input[type="number"],
+#view-settings input:not([type]) {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text);
+  width: 100%;
+  max-width: 420px;
+  transition: border-color .12s ease;
+}
+#view-settings select:focus,
+#view-settings input:focus {
+  outline: none;
+  border-bottom-color: var(--text-2);
+}
+#view-settings select:hover,
+#view-settings input:hover { border-bottom-color: var(--border-2); }
+#view-settings select option { background: var(--surface); color: var(--text); }
+
+/* checkbox sem a caixa em volta */
+#view-settings .checkbox-row {
+  gap: 9px;
+  font-size: 12.5px;
+  margin: 14px 0 0;
+  color: var(--text-2);
+}
+#view-settings .checkbox-row input {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+  accent-color: var(--text-3);
+}
+
+/* botão: primary chapado e discreto; outline vira texto sublinhado */
+#view-settings .btn {
+  border-radius: 3px;
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+#view-settings .btn.primary {
+  background: var(--ink-btn);
+  color: var(--ink-btn-text);
+}
+#view-settings .btn.outline {
+  border: 0;
+  padding: 6px 2px;
+  background: transparent;
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--border-2);
+}
+#view-settings .btn.outline:hover {
+  background: transparent;
+  color: var(--text);
+  text-decoration-color: var(--text-2);
+}
+#view-settings .btn.outline.danger { color: var(--accent-text); }
+#view-settings .btn.small { padding: 4px 0; font-size: 11.5px; }
+
+/* abas: só texto + fio sob a ativa (o vermelho fica para "está gravando") */
+#view-settings .tabs {
+  border-bottom: 1px solid var(--border-faint);
+  gap: 22px;
+  padding-bottom: 0;
+  margin-bottom: 4px;
+}
+#view-settings .set-tab {
+  padding: 10px 0;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--faint);
+  border-bottom: 1px solid transparent;
+}
+#view-settings .set-tab:hover { color: var(--text-2); }
+#view-settings .set-tab.selected {
+  color: var(--text);
+  font-weight: 500;
+  border-bottom-color: var(--text-2);
+}
+
+/* listas (prompts, vozes): linha, não pílula */
+#view-settings .prompt-row {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border-faint);
+  border-radius: 0;
+  padding: 10px 0;
+  gap: 14px;
+}
+#view-settings .prompt-row:last-child { border-bottom: 0; }
+#view-settings .prompt-row.is-default .prompt-name::after,
+#view-settings .prompt-row.is-me .prompt-name::after {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0 0 0 8px;
+  color: var(--faint);
+  font-size: 9.5px;
+}
+#view-settings .voice-emails,
+#view-settings .voice-samples { color: var(--faint); }
+#view-settings .field-note { font-size: 11.5px; color: var(--faint); }
+
+/* o bloco da API é da escolha acima: fio à esquerda, nada de caixa */
+#view-settings .subcard {
+  border-left: 1px solid var(--border);
+  padding-left: 14px;
+  margin: 14px 0 4px;
+}
+#view-settings .subcard .lbl:first-child { margin-top: 0; }
+
+/* changelog: sem caixa; a moldura some e sobra o recuo */
+#view-settings .upd-notes-body {
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+}
+#view-settings .upd-notes-body pre {
+  background: #ffffff06;
+  border-radius: 2px;
+  padding: 8px 10px;
+}
+#view-settings .settings-actions { gap: 14px; padding-top: 6px; }
