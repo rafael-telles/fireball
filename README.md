@@ -999,6 +999,10 @@ deixar o daemon voltar nele. Três caminhos, do mais automático ao mais manual:
   `settings.json`, uma vez a cada seis horas). Versão nova publicada vira um
   aviso na barra lateral; **Baixar e atualizar** troca o AppImage e reinicia o
   Fireball na versão nova;
+- a aba Sobre mostra o **changelog** da versão — é o corpo da release no GitHub,
+  que já vem junto na conferência (sem requisição extra). Ele abre sozinho
+  quando há versão nova para instalar e fica recolhido quando é só o registro da
+  versão que está rodando;
 - `fireball update --check` mostra a release publicada e a versão que está
   rodando, sem baixar (funciona também rodando do fonte);
 - `fireball update` faz o download e a troca pelo daemon — que recusa com

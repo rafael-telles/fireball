@@ -496,6 +496,13 @@ nele o e-mail com que a agenda te convida."
                   <button class="btn primary" id="update-apply" disabled>Baixar e atualizar</button>
                   <span class="saved" id="update-note"></span>
                 </div>
+                <!-- O que muda nesta versão, que é o corpo da release no GitHub: o
+                     daemon já traz esse texto no `update_check`, então não há
+                     requisição nenhuma a mais para mostrar o changelog. -->
+                <details class="upd-notes hidden" id="update-notes-wrap">
+                  <summary id="update-notes-title">Novidades desta versão</summary>
+                  <div class="upd-notes-body" id="update-notes"></div>
+                </details>
                 <p class="card-note tight">
                   Troca o próprio AppImage e reinicia o Fireball — a janela volta sozinha, na
                   versão nova. O download é conferido pelo SHA-256 publicado na release: se não

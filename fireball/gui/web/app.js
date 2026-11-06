@@ -98,6 +98,7 @@ const state = {
   appimage: "",
   update: null,
   updateTimer: null, // confirmação de "Baixar e atualizar" pendente
+  updateNotesKey: "", // qual changelog já foi montado (para não reabrir à toa)
   settingsTab: "transcricao", // aba da tela de configuração, lembrada entre visitas
   notes: { loadedFor: null, saved: null, timer: null },
   playing: null, // seq do segmento destacado agora, pra não repintar a cada tique
@@ -4225,6 +4226,101 @@ function updateInfo() {
   return state.update && typeof state.update === "object" ? state.update : null;
 }
 
+/** O changelog da versão, do corpo da release que o daemon já trouxe.
+
+    Renderizador próprio, e não o `renderMarkdown` da nota: aquele trata `[12]`
+    como lupa de citação e `==texto==` como marca das notas da reunião — num
+    changelog isso viraria botão que não leva a lugar nenhum. Aqui vale o
+    subconjunto que release usa de verdade: título, lista, parágrafo, cerca de
+    código, negrito e código inline. */
+function renderUpdateNotes() {
+  const wrap = el("update-notes-wrap");
+  const box = el("update-notes");
+  const info = updateInfo();
+  const texto = (info && !info.error && info.notes) || "";
+  wrap.classList.toggle("hidden", !texto);
+  box.innerHTML = "";
+  if (!texto) return;
+
+  // Abre sozinho quando é isto que você vai instalar; recolhido quando é só o
+  // registro da versão que já está rodando. A chave evita que o poll de 2s
+  // reabra o bloco que a pessoa acabou de fechar.
+  const chave = `${info.latest || ""}|${info.current || ""}|${info.applied_at || ""}`;
+  if (chave !== state.updateNotesKey) {
+    state.updateNotesKey = chave;
+    wrap.open = Boolean(info.newer);
+  }
+
+  el("update-notes-title").textContent = info.applied_at
+    ? `O que veio na ${info.current}`
+    : info.newer
+      ? `Novidades da ${info.latest}`
+      : `O que tem na ${info.current}`;
+
+  const inline = (text, parent) => {
+    for (const part of text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g)) {
+      if (!part) continue;
+      if (part.startsWith("**") && part.endsWith("**")) {
+        const node = document.createElement("strong");
+        node.textContent = part.slice(2, -2);
+        parent.appendChild(node);
+      } else if (part.startsWith("`") && part.endsWith("`")) {
+        const node = document.createElement("code");
+        node.textContent = part.slice(1, -1);
+        parent.appendChild(node);
+      } else {
+        parent.appendChild(document.createTextNode(part));
+      }
+    }
+  };
+
+  let lista = null;
+  let cerca = null;
+  for (const linha of texto.split("\n")) {
+    if (/^\s*```/.test(linha)) {
+      lista = null;
+      if (cerca) {
+        cerca = null;
+      } else {
+        cerca = document.createElement("pre");
+        box.appendChild(cerca);
+      }
+      continue;
+    }
+    if (cerca) {
+      cerca.textContent += (cerca.textContent ? "\n" : "") + linha;
+      continue;
+    }
+    if (!linha.trim()) {
+      lista = null;
+      continue;
+    }
+    const titulo = /^#{1,6}\s+(.*)$/.exec(linha);
+    if (titulo) {
+      lista = null;
+      const node = document.createElement("h4");
+      inline(titulo[1], node);
+      box.appendChild(node);
+      continue;
+    }
+    const item = /^\s*[-*]\s+(.*)$/.exec(linha);
+    if (item) {
+      if (!lista) {
+        lista = document.createElement("ul");
+        box.appendChild(lista);
+      }
+      const li = document.createElement("li");
+      inline(item[1], li);
+      lista.appendChild(li);
+      continue;
+    }
+    lista = null;
+    const paragrafo = document.createElement("p");
+    inline(linha, paragrafo);
+    box.appendChild(paragrafo);
+  }
+}
+
 /** O aviso da barra lateral: só existe quando há versão nova de verdade. */
 function renderUpdateNotice() {
   const card = el("update-card");
@@ -4245,6 +4341,7 @@ function renderUpdate() {
     ? ` · AppImage em ${state.appimage}`
     : " · rodando do código-fonte (para atualizar, git pull)";
   if (state.settings) el("set-check-updates").checked = Boolean(state.settings.check_updates);
+  renderUpdateNotes();
 
   if (!info) {
     el("update-state").textContent = "Ainda não conferi a release mais nova.";
