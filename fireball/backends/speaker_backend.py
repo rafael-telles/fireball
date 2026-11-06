@@ -6,7 +6,7 @@ from typing import Optional
 
 import numpy as np
 
-from fireball.backends import BackendUnavailable
+from fireball.backends import BackendUnavailable, onnx_session_options
 
 try:
     from speakeronnx import SpeakerEmbedder
@@ -35,6 +35,24 @@ class SpeakerEmbeddingBackend:
         except Exception as exc:  # download/modelo/onnxruntime
             raise BackendUnavailable(f"Não foi possível carregar o modelo de voz '{model}': {exc}") from exc
         self.model = model
+        self._quiet_session()
+
+    def _quiet_session(self) -> None:
+        """Recria a sessão do speakeronnx sem spin-wait (ver
+        onnx_session_options). O pacote não aceita SessionOptions no
+        construtor, então trocamos a sessão interna; se a estrutura dele
+        mudar, fica a sessão original — mais gulosa, mas funcionando."""
+        try:
+            import onnxruntime as rt
+
+            old = self.embedder._session
+            self.embedder._session = rt.InferenceSession(
+                old._model_path,
+                sess_options=onnx_session_options(),
+                providers=old.get_providers(),
+            )
+        except Exception:  # noqa: BLE001 — otimização opcional
+            pass
 
     def embed(self, audio: "np.ndarray", samplerate: int = 16000) -> "np.ndarray":
         if samplerate != self.embedder.sample_rate:

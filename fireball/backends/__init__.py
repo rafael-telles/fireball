@@ -64,6 +64,32 @@ class SpeakerEmbeddingBackendProtocol(Protocol):
     def embed(self, audio, samplerate: int = 16000): ...
 
 
+# Threads por sessão ONNX. O padrão do onnxruntime é um por núcleo físico, o
+# que só acelera arquivo grande; para as falas curtas do ao vivo, 4 dão quase o
+# mesmo tempo de relógio sem ocupar a máquina inteira.
+ONNX_THREADS = 4
+
+
+def onnx_session_options(threads: int = ONNX_THREADS):
+    """SessionOptions para modelos que rodam o tempo todo durante a reunião.
+
+    O ponto principal é desligar o spin-wait: por padrão as threads do
+    onnxruntime ficam girando a 100% depois de cada inferência, esperando a
+    próxima. No loop ao vivo a próxima só vem segundos depois, então elas
+    giravam à toa. Medido com o Parakeet em 120 s de reunião real: 136 s de
+    CPU com spin contra 24 s sem, mesmo texto e mais rápido no relógio (as
+    threads girando disputavam núcleo com quem tinha trabalho de verdade).
+    """
+    import onnxruntime as rt
+
+    opts = rt.SessionOptions()
+    opts.intra_op_num_threads = threads
+    opts.inter_op_num_threads = 1
+    opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
+    opts.add_session_config_entry("session.inter_op.allow_spinning", "0")
+    return opts
+
+
 REALTIME_BACKENDS = ("whisper", "parakeet")
 BATCH_BACKENDS = ("whisper", "parakeet", "groq")
 DIARIZATION_BACKENDS = ("sortformer",)

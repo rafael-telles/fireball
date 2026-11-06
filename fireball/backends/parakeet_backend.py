@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional
 
 from fireball import storage
-from fireball.backends import BackendUnavailable
+from fireball.backends import BackendUnavailable, onnx_session_options
 
 try:
     import onnx_asr
@@ -70,7 +70,7 @@ class ParakeetBackend:
                 f"Modelo Parakeet não encontrado em '{model_dir}'. Baixe uma vez (± 2.4GB) com:\n"
                 "  fireball download-model parakeet"
             )
-        self.model = onnx_asr.load_model(architecture, model_dir)
+        self.model = onnx_asr.load_model(architecture, model_dir, sess_options=onnx_session_options())
 
     def transcribe_chunk(self, audio, samplerate: int, language: str) -> Optional[str]:
         text = self.model.recognize(audio, sample_rate=samplerate).strip()
