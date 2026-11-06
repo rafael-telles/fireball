@@ -116,7 +116,13 @@ def daemon_restart(tray):
     ativa, se houver, é parada junto com ele.
     """
     if client.is_running():
-        client.shutdown()
+        try:
+            client.shutdown()
+        except protocol.DaemonUnavailable:
+            # o daemon saiu antes de responder (é o caso do reinício depois de
+            # trocar o AppImage: ele já estava a caminho da saída, e o cliente
+            # leva broken pipe). O objetivo era que ele saísse — saiu.
+            pass
         deadline = time.monotonic() + 90.0
         while client.is_running() and time.monotonic() < deadline:
             time.sleep(0.2)
