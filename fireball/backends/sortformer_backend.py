@@ -26,6 +26,17 @@ from fireball.backends import BackendUnavailable
 
 DEFAULT_MODEL = os.environ.get("FIREBALL_SORTFORMER_MODEL", "").strip()
 
+# Tamanho do chunk do streaming, em frames de 80 ms. O preset "streaming"
+# usa 20 (1,6 s) e reprocessa o cache de locutores a cada chunk, então o custo
+# cai quase na proporção do tamanho: medido em 4 min de reunião real, 81% de
+# um núcleo por track com 20 contra 40% com 50 (4 s). Como são duas tracks, é
+# perto de um núcleo inteiro a menos durante a reunião toda. O preço é que o
+# locutor de uma fala sai ~2 s mais tarde (o loop segura a fala até o modelo
+# rotulá-la). Os rótulos mudaram tanto quanto mudam ao trocar 20 por 25 — a
+# variação é do próprio streaming, não perda visível de qualidade.
+# 0 volta ao padrão do preset.
+DEFAULT_CHUNK_FRAMES = int(os.environ.get("FIREBALL_SORTFORMER_CHUNK_FRAMES", "50") or 0)
+
 
 class _ModelConfig(ctypes.Structure):
     _fields_ = [
@@ -167,7 +178,12 @@ class StreamingSortformerBackend:
 
     name = "sortformer"
 
-    def __init__(self, executable: str = "nemo-speech", model: str = DEFAULT_MODEL):
+    def __init__(
+        self,
+        executable: str = "nemo-speech",
+        model: str = DEFAULT_MODEL,
+        chunk_frames: int = DEFAULT_CHUNK_FRAMES,
+    ):
         library, model_path = _resolve_native_runtime(executable, model)
         try:
             self._lib = ctypes.CDLL(str(library))
@@ -181,7 +197,7 @@ class StreamingSortformerBackend:
             model_path=encoded_model,
             gpu=-1,
             preset=b"streaming",
-            chunk_frames=0,
+            chunk_frames=max(0, chunk_frames),
             right_context_frames=0,
             left_context_frames=-1,
             fifo_frames=0,
