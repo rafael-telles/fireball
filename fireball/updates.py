@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import re
+import ssl
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -146,6 +147,41 @@ def release_info(payload: dict, current: str = "") -> dict:
     }
 
 
+def _https_context() -> "ssl.SSLContext":
+    """Contexto TLS que não morre junto com o AppImage.
+
+    O AppRun exporta `SSL_CERT_FILE` para o `certs.pem` do bundle. Um daemon
+    destacado sobrevive ao processo que montou o AppImage, e aí aquele caminho
+    aponta para o nada: o `ssl` fica sem CA nenhuma e todo HTTPS vira
+    `CERTIFICATE_VERIFY_FAILED`. Aqui o arquivo é conferido antes de virar
+    contexto — se sumiu, valem as CAs do sistema, em vez de a conferência de
+    atualização morrer por causa de uma variável de ambiente herdada.
+    """
+    padrao = ssl.get_default_verify_paths()
+    candidatos = (
+        os.environ.get("SSL_CERT_FILE"),
+        os.environ.get("REQUESTS_CA_BUNDLE"),
+        padrao.cafile,
+        padrao.openssl_cafile,
+        "/etc/ssl/certs/ca-certificates.crt",
+        "/etc/pki/tls/certs/ca-bundle.crt",
+        "/etc/ssl/cert.pem",
+    )
+    for candidato in candidatos:
+        if not candidato or not Path(candidato).is_file():
+            continue
+        try:
+            return ssl.create_default_context(cafile=candidato)
+        except (ssl.SSLError, OSError):
+            continue
+    return ssl.create_default_context()
+
+
+def _urlopen(request, timeout: float = TIMEOUT_S):
+    """O `urlopen` padrão, com o contexto TLS do módulo."""
+    return urllib.request.urlopen(request, timeout=timeout, context=_https_context())
+
+
 def fetch_json(url: str, timeout: float = TIMEOUT_S, opener: Optional[Callable] = None) -> dict:
     request = urllib.request.Request(
         url,
@@ -156,7 +192,7 @@ def fetch_json(url: str, timeout: float = TIMEOUT_S, opener: Optional[Callable] 
             "User-Agent": f"fireball/{current_version()}",
         },
     )
-    opener = opener or urllib.request.urlopen
+    opener = opener or _urlopen
     try:
         with opener(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -209,7 +245,7 @@ def download(
 
     hasher = hashlib.sha256()
     recebido = 0
-    opener = opener or urllib.request.urlopen
+    opener = opener or _urlopen
     try:
         with opener(url, timeout=TIMEOUT_S) as resposta, open(part, "wb") as saida:
             while True:

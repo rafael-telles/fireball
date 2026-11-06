@@ -8,7 +8,18 @@ export APPDIR
 PY="$APPDIR/@PYTHON@"
 
 if [ -f "$APPDIR/opt/_internal/certs.pem" ]; then
-  export SSL_CERT_FILE="${SSL_CERT_FILE:-$APPDIR/opt/_internal/certs.pem}"
+  # Cópia **fora do mount**, de propósito: o daemon sai destacado e sobrevive ao
+  # processo que montou o AppImage, então um `SSL_CERT_FILE` apontando para
+  # dentro do mount vira caminho morto na primeira vez que ele for falar HTTPS
+  # sozinho (`CERTIFICATE_VERIFY_FAILED: unable to get local issuer certificate`
+  # — visto na conferência de atualização). O caminho estável continua valendo
+  # depois de trocar o AppImage no disco.
+  CERTS_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/fireball"
+  if mkdir -p "$CERTS_DIR" 2>/dev/null && cp -f "$APPDIR/opt/_internal/certs.pem" "$CERTS_DIR/certs.pem" 2>/dev/null; then
+    export SSL_CERT_FILE="$CERTS_DIR/certs.pem"
+  else
+    export SSL_CERT_FILE="${SSL_CERT_FILE:-$APPDIR/opt/_internal/certs.pem}"
+  fi
 fi
 # O sandbox do Chromium depende de user namespaces, que várias distros
 # bloqueiam para binários fora do sistema; a página é local.

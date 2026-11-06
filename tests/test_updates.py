@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import ssl
 import tempfile
 import unittest
 import urllib.error
@@ -135,6 +136,24 @@ class ReleaseInfoTests(unittest.TestCase):
 
         with self.assertRaises(updates.UpdateError):
             updates.check(opener=opener)
+
+
+class TlsTests(unittest.TestCase):
+    def test_ssl_cert_file_morto_cai_nas_cas_do_sistema(self):
+        """Daemon de AppImage herda `SSL_CERT_FILE` para dentro de um mount que
+        já morreu: sem esse desvio, todo HTTPS do update falha."""
+        with patch.dict(os.environ, {"SSL_CERT_FILE": "/tmp/nao-existe-certs.pem"}):
+            ctx = updates._https_context()
+        self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
+        self.assertTrue(ctx.get_ca_certs(), "sem CA nenhuma o download não autentica")
+
+    def test_ssl_cert_file_valido_e_usado(self):
+        with tempfile.TemporaryDirectory() as temp:
+            bundle = Path(temp) / "certs.pem"
+            bundle.write_text(Path("/etc/ssl/certs/ca-certificates.crt").read_text())
+            with patch.dict(os.environ, {"SSL_CERT_FILE": str(bundle)}):
+                ctx = updates._https_context()
+            self.assertTrue(ctx.get_ca_certs())
 
 
 class DownloadTests(unittest.TestCase):
