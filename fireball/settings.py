@@ -50,6 +50,10 @@ DEFAULTS = {
     "language": realtime.DEFAULT_LANGUAGE,
     # quem escreve o resumo da reunião a partir da transcrição
     "summary_provider": "claude_code",
+    # conferir sozinho se há AppImage novo publicado nas releases. É o que faz
+    # o aviso aparecer sem ninguém lembrar de abrir a tela; o download continua
+    # sendo decisão de quem clica.
+    "check_updates": True,
     # qual dos prompts salvos (ver fireball/prompts.py) é usado quando ninguém
     # escolhe um. Reunião já resumida lembra o dela e não passa por aqui.
     "summary_prompt": prompts.BUILTIN_ID,
@@ -102,7 +106,7 @@ def _coerce(key: str, value) -> Optional[object]:
         return value if value in REALTIME_BACKENDS else None
     if key == "final_backend":
         return value if value in BATCH_BACKENDS else None
-    if key in ("transcribe_live", "transcribe_final", "auto_summarize", "diarize_default"):
+    if key in ("transcribe_live", "transcribe_final", "auto_summarize", "diarize_default", "check_updates"):
         return bool(value)
     if key == "openai_base_url":
         url = str(value or "").strip().rstrip("/")

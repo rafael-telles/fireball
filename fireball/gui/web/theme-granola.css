@@ -139,6 +139,13 @@ html, body {
   border-radius: 9px; padding: 9px 10px; margin: 2px 2px 6px;
 }
 .trial.idle { display: none; }
+/* o aviso de atualização usa o mesmo cartão da gravação, mas é clicável: é um
+   <button>, e botão nativo centraliza o texto e adota a fonte do sistema */
+button.trial {
+  width: 100%; text-align: left; font: inherit; cursor: pointer;
+  color: inherit; display: block;
+}
+button.trial:hover { background: var(--accent-bg-2, #ffffff10); }
 .trial b { display: block; font-size: 11.5px; font-weight: 600; color: var(--accent-text-2); }
 .trial span { display: block; margin-top: 2px; font-size: 11px; color: var(--accent-text); }
 .ws { display: flex; align-items: center; gap: 8px; padding: 4px 4px 2px 8px; font-size: 12.3px; color: var(--text-2); }

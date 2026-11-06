@@ -913,6 +913,7 @@ está nos campos dela.
 | `calendar_provider` | quem lê a agenda (`gog`, ou vazio = desligado) | vazio |
 | `gog_account` | e-mail passado ao gog como `--account` | vazio |
 | `my_voice` | qual das vozes cadastradas é a de quem usa (junta com "Você") | vazio |
+| `check_updates` | conferir sozinho se há AppImage novo nas releases (baixar é sempre um clique) | `true` |
 
 Os dois modos são configurados separado de propósito: é comum querer um motor local durante a
 reunião e `groq` no final. `groq` só aparece na transcrição final — em tempo real seria uma
@@ -988,6 +989,30 @@ git tag v0.1.0 && git push origin v0.1.0
 ```
 
 Para montar localmente: `packaging/build-appimage.sh` (sai em `dist/`).
+
+### Atualizar um AppImage já instalado
+
+Num AppImage o app é um arquivo só, então atualizar é trocar esse arquivo e
+deixar o daemon voltar nele. Três caminhos, do mais automático ao mais manual:
+
+- a janela confere sozinha (aba **Sobre**, chave `check_updates` em
+  `settings.json`, uma vez a cada seis horas). Versão nova publicada vira um
+  aviso na barra lateral; **Baixar e atualizar** troca o AppImage e reinicia o
+  Fireball na versão nova;
+- `fireball update --check` mostra a release publicada e a versão que está
+  rodando, sem baixar (funciona também rodando do fonte);
+- `fireball update` faz o download e a troca pelo daemon — que recusa com
+  reunião gravando, porque reiniciar no meio da gravação mataria a reunião.
+
+O download é conferido pelo tamanho e pelo `sha256` que o GitHub publica no
+asset: se não bater, **nada** é trocado (o AppImage que funciona fica no lugar).
+O arquivo novo é escrito num `.part` ao lado do atual e só entra por `os.replace`
+depois da conferência.
+
+Rodando do código-fonte (`pip install -e .`) não existe arquivo para trocar: a
+tela diz isso e o caminho é `git pull` + `fireball daemon restart`. Depois de
+qualquer atualização de código, `fireball daemon restart` é o que põe o código
+novo no processo — o daemon não recarrega módulo em execução.
 
 ## Usar as skills no Claude Code
 

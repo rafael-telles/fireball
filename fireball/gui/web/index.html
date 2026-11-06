@@ -38,6 +38,12 @@
       <div class="sb-list" id="meeting-list"></div>
 
       <div class="sb-foot">
+        <!-- Só aparece quando há versão nova publicada: é aviso, não um botão
+             de atualizar escondido — o clique leva para a aba Sobre. -->
+        <button class="trial idle" id="update-card">
+          <b id="update-card-title">Atualização disponível</b>
+          <span id="update-card-note">Clique para ver</span>
+        </button>
         <div class="trial idle" id="local-card">
           <b>Gravação local</b>
           <span id="local-note">Nada gravando agora</span>
@@ -235,6 +241,7 @@
           <button class="set-tab" data-set-tab="resumo">Resumo</button>
           <button class="set-tab" data-set-tab="agenda">Agenda</button>
           <button class="set-tab" data-set-tab="vozes">Vozes</button>
+          <button class="set-tab" data-set-tab="sobre">Sobre</button>
         </div>
 
         <div class="scroll">
@@ -465,6 +472,40 @@ nele o e-mail com que a agenda te convida."
               <div class="lbl">Perfil</div>
               <select id="set-my-voice"></select>
             </section>
+            </div>
+
+            <div class="hidden" id="set-pane-sobre">
+              <section class="card">
+                <div class="card-title">Versão</div>
+                <p class="card-note">Rodando <b id="app-version">—</b><span id="app-channel"></span>.</p>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="set-check-updates" />
+                  <span>Conferir atualizações sozinho</span>
+                </label>
+                <p class="card-note tight">
+                  Uma vez a cada seis horas, no daemon. O aviso aparece aqui e na barra
+                  lateral; baixar continua sendo decisão de quem clica.
+                </p>
+              </section>
+
+              <section class="card">
+                <div class="card-title">Atualizar o AppImage</div>
+                <p class="card-note" id="update-state">Ainda não conferi a release mais nova.</p>
+                <div class="settings-actions">
+                  <button class="btn outline" id="update-check">Conferir agora</button>
+                  <button class="btn primary" id="update-apply" disabled>Baixar e atualizar</button>
+                  <span class="saved" id="update-note"></span>
+                </div>
+                <p class="card-note tight">
+                  Troca o próprio AppImage e reinicia o Fireball — a janela volta sozinha, na
+                  versão nova. O download é conferido pelo SHA-256 publicado na release: se não
+                  bater, nada é trocado.
+                  <span
+                    class="info" title="Atualizar pela tela só existe quando o Fireball roda de um AppImage.
+Rodando do código-fonte, o caminho é git pull."
+                  >ⓘ</span>
+                </p>
+              </section>
             </div>
 
             <!-- Fora das abas: um Salvar só. Esconder uma aba não apaga o que

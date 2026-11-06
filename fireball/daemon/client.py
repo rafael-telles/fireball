@@ -67,6 +67,32 @@ def spawn_daemon(tray: bool = True) -> subprocess.Popen:
         log_file.close()
 
 
+def spawn_restart() -> subprocess.Popen:
+    """Agenda um reinício: espera este daemon sair e sobe outro no lugar.
+
+    É o que aplica um AppImage trocado no disco — o arquivo novo só vale quando
+    o processo velho morre, e o `flock` de `daemon.lock` impede que os dois
+    coexistam. Destacado (`start_new_session`) de propósito: quem chama está
+    justamente prestes a desaparecer.
+    """
+    appimage = os.environ.get("APPIMAGE")
+    cmd = (
+        [appimage, "daemon", "restart"]
+        if appimage
+        else [sys.executable, "-m", "fireball.cli", "daemon", "restart"]
+    )
+    log_file = open(protocol.log_path(), "a")
+    try:
+        return subprocess.Popen(
+            cmd,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    finally:
+        log_file.close()
+
+
 def ensure_daemon(timeout: float = SPAWN_TIMEOUT, tray: bool = True) -> None:
     """Garante que há um daemon atendendo, subindo um se preciso.
 

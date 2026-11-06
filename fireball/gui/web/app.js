@@ -93,6 +93,11 @@ const state = {
     result: null,
     timer: null,
   },
+  // versão/canal/última conferência de atualização, do status do daemon
+  version: "",
+  appimage: "",
+  update: null,
+  updateTimer: null, // confirmação de "Baixar e atualizar" pendente
   settingsTab: "transcricao", // aba da tela de configuração, lembrada entre visitas
   notes: { loadedFor: null, saved: null, timer: null },
   playing: null, // seq do segmento destacado agora, pra não repintar a cada tique
@@ -122,6 +127,7 @@ const SETTINGS_TABS = {
   resumo: "set-pane-resumo",
   agenda: "set-pane-agenda",
   vozes: "set-pane-vozes",
+  sobre: "set-pane-sobre",
 };
 
 function showView(name) {
@@ -2176,6 +2182,14 @@ async function refreshStatus() {
     return;
   }
 
+  // versão e última conferência de atualização viajam no mesmo status: o daemon
+  // cacheia a conferência (6h), então este poll de 2s não abre conexão nenhuma
+  state.version = status.version || state.version;
+  state.appimage = status.appimage || "";
+  if (status.update) state.update = status.update;
+  renderUpdateNotice();
+  if (state.view === "settings") renderUpdate();
+
   // Resumo rodando em alguma reunião significa nome e tags prestes a mudar —
   // e é a lista, não a reunião aberta, que mostra os dois para todas elas.
   if (state.rows.some((row) => row.summary_status === "running")) loadHistory();
@@ -4173,6 +4187,7 @@ function renderSettings() {
   fillSelect("set-my-voice", myVoiceOptions(), s.my_voice || "");
   renderProviderFields();
   renderFinalFields();
+  renderUpdate();
 }
 
 /** Os campos da API só existem quando o provedor que os usa está escolhido. */
@@ -4197,6 +4212,120 @@ function renderProviderFields() {
   el("groq-fields").classList.toggle("hidden", el("set-final-backend").value !== "groq");
   el("gog-fields").classList.toggle("hidden", el("set-calendar-provider").value !== "gog");
   el("summary-provider-note").textContent = SUMMARY_PROVIDER_NOTE[summary] || "";
+}
+
+/* ------------------------------------------------------- atualização
+
+   O daemon é quem confere (TTL de 6h, chave em settings.json) e quem troca o
+   AppImage; a janela só desenha o que vem em `get_status` e manda os dois
+   cliques. Nada de fetch para o GitHub daqui: a página roda em http local e o
+   daemon é o dono do estado — inclusive de saber se há reunião gravando. */
+
+function updateInfo() {
+  return state.update && typeof state.update === "object" ? state.update : null;
+}
+
+/** O aviso da barra lateral: só existe quando há versão nova de verdade. */
+function renderUpdateNotice() {
+  const card = el("update-card");
+  if (!card) return;
+  const info = updateInfo();
+  const novo = Boolean(info && info.newer && !info.error && !info.applied_at);
+  card.classList.toggle("idle", !novo);
+  if (!novo) return;
+  el("update-card-title").textContent = `Fireball ${info.latest} disponível`;
+  el("update-card-note").textContent = `Você está na ${info.current} — clique para atualizar`;
+}
+
+function renderUpdate() {
+  const info = updateInfo();
+  const aplicar = el("update-apply");
+  el("app-version").textContent = state.version || (info && info.current) || "—";
+  el("app-channel").textContent = state.appimage
+    ? ` · AppImage em ${state.appimage}`
+    : " · rodando do código-fonte (para atualizar, git pull)";
+  if (state.settings) el("set-check-updates").checked = Boolean(state.settings.check_updates);
+
+  if (!info) {
+    el("update-state").textContent = "Ainda não conferi a release mais nova.";
+    aplicar.disabled = true;
+    return;
+  }
+  if (info.error) {
+    el("update-state").textContent = `A última conferência falhou: ${info.error}`;
+    aplicar.disabled = true;
+    return;
+  }
+  const quando = info.checked_at ? `, conferido às ${timeLabel(info.checked_at)}` : "";
+  if (info.applied_at) {
+    el("update-state").textContent = `Atualizado para a ${info.current}${quando} — o Fireball reiniciou na versão nova.`;
+    aplicar.disabled = true;
+    return;
+  }
+  el("update-state").textContent = info.newer
+    ? `Publicada a ${info.latest}; você está na ${info.current}${quando}.`
+    : `Você está na versão mais nova (${info.current}${quando}).`;
+  // sem AppImage não existe arquivo para trocar: o botão fica morto em vez de
+  // prometer uma atualização que terminaria em erro
+  aplicar.disabled = !(info.newer && state.appimage);
+  aplicar.textContent = "Baixar e atualizar";
+}
+
+async function onUpdateCheck() {
+  const button = el("update-check");
+  button.disabled = true;
+  el("update-note").textContent = "";
+  setAlert("settings-error", "");
+  try {
+    state.update = await api("update_check", true);
+    renderUpdate();
+    renderUpdateNotice();
+  } catch (err) {
+    setAlert("settings-error", "Não consegui conferir a atualização", errText(err));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/** Trocar o AppImage é em dois toques, como excluir: o segundo clique no mesmo
+    botão confirma, e o primeiro desiste sozinho se ninguém confirmar. */
+function resetUpdateApply() {
+  const button = el("update-apply");
+  button.classList.remove("confirming");
+  button.textContent = "Baixar e atualizar";
+  button.disabled = false;
+  clearTimeout(state.updateTimer);
+  state.updateTimer = null;
+  el("update-note").textContent = "";
+}
+
+async function onUpdateApply() {
+  const button = el("update-apply");
+  if (!button.classList.contains("confirming")) {
+    button.classList.add("confirming");
+    button.textContent = "Confirmar atualização";
+    el("update-note").textContent = "Baixa o AppImage novo e reinicia o Fireball.";
+    state.updateTimer = setTimeout(resetUpdateApply, 10000);
+    return;
+  }
+  clearTimeout(state.updateTimer);
+  state.updateTimer = null;
+  button.disabled = true;
+  button.textContent = "Baixando…";
+  el("update-note").textContent = "Baixando o AppImage novo…";
+  setAlert("settings-error", "");
+  try {
+    const res = await api("update_apply");
+    el("update-note").textContent = res.updated
+      ? `Trocado para a ${res.version} — o Fireball está reiniciando.`
+      : res.reason || "Já está na versão mais nova.";
+    // o daemon sai para o AppImage trocado valer, e aí não há o que restaurar
+    // na tela: ela volta junto com o daemon novo, na versão nova
+    if (!res.restarting) resetUpdateApply();
+  } catch (err) {
+    resetUpdateApply();
+    setAlert("settings-error", "Não consegui atualizar", errText(err));
+  }
 }
 
 async function loadSettings() {
@@ -4258,6 +4387,7 @@ async function onSaveSettings() {
       gog_account: el("set-gog-account").value,
       my_voice: el("set-my-voice").value,
       language: el("set-language").value,
+      check_updates: el("set-check-updates").checked,
     });
     renderSettings(); // o daemon é quem diz o que ficou valendo
     renderVoices(); // o selo de "sou eu" mudou de linha
@@ -5096,6 +5226,12 @@ async function boot() {
   }
 
   el("settings-btn").addEventListener("click", openSettings);
+  el("update-card").addEventListener("click", async () => {
+    await openSettings();
+    showSettingsTab("sobre");
+  });
+  el("update-check").addEventListener("click", onUpdateCheck);
+  el("update-apply").addEventListener("click", onUpdateApply);
   el("config-link").addEventListener("click", openSettings);
   el("settings-back").addEventListener("click", goHome);
   el("settings-save").addEventListener("click", onSaveSettings);

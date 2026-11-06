@@ -87,6 +87,8 @@ class _Handler(socketserver.StreamRequestHandler):
             "delete_segment": core.delete_segment,
             "warnings": core.warnings,
             "agenda": core.agenda,
+            "update_check": core.update_check,
+            "update_apply": core.update_apply,
             "show_window": core.show_window,
             "shutdown": self._shutdown,
         }
@@ -182,6 +184,8 @@ def run(tray: bool = True) -> int:
     lock_fd = _acquire_lock()
     stop_event = threading.Event()
     core = DaemonCore()
+    # é como o daemon se encerra sozinho depois de trocar o AppImage no disco
+    core.set_stopper(stop_event.set)
 
     recovered = core.recover()
     for meeting in recovered:
@@ -194,6 +198,9 @@ def run(tray: bool = True) -> int:
         signal.signal(sig, lambda *_: stop_event.set())
 
     threading.Thread(target=server.serve_forever, daemon=True).start()
+    # conferência de atualização, fora do caminho da subida (os modelos carregam
+    # primeiro; a thread espera o próprio boot terminar)
+    core.start_update_loop()
     try:
         # O loop do Qt precisa ser o do thread principal, então é ele que
         # segura o daemon de pé quando há casca gráfica. Sem casca, o thread

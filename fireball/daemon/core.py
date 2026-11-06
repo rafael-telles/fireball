@@ -25,9 +25,18 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Optional
 
-from fireball import catalog, control, prompts, settings, storage, summaries, voices, watch
+from fireball import catalog, control, prompts, settings, storage, summaries, updates, voices, watch
 from fireball.calendars import CalendarUnavailable, get_calendar_provider
-from fireball.daemon import protocol
+from fireball.daemon import client, protocol
+
+# Conferir atualização é rede, não estado: uma vez por vida do daemon (mais um
+# refresh pedido pela tela), e não a cada poll de 2s da janela.
+UPDATE_TTL_S = 6 * 3600
+# Erro também é cacheado, mais curto: GitHub fora do ar não pode virar uma
+# tentativa por segundo, e a tela precisa dizer que a última conferência falhou.
+UPDATE_ERROR_TTL_S = 30 * 60
+# O boot carrega modelos e catálogo; a conferência não entra na frente disso.
+UPDATE_FIRST_CHECK_S = 25.0
 
 # Cache da agenda: o poll da GUI é de 2s; sem TTL o gog seria chamado a cada
 # tick. Sucesso vale mais; erro também é cacheado (mais curto) para não
@@ -128,6 +137,13 @@ class DaemonCore:
         # é do daemon (mesma forma da supervisão do engine)
         self._watch = watch.Watch()
         self._notifier: Optional[Callable[[str, str], None]] = None
+        # resultado da última conferência de atualização, e de quando ele é
+        self._update: Optional[dict] = None
+        self._update_at = 0.0
+        # como o daemon pede para sair (a casca registra o `stop_event` do
+        # servidor) — é o que permite ele mesmo reiniciar depois de trocar o
+        # AppImage no disco
+        self._stopper: Optional[Callable[[], None]] = None
 
     # ---------------------------------------------------------------- boot
 
@@ -339,6 +355,15 @@ class DaemonCore:
         with self._lock:
             self._notifier = notifier
 
+    def set_stopper(self, stopper: Optional[Callable[[], None]]) -> None:
+        """Como o daemon pede para sair — o servidor registra o `stop_event`.
+
+        Existe pela atualização: o AppImage novo só passa a valer quando este
+        processo sai, e quem sabe encerrar o loop (o do Qt com casca, a espera
+        simples sem ela) é o servidor, não o core."""
+        with self._lock:
+            self._stopper = stopper
+
     def _notificar(self, titulo: str, corpo: str) -> None:
         """Um aviso, pelo melhor caminho disponível — nunca por mais de um."""
         # o log fica sempre: é o registro de que o aviso existiu, mesmo quando a
@@ -390,7 +415,131 @@ class DaemonCore:
                 "active": control.read_meeting(self._recording.meeting_id) if self._recording else None,
                 "finalizing": sorted(self._finalizing),
                 "aviso": self._watch.ultimo_aviso,
+                # versão que este processo está rodando (a janela mostra na aba
+                # Sobre) e o resultado da última conferência de atualização
+                "version": updates.current_version(),
+                "appimage": str(updates.appimage_path() or ""),
+                "update": self._update,
             }
+
+    # ---------------------------------------------------------- atualização
+
+    def start_update_loop(self) -> None:
+        """Thread que confere sozinha, uma vez por TTL — e só com a chave ligada.
+
+        O aviso de versão nova é passivo: quem baixa é `update_apply`, num
+        clique. Conferir não muda estado, então pode ser automático; trocar o
+        binário não pode.
+        """
+        threading.Thread(target=self._update_loop, daemon=True, name="fireball-update").start()
+
+    def _update_loop(self) -> None:
+        time.sleep(UPDATE_FIRST_CHECK_S)
+        while True:
+            with self._lock:
+                desligando = self._shutting_down
+            if desligando:
+                return
+            try:
+                if settings.load().get("check_updates", True):
+                    self.update_check(refresh=True)
+            except Exception as exc:  # noqa: BLE001 — conferir não derruba o daemon
+                print(f"[daemon] conferência de atualização falhou: {exc}", flush=True)
+            time.sleep(UPDATE_TTL_S)
+
+    def update_check(self, refresh: bool = False) -> dict:
+        """A release mais nova, comparada com a versão que está rodando.
+
+        Cache com TTL porque a janela pergunta a cada poll: a rede acontece uma
+        vez a cada seis horas, ou quando alguém pede `refresh` (o botão
+        "Conferir agora"). Erro também é cacheado, mais curto.
+        """
+        with self._lock:
+            cached, quando = self._update, self._update_at
+        if cached is not None and not refresh:
+            ttl = UPDATE_ERROR_TTL_S if cached.get("error") else UPDATE_TTL_S
+            if (time.time() - quando) < ttl:
+                return cached
+        try:
+            info = updates.check()
+        except updates.UpdateError as exc:
+            info = {
+                "error": str(exc),
+                "current": updates.current_version(),
+                "checked_at": updates.now_iso(),
+            }
+        with self._lock:
+            # `update_apply` pode ter marcado a atualização como aplicada entre
+            # a leitura e a escrita; não desfaz esse recado na tela
+            if self._update is None or not self._update.get("applied_at"):
+                self._update = info
+                self._update_at = time.time()
+            return self._update
+
+    def update_apply(self) -> dict:
+        """Baixa e troca o AppImage, e reinicia o daemon.
+
+        Recusa com reunião gravando: reiniciar o daemon no meio da gravação
+        mataria a reunião, e atualizar não é motivo para isso. A rede roda fora
+        do lock — é dezenas de segundos e o lock serializa gravação e catálogo.
+        """
+        target = updates.appimage_path()
+        if target is None:
+            raise RuntimeError(
+                "Este Fireball está rodando do código-fonte, não de um AppImage — "
+                "não há arquivo único para trocar. Atualize com git pull."
+            )
+        with self._lock:
+            if self._recording is not None:
+                raise RuntimeError("Tem reunião gravando: pare a gravação antes de atualizar.")
+
+        info = self.update_check(refresh=True)
+        if info.get("error"):
+            raise RuntimeError(info["error"])
+        if not info.get("newer"):
+            return {"updated": False, "version": info.get("current"), "reason": "já está na versão mais nova"}
+        resultado = updates.apply(info["asset"], target)
+        with self._lock:
+            self._update = {
+                **info,
+                "current": resultado["version"],
+                "newer": False,
+                "applied_at": updates.now_iso(),
+            }
+            self._update_at = time.time()
+            tem_stopper = self._stopper is not None
+        self._restart_after_update()
+        return {
+            "updated": True,
+            "version": resultado["version"],
+            "previous": info.get("current"),
+            "path": resultado["path"],
+            "restarting": tem_stopper,
+        }
+
+    def _restart_after_update(self, delay: float = 1.0) -> None:
+        """Sai e volta no AppImage novo, sem ninguém ter que reiniciar à mão.
+
+        Quem sobe de novo é um processo **destacado** (`fireball daemon
+        restart`), não este: o daemon precisa morrer para o arquivo trocado
+        valer, e o reiniciador espera o socket sumir antes de subir — senão
+        perde o flock para o daemon que ainda está saindo. O `delay` é para a
+        resposta desta chamada chegar ao cliente antes do processo sumir.
+        """
+
+        def _run() -> None:
+            time.sleep(delay)
+            try:
+                client.spawn_restart()
+            except Exception as exc:  # noqa: BLE001 — sem reinício, o aviso já saiu
+                print(f"[daemon] não consegui agendar o reinício: {exc}", flush=True)
+                return
+            with self._lock:
+                stopper = self._stopper
+            if stopper is not None:
+                stopper()
+
+        threading.Thread(target=_run, daemon=True, name="fireball-restart").start()
 
     def active(self) -> Optional[dict]:
         with self._lock:

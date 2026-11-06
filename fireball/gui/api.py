@@ -38,11 +38,20 @@ class Api:
         result = self._call(self._core.daemon_status)
         if not result["ok"]:
             return result
-        active = result["result"]["active"]
+        status = result["result"]
+        # o que a janela precisa do daemon em si, além da reunião ativa: a
+        # versão que está rodando (aba Sobre) e a última conferência de
+        # atualização, que já vem cacheada do daemon — o poll de 2s não faz rede
+        base = {
+            "version": status.get("version", ""),
+            "appimage": status.get("appimage", ""),
+            "update": status.get("update"),
+        }
+        active = status["active"]
         if not active:
-            return {"ok": True, "result": {"active": None}}
+            return {"ok": True, "result": {**base, "active": None}}
         detail = self._call(self._core.meeting_status, meeting_id=active["id"])
-        return {"ok": True, "result": {"active": detail["result"]}} if detail["ok"] else detail
+        return {"ok": True, "result": {**base, "active": detail["result"]}} if detail["ok"] else detail
 
     def backend_options(self) -> dict:
         """O que a tela de configuração pode oferecer em cada modo. 'groq' só
@@ -272,6 +281,23 @@ class Api:
             diarize=diarize,
             wait_timeout=0.0,
         )
+
+    def update_check(self, refresh: bool = False) -> dict:
+        """A release publicada comparada com a versão que está rodando.
+
+        `refresh=True` é o "Conferir agora": sem isso vale o cache do daemon,
+        porque a tela pergunta a cada poll e a rede é uma vez por TTL.
+        """
+        return self._call(self._core.update_check, refresh=bool(refresh))
+
+    def update_apply(self) -> dict:
+        """Baixa o AppImage da release e reinicia no arquivo novo.
+
+        A chamada espera o download (dezenas de segundos) — e o daemon sai para
+        o arquivo trocado valer, então a janela perde a conexão logo depois. É
+        o esperado: a tela nova é a que volta.
+        """
+        return self._call(self._core.update_apply)
 
     def open_url(self, url: str) -> dict:
         """Abre um link no navegador do sistema — o do Meet/Zoom do evento.

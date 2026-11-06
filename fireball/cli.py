@@ -106,6 +106,27 @@ def daemon_stop():
     _echo(result or {"ok": True, "note": "daemon já não estava rodando"})
 
 
+@daemon.command(name="restart")
+@click.option("--tray/--no-tray", default=True, help="Sobe o daemon novo com bandeja (padrão).")
+def daemon_restart(tray):
+    """Reinicia o daemon — é o que faz código novo (ou AppImage novo) valer.
+
+    Espera o daemon velho sair de verdade antes de subir o outro: os dois no ar
+    ao mesmo tempo brigariam pelo `flock` e o segundo sairia quieto. A reunião
+    ativa, se houver, é parada junto com ele.
+    """
+    if client.is_running():
+        client.shutdown()
+        deadline = time.monotonic() + 90.0
+        while client.is_running() and time.monotonic() < deadline:
+            time.sleep(0.2)
+    try:
+        client.ensure_daemon(tray=tray)
+    except protocol.DaemonUnavailable as exc:
+        raise click.ClickException(str(exc))
+    _echo({"running": True, **_call("daemon_status", autostart=False)})
+
+
 @daemon.command(name="status")
 def daemon_status():
     """Mostra se o daemon está de pé, onde ele escuta e o que está rodando."""
@@ -143,6 +164,26 @@ def download_model(backend):
     model_dir = parakeet_backend.default_model_dir()
     click.echo(f"Baixando {parakeet_backend.MODEL_REPO} para {model_dir}...", err=True)
     _echo({"backend": backend, "model_dir": str(parakeet_backend.download_model(model_dir))})
+
+
+@cli.command()
+@click.option("--check", "only_check", is_flag=True, help="Só mostra a versão publicada; não baixa nada.")
+def update(only_check):
+    """Confere a release do GitHub e, num AppImage, baixa e troca o arquivo.
+
+    `fireball update --check` é leitura pura (funciona até rodando do fonte).
+    Sem `--check` a troca é feita pelo daemon — que é quem sabe se há reunião
+    gravando — e ele reinicia sozinho no AppImage novo.
+    """
+    if only_check:
+        from fireball import updates
+
+        try:
+            _echo(updates.check())
+        except updates.UpdateError as exc:
+            raise click.ClickException(str(exc)) from exc
+        return
+    _echo(_call("update_apply", timeout=600.0))
 
 
 @cli.command()
