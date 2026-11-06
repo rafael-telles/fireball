@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import os
+import ssl
 import urllib.error
 import urllib.request
 
@@ -58,6 +59,35 @@ SESSION_HEADER = "x-opencode-session"
 ENV_BASE_URL = "FIREBALL_OPENAI_BASE_URL"
 ENV_API_KEY = "FIREBALL_OPENAI_API_KEY"
 ENV_MODEL = "FIREBALL_OPENAI_MODEL"
+
+# Onde as distros guardam o bundle de CAs. O Python embutido no AppImage foi
+# compilado com um caminho de certificados que não existe na máquina de quem
+# roda, então `urlopen` falha com CERTIFICATE_VERIFY_FAILED mesmo com o sistema
+# confiando no servidor (o `curl` funciona). Tentamos estes caminhos como reserva.
+SYSTEM_CA_BUNDLES = (
+    "/etc/ssl/certs/ca-certificates.crt",  # Debian, Ubuntu, Arch
+    "/etc/pki/tls/certs/ca-bundle.crt",  # Fedora, RHEL
+    "/etc/ssl/ca-bundle.pem",  # openSUSE
+    "/etc/ssl/cert.pem",  # Alpine, macOS
+)
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """Contexto TLS que confia nas CAs do sistema.
+
+    Respeita `SSL_CERT_FILE`/`SSL_CERT_DIR` se a pessoa os definiu; senão usa os
+    padrões do Python e, se eles não apontam para nada que exista, o primeiro
+    bundle conhecido do sistema. A verificação continua ligada — só mudamos
+    *em quem* confiar, nunca *se* confiar.
+    """
+    paths = ssl.get_default_verify_paths()
+    explicit = os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR")
+    if explicit or os.path.exists(paths.cafile or "") or os.path.isdir(paths.capath or ""):
+        return ssl.create_default_context()
+    for bundle in SYSTEM_CA_BUNDLES:
+        if os.path.exists(bundle):
+            return ssl.create_default_context(cafile=bundle)
+    return ssl.create_default_context()
 
 
 def _setting(configured: str, env_var: str) -> str:
@@ -116,7 +146,9 @@ class OpenAICompatibleSummarizer:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:
+            with urllib.request.urlopen(
+                request, timeout=TIMEOUT_S, context=_ssl_context()
+            ) as response:
                 body = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace").strip()
