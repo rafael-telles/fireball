@@ -23,6 +23,11 @@ MATCH_MARGIN = 0.08
 MIN_ENROLL_SECONDS = 5.0
 MAX_SAMPLE_SECONDS = 30.0
 MAX_EMBEDDINGS_PER_PROFILE = 8
+# Um nome dado durante a reunião nasce de poucos segundos de fala, e é aí que
+# ele erra: 0,55 num limiar de 0,55 passa raspando e cai para 0,46 quando o
+# áudio inteiro do locutor é ouvido. Por isso o nome provisório volta a ser
+# avaliado com o áudio que chega, neste intervalo.
+REVALIDATE_SECONDS = 15.0
 
 
 class VoiceProfileNotFound(KeyError):
@@ -261,6 +266,17 @@ def save_label(meeting_dir: Path, speaker_key: str, assignment: dict) -> dict:
     labels[speaker_key] = assignment
     storage.write_json(labels_path(meeting_dir), labels)
     return assignment
+
+
+def clear_label(meeting_dir: Path, speaker_key: str) -> bool:
+    """Apaga um nome que a voz deu; nome confirmado por gente não sai daqui."""
+    labels = load_labels(meeting_dir)
+    current = labels.get(speaker_key)
+    if not current or current.get("source") == "manual":
+        return False
+    labels.pop(speaker_key, None)
+    storage.write_json(labels_path(meeting_dir), labels)
+    return True
 
 
 class VoiceMatcher:
@@ -512,38 +528,59 @@ class LiveVoiceRecognizer:
     ) -> Optional[dict]:
         self._refresh()
         key = f"{track}:{int(speaker_id)}"
-        if key in self.matches:
-            return self.matches[key]
+        confirmed = self.matches.get(key)
+        if confirmed is not None and confirmed.get("source") == "manual":
+            return confirmed
         if not self.has_profiles:
             # sem ninguém cadastrado não há o que comparar, e guardar áudio
             # aqui só cresceria a memória do engine sem uso nenhum
-            return None
+            return confirmed
         chunk = np.asarray(audio, dtype=np.float32)
         self.buffers.setdefault(key, []).append(chunk)
         self.samples[key] = self.samples.get(key, 0) + len(chunk)
         needed = self.next_attempt.get(key, int(MIN_ENROLL_SECONDS * samplerate))
         if self.samples[key] < needed:
-            return None
+            return confirmed
         combined = np.concatenate(self.buffers[key])
         combined = combined[-int(MAX_SAMPLE_SECONDS * samplerate) :]
         self.buffers[key] = [combined]
         if self.matcher is None:
             self.matcher = VoiceMatcher(self._backend)
         match = self.matcher.identify(combined, samplerate)
-        self.next_attempt[key] = self.samples[key] + int(3 * samplerate)
-        if match:
-            if any(
-                other_key != key
-                and other_key.startswith(f"{track}:")
-                and other.get("profile_id") == match["profile_id"]
-                for other_key, other in self.matches.items()
-            ):
-                return None
-            self.matches[key] = match
-            save_label(self.meeting_dir, key, match)
-            self.buffers.pop(key, None)
-            return match
-        return None
+        self.next_attempt[key] = self.samples[key] + int(
+            (REVALIDATE_SECONDS if confirmed is not None else MIN_ENROLL_SECONDS) * samplerate
+        )
+        if confirmed is not None:
+            # o nome veio de poucos segundos; aqui ele é reavaliado com o áudio
+            # que a reunião já acumulou. Se não se sustenta, o slot volta a ser
+            # anônimo — melhor "Remoto 1" do que o nome de outra pessoa.
+            if match and match["profile_id"] == confirmed.get("profile_id"):
+                kept = {**match, "source": confirmed.get("source", "voice")}
+                self.matches[key] = kept
+                save_label(self.meeting_dir, key, kept)
+                return kept
+            self._forget(key)
+            return None
+        if match is None or self._taken(track, key, match):
+            return None
+        self.matches[key] = match
+        save_label(self.meeting_dir, key, match)
+        self.buffers.pop(key, None)
+        return match
+
+    def _forget(self, key: str) -> None:
+        """Derruba o nome provisório e já deixa o slot pronto para tentar de novo."""
+        self.matches.pop(key, None)
+        clear_label(self.meeting_dir, key)
+        self.next_attempt[key] = self.samples.get(key, 0)
+
+    def _taken(self, track: str, key: str, match: dict) -> bool:
+        return any(
+            other_key != key
+            and other_key.startswith(f"{track}:")
+            and other.get("profile_id") == match["profile_id"]
+            for other_key, other in self.matches.items()
+        )
 
 
 def identify_diarized_tracks(
