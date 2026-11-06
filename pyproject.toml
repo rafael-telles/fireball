@@ -1,6 +1,6 @@
 [project]
 name = "fireball"
-version = "0.2.3"
+version = "0.2.4"
 description = "Fireball — grava e transcreve reuniões, expondo tools para o Claude atuar como escrivão ao vivo."
 requires-python = ">=3.10"
 dependencies = [
