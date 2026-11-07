@@ -50,7 +50,7 @@ const STATUS_SHORT = {
 // `--fake`, e a diarização quando chegar). Nenhum tom avermelhado aqui de
 // propósito: derivado por hash, um vermelho cairia em cima do acento e faria
 // um participante qualquer passar por "Você".
-const SPEAKER_COLORS = ["#bb9af7", "#7dcfff", "#9ece6a", "#e0af68", "#2ac3de"];
+const SPEAKER_COLORS = ["#8fb4ff", "#c3a6ff", "#6fd3b8", "#f0c674", "#7dd3fc", "#f9a8d4"];
 
 const POLL_CHAT_MS = 1000;
 const POLL_STATUS_MS = 2000;
@@ -131,8 +131,38 @@ const SETTINGS_TABS = {
   sobre: "set-pane-sobre",
 };
 
+const ICONS = {
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  video: '<rect x="2" y="6" width="14" height="12" rx="2"/><path d="m16 10 6-3v10l-6-3"/>',
+  pin: '<path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+  repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>',
+  refresh: '<path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/>',
+  chevron: '<path d="m6 9 6 6 6-6"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+};
+
+/** Ícone de traço, na cor do texto em volta. */
+function icon(name, size = 15) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", size);
+  svg.setAttribute("height", size);
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  svg.setAttribute("aria-hidden", "true");
+  svg.innerHTML = ICONS[name];
+  return svg;
+}
+
 function showView(name) {
+  closeVoiceMenu();
   state.view = name;
+  document.body.dataset.view = name;
   for (const [key, id] of Object.entries(VIEWS)) el(id).classList.toggle("hidden", key !== name);
   // A reunião é a única tela que não mora no scroller: ela tem colunas próprias
   // (nota + transcrição). Com ela aberta, o scroller sai de cena inteiro.
@@ -140,6 +170,7 @@ function showView(name) {
   if (rolagem) rolagem.classList.toggle("hidden", name === "meeting");
   el("new-meeting-btn").classList.toggle("on", name === "home");
   el("nav-perguntar").classList.toggle("on", name === "ask");
+  el("browse-btn").classList.toggle("on", name === "browse");
   el("ask-input").placeholder =
     name === "meeting" ? "Perguntar sobre esta reunião" : "Perguntar sobre todas as reuniões";
 }
@@ -160,9 +191,10 @@ function pintarEstadoLocal() {
   const alvo = el("local-note");
   if (!alvo) return;
   const ativo = state.active;
-  el("local-card").classList.toggle("idle", !ativo);
+  // o cartão "pronto para gravar" sai de cena quando o da gravação entra
+  el("local-card").classList.toggle("hidden", Boolean(ativo));
   if (!ativo) {
-    alvo.textContent = "Nada gravando agora";
+    alvo.textContent = "Microfone + áudio do sistema";
     return;
   }
   const desde = ativo.started_at ? timeLabel(ativo.started_at) : "";
@@ -354,7 +386,7 @@ function nameOf(meeting) {
 }
 
 function speakerColor(name) {
-  if (name === "Você") return "var(--accent)";
+  if (name === "Você") return "var(--me)";
   if (name === "Outros participantes") return "var(--speaker)";
   let hash = 0;
   for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
@@ -376,6 +408,7 @@ function chatMessage(seg, previousSpeaker) {
   const wrap = document.createElement("div");
   wrap.className = "msg";
   wrap.dataset.seq = seg.seq;
+  if (seg.speaker_key) wrap.dataset.key = seg.speaker_key;
   // Só a própria fala vai para a direita. "Sala 1" também vem do microfone,
   // mas é outra pessoa na sala: do lado de lá ela se confundia com "você"
   // (mesma bolha, mesma cor). O que o leitor quer saber é quem falou.
@@ -392,11 +425,20 @@ function chatMessage(seg, previousSpeaker) {
     name.style.setProperty("--speaker-color", speakerColor(speaker));
     if (canEnroll) {
       name.classList.add("voice-link");
-      name.title = "Confirmar quem é esta voz";
-      name.setAttribute("aria-label", `Confirmar identidade de ${speaker}`);
-      name.addEventListener("click", () => openVoiceDialog(seg));
+      name.title = "Trocar a voz desta fala";
+      name.setAttribute("aria-label", `Quem é ${speaker}?`);
+      name.setAttribute("aria-haspopup", "menu");
+      name.setAttribute("aria-expanded", "false");
+      name.appendChild(icon("chevron", 12));
+      name.addEventListener("click", () => openVoiceMenu(seg, name));
     }
     wrap.appendChild(name);
+    if (canEnroll && ANON_SLOT.test(speaker)) {
+      const ask = document.createElement("span");
+      ask.className = "who-ask";
+      ask.textContent = "quem é?";
+      wrap.appendChild(ask);
+    }
   }
 
   const row = document.createElement("div");
@@ -643,12 +685,22 @@ function renderLiveBar() {
 
 // ------------------------------------------------------- view da reunião
 
+/** O selo do cabeçalho da reunião em andamento: estado e tempo corrido. */
+function liveLabel(m) {
+  const what = m.status === "paused" ? "Pausado" : m.status === "stopping" ? "Parando" : "Ao vivo";
+  return `${what} · ${elapsedSince(m.started_at)}`;
+}
+
 function metaLine(o) {
   const m = o.meeting;
   const parts = [];
   if (o.live) {
-    parts.push(STATUS_LABEL[m.status] || String(m.status).toUpperCase());
-    parts.push(`desde ${timeLabel(m.started_at)}`);
+    parts.push(`Começou ${timeLabel(m.started_at)}`);
+    const event = m.event || {};
+    if (event.conference_url) parts.push(conferenceName(event.conference_url));
+    const guests = (event.attendees || []).length;
+    if (guests) parts.push(`${guests} pessoas`);
+    return parts.join(" · ");
   } else {
     const when = dateLabel(m.started_at);
     const dur = durationLabel(m);
@@ -667,17 +719,27 @@ function renderMeetingHeader() {
   el("mv-meta").textContent = metaLine(o);
 
   el("mv-elapsed").classList.toggle("hidden", !o.live);
-  if (o.live) el("mv-elapsed").textContent = elapsedSince(m.started_at);
+  if (o.live) el("mv-elapsed").textContent = liveLabel(m);
   el("mv-elapsed").classList.toggle("dim", m.status === "paused");
+  el("mv-crumbs").classList.toggle("hidden", o.live);
+  el("view-meeting").classList.toggle("ao-vivo", Boolean(o.live));
+  if (!o.live) {
+    const days = daysAgo(m.started_at);
+    el("crumb-when").textContent =
+      days === 0 ? "Hoje" : days === 1 ? "Ontem" : days === null ? "" : longDate(m.started_at);
+  }
 
+  // parar dispara o resumo quando ele é automático, e o botão diz isso
   const stop = el("stop-btn");
   stop.classList.toggle("hidden", !o.live);
   stop.disabled = m.status === "stopping";
-  stop.textContent = m.status === "stopping" ? "Parando…" : "Parar";
+  const resume = state.settings && state.settings.auto_summarize !== false;
+  stop.textContent = m.status === "stopping" ? "Parando…" : resume ? "Parar e resumir" : "Parar";
 
   const pause = el("pause-btn");
   const pausable = o.live && (m.status === "recording" || m.status === "paused");
   pause.classList.toggle("hidden", !pausable);
+  pause.classList.toggle("is-paused", m.status === "paused");
   pause.disabled = false;
   pause.textContent = m.status === "paused" ? "Retomar" : "Pausar";
 
@@ -1039,9 +1101,8 @@ function groupKind(group) {
 
 function groupColor(group) {
   const kind = groupKind(group);
-  if (kind === "mine") return "var(--accent)";
+  if (kind === "mine") return "var(--me)";
   if (kind === "other") return "var(--speaker)";
-  if (kind === "slot") return "var(--faint)";
   return speakerColor(group.label);
 }
 
@@ -1173,6 +1234,60 @@ async function loadStats() {
   if (state.open !== o) return;
   renderStats();
   renderPeople(); // o tempo de fala de cada um sai daqui
+  renderSpeakerShare();
+}
+
+/** "Quem falou" no topo da transcrição: uma barra só, cada pessoa na cor
+    que ela tem nas falas. Os grupos são os da ficha, então quem aparece no
+    microfone e pelo nome reconhecido soma numa fatia só. */
+function renderSpeakerShare() {
+  const o = state.open;
+  const box = el("spk-share");
+  const stats = o && o.stats;
+  const groups = stats && stats.timed
+    ? participantGroups().filter((group) => group.seconds > 0).sort((a, b) => b.seconds - a.seconds)
+    : [];
+  box.classList.toggle("hidden", !groups.length);
+  if (!groups.length) return;
+
+  const total = groups.reduce((sum, group) => sum + group.seconds, 0);
+  el("spk-note").textContent =
+    `${spanLabel(stats.speech_seconds)} de fala · ${spanLabel(stats.silence_seconds)} de silêncio`;
+  const bar = el("spk-bar");
+  const legend = el("spk-legend");
+  bar.innerHTML = "";
+  legend.innerHTML = "";
+  const parts = [];
+  groups.forEach((group, index) => {
+    const share = group.seconds / total;
+    const pct = Math.round(share * 100);
+    const color = groupColor(group);
+    const label = groupLabel(group);
+    parts.push(`${label} ${pct}%`);
+
+    const slice = document.createElement("span");
+    slice.className = "spk-slice";
+    slice.dataset.i = index;
+    slice.style.width = `${share * 100}%`;
+    slice.style.background = color;
+    bar.appendChild(slice);
+
+    const item = document.createElement("span");
+    item.className = "spk-item";
+    item.dataset.i = index;
+    const swatch = document.createElement("i");
+    swatch.style.background = color;
+    item.append(swatch, `${label} ${pct}%`);
+    // passar por um nome apaga as outras fatias: a barra diz de quem é cada cor
+    item.addEventListener("pointerenter", () => {
+      for (const node of bar.children) node.classList.toggle("off", node.dataset.i !== String(index));
+    });
+    item.addEventListener("pointerleave", () => {
+      for (const node of bar.children) node.classList.remove("off");
+    });
+    legend.appendChild(item);
+  });
+  bar.setAttribute("aria-label", `Tempo de fala: ${parts.join(", ")}`);
 }
 
 function statTile(value, label) {
@@ -1707,6 +1822,7 @@ async function loadHistory() {
     return;
   }
   renderMeetingList();
+  renderRecent();
 }
 
 function renderLiveCard() {
@@ -1716,16 +1832,19 @@ function renderLiveCard() {
   if (!active) return;
   const paused = active.status === "paused";
   card.classList.toggle("paused", paused);
-  el("live-card-label").textContent = STATUS_LABEL[active.status] || String(active.status).toUpperCase();
+  const stopping = active.status === "stopping";
+  el("live-card-label").textContent = paused ? "Pausado" : stopping ? "Parando…" : "Gravando";
   el("live-card-time").textContent = elapsedSince(active.started_at);
   el("live-card-name").textContent = nameOf(active);
   el("live-card-name").classList.toggle("unnamed", !active.name);
-  el("live-card-stop").disabled = active.status === "stopping";
-  el("live-card-stop").textContent = active.status === "stopping" ? "Parando…" : "Parar";
+  el("live-card-stop").disabled = stopping;
 
+  // os botões são só ícone: o que dizem vai no título e no rótulo acessível
   const pause = el("live-card-pause");
   pause.classList.toggle("hidden", !(active.status === "recording" || paused));
-  pause.textContent = paused ? "Retomar" : "Pausar";
+  pause.classList.toggle("is-paused", paused);
+  pause.title = paused ? "Retomar" : "Pausar";
+  pause.setAttribute("aria-label", pause.title);
 }
 
 function renderHome() {
@@ -1737,9 +1856,121 @@ function renderHome() {
 
   const first = ((state.profile && state.profile.name) || "").trim().split(/\s+/)[0] || "";
   const hello = greetingFor(new Date().getHours());
-  el("home-greeting").textContent = first ? `${hello}, ${first}` : hello;
+  el("home-greeting").textContent = first ? `${hello}, ${first}.` : `${hello}.`;
 
   renderAgenda();
+  renderRecent();
+}
+
+const RECENT_COUNT = 3;
+
+/** A primeira frase do resumo, sem markdown: é o que cabe num cartão. */
+function summaryGist(markdown) {
+  const text = String(markdown || "")
+    .split("\n")
+    .map((line) => line.replace(/^[#>*\-\d.\s]+/, "").replace(/[*_`[\]]/g, "").trim())
+    .find((line) => line.length > 30);
+  if (!text) return "";
+  const cut = text.match(/^.{30,180}?[.!?](\s|$)/);
+  return cut ? cut[0].trim() : `${text.slice(0, 160).trim()}…`;
+}
+
+async function loadRecentGists(rows) {
+  state.gists = state.gists || {};
+  const missing = rows.filter((row) => !(row.id in state.gists) && row.name);
+  if (!missing.length) return;
+  for (const row of missing) state.gists[row.id] = "";
+  await Promise.all(
+    missing.map(async (row) => {
+      try {
+        const data = await api("summary", row.id);
+        state.gists[row.id] = summaryGist(data.summary && data.summary.markdown);
+      } catch (err) {
+        state.gists[row.id] = "";
+      }
+    })
+  );
+  renderRecent();
+}
+
+function renderRecent() {
+  const box = el("home-recent");
+  if (!box) return;
+  const rows = [...(state.rows || [])]
+    .filter((row) => !LIVE_STATUSES.has(row.status))
+    .sort((a, b) => new Date(b.started_at || 0) - new Date(a.started_at || 0))
+    .slice(0, RECENT_COUNT);
+  state.gists = state.gists || {};
+  const key = JSON.stringify(
+    rows.map((row) => [row.id, row.name, row.status, row.tags, state.gists[row.id], daysAgo(row.started_at)])
+  );
+  if (key === state.recentKey) return;
+  state.recentKey = key;
+  box.innerHTML = "";
+  if (!rows.length) {
+    const empty = document.createElement("p");
+    empty.className = "recent-empty";
+    empty.textContent = "As reuniões gravadas aparecem aqui.";
+    box.appendChild(empty);
+    return;
+  }
+  state.gists = state.gists || {};
+  for (const row of rows) {
+    const card = document.createElement("button");
+    card.className = "recent-card";
+    card.addEventListener("click", () => openMeeting(row.id, row));
+    const pending = !row.name || row.status === "finalizing" || row.summary_status === "running";
+    if (pending && !row.name) card.classList.add("pending");
+
+    const when = document.createElement("span");
+    when.className = "recent-when";
+    const days = daysAgo(row.started_at);
+    const day = days === 0 ? "Hoje" : days === 1 ? "Ontem" : shortDate(row.started_at);
+    when.textContent = [`${day}, ${timeLabel(row.started_at)}`, durationLabel(row)].filter(Boolean).join(" · ");
+    card.appendChild(when);
+
+    if (!row.name) {
+      const note = document.createElement("span");
+      note.className = "recent-running";
+      note.append(icon("refresh", 14));
+      const text = document.createElement("span");
+      text.className = "shimmer";
+      text.textContent =
+        row.status === "finalizing"
+          ? "Transcrição final rodando — a IA nomeia ao terminar"
+          : "Sem nome — a IA nomeia quando houver resumo";
+      note.appendChild(text);
+      card.appendChild(note);
+      box.appendChild(card);
+      continue;
+    }
+
+    const title = document.createElement("span");
+    title.className = "recent-title";
+    title.textContent = nameOf(row);
+    card.appendChild(title);
+
+    const gist = state.gists[row.id];
+    if (gist) {
+      const body = document.createElement("span");
+      body.className = "recent-gist";
+      body.textContent = gist;
+      card.appendChild(body);
+    }
+    if ((row.tags || []).length) {
+      const tags = document.createElement("span");
+      tags.className = "recent-tags";
+      for (const tag of row.tags.slice(0, 3)) {
+        const chip = document.createElement("span");
+        chip.className = "tag-pill";
+        chip.textContent = tag;
+        tags.appendChild(chip);
+      }
+      card.appendChild(tags);
+    }
+    box.appendChild(card);
+  }
+  loadRecentGists(rows);
 }
 
 /** Em que seção da home este evento cai: hoje, amanhã, ou o dia dele. */
@@ -1769,10 +2000,25 @@ function upcomingEvents() {
 function renderAgenda() {
   const card = el("next-card");
   const rest = el("agenda-rest");
+  const agenda = state.agenda;
+
+  // o status chega a cada 2s e redesenha a home; refazer o cartão sem mudança
+  // nenhuma repetia a animação de entrada e soltava o hover de quem estava nele
+  const ready = agenda && !["off", "loading", "error"].includes(agenda.status);
+  const upcoming = ready ? upcomingEvents() : [];
+  const key = JSON.stringify([
+    agenda && agenda.status,
+    agenda && agenda.error,
+    Boolean(state.active),
+    upcoming.map((event) => [event.id, event.start, event.end, event.title]),
+    upcoming[0] && startsInLabel(upcoming[0].start),
+    new Date().toDateString(),
+  ]);
+  if (key === state.agendaKey && card.childElementCount) return;
+  state.agendaKey = key;
   card.innerHTML = "";
   rest.innerHTML = "";
 
-  const agenda = state.agenda;
   const today = new Date().toLocaleDateString("pt-BR", {
     weekday: "long",
     day: "numeric",
@@ -1865,25 +2111,23 @@ function renderAgenda() {
 function nextCard(event) {
   const busy = Boolean(state.active);
   const card = document.createElement("section");
-  card.className = "next-card";
+  card.className = "next-card rise d1";
+  // o brilho que segue o mouse: a posição vai em variáveis, o desenho é do CSS
+  card.addEventListener("pointermove", (ev) => {
+    const box = card.getBoundingClientRect();
+    card.style.setProperty("--mx", `${ev.clientX - box.left}px`);
+    card.style.setProperty("--my", `${ev.clientY - box.top}px`);
+  });
 
   const top = document.createElement("div");
   top.className = "next-top";
   const dot = document.createElement("span");
-  dot.className = "pulse-dot";
+  dot.className = "ring-dot";
   const when = document.createElement("span");
   when.className = "next-when";
-  when.textContent = startsInLabel(event.start);
-  const range = document.createElement("span");
-  range.className = "next-range";
-  const planned = plannedLabel(event);
-  range.textContent = [
-    event.end ? `${timeLabel(event.start)} – ${timeLabel(event.end)}` : timeLabel(event.start),
-    planned && `${planned} prevista`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  top.append(dot, when, range);
+  const starts = startsInLabel(event.start);
+  when.textContent = `Próxima · ${starts.charAt(0).toLowerCase()}${starts.slice(1)}`;
+  top.append(dot, when);
   card.appendChild(top);
 
   const title = document.createElement("h2");
@@ -1898,8 +2142,20 @@ function nextCard(event) {
     card.appendChild(body);
   }
 
-  const chips = eventChips(event);
-  if (chips) card.appendChild(chips);
+  const meta = document.createElement("div");
+  meta.className = "next-meta";
+  const planned = plannedLabel(event);
+  meta.appendChild(
+    metaBit(
+      "clock",
+      event.end ? `${timeLabel(event.start)} – ${timeLabel(event.end)}` : timeLabel(event.start),
+      planned && `${planned} prevista`
+    )
+  );
+  if (event.conference_url) meta.appendChild(metaBit("video", conferenceName(event.conference_url)));
+  else if (event.location) meta.appendChild(metaBit("pin", event.location));
+  const repeat = recurrenceLabel(event);
+  if (repeat) meta.appendChild(metaBit("repeat", repeat));
 
   // sem você na lista: quem está lendo sabe que vai à própria reunião, e o
   // que a contagem precisa dizer é quantos *outros* estarão lá
@@ -1907,42 +2163,51 @@ function nextCard(event) {
     (person) => !person.self && (person.name || person.email)
   );
   if (attendees.length) {
-    const block = document.createElement("div");
-    block.className = "next-people";
-    const head = document.createElement("div");
-    head.className = "lbl";
-    head.textContent = `${attendees.length} ${attendees.length === 1 ? "participante" : "participantes"}`;
-    const list = document.createElement("div");
-    list.className = "person-chips";
-    for (const person of attendees) list.appendChild(personChip(person));
-    block.append(head, list);
-    card.appendChild(block);
+    const people = document.createElement("span");
+    people.className = "next-bit";
+    people.title = attendees.map((person) => person.name || person.email).join(", ");
+    const stack = document.createElement("span");
+    stack.className = "face-stack";
+    for (const person of attendees.slice(0, 3)) stack.appendChild(faceOf(person.name || person.email));
+    if (attendees.length > 3) stack.appendChild(faceOf(`+${attendees.length - 3}`, true));
+    people.append(
+      stack,
+      `${attendees.length} ${attendees.length === 1 ? "convidado" : "convidados"}`
+    );
+    meta.appendChild(people);
   }
+  card.appendChild(meta);
 
   const actions = document.createElement("div");
   actions.className = "next-actions";
   const record = document.createElement("button");
-  record.className = "btn primary big";
-  record.textContent = "Gravar esta reunião";
+  record.className = "btn cta big";
+  record.append(icon("mic", 16), "Gravar esta reunião");
   record.disabled = busy;
-  record.title = busy ? "Já tem uma reunião em andamento" : "";
+  record.title = busy ? "Já tem uma reunião em andamento" : "Nome e participantes vêm da agenda";
   record.addEventListener("click", () => onStartFromEvent(event.id));
   actions.appendChild(record);
 
   if (event.conference_url) {
     const join = document.createElement("button");
-    join.className = "btn outline";
-    join.textContent = `Entrar no ${conferenceName(event.conference_url)}`;
+    join.className = "btn outline big";
+    join.textContent = "Entrar na chamada";
+    join.title = `Abrir no ${conferenceName(event.conference_url)}`;
     join.addEventListener("click", () => onOpenUrl(event.conference_url));
     actions.appendChild(join);
   }
-
-  const note = document.createElement("span");
-  note.className = "next-note";
-  note.textContent = "Nome e participantes vêm da agenda.";
-  actions.appendChild(note);
   card.appendChild(actions);
   return card;
+}
+
+/** Um pedaço da linha de detalhes do cartão: ícone, texto e, se houver, o
+    complemento que só cabe no title. */
+function metaBit(name, text, detail) {
+  const bit = document.createElement("span");
+  bit.className = "next-bit";
+  bit.append(icon(name, 15), text);
+  if (detail) bit.title = detail;
+  return bit;
 }
 
 /** Nome do serviço a partir do host do link — o botão diz onde se entra. */
@@ -1955,37 +2220,6 @@ function conferenceName(url) {
   return "link";
 }
 
-/** Onde a chamada acontece, se ela repete, e o que mais o evento carrega. */
-function eventChips(event) {
-  const row = document.createElement("div");
-  row.className = "event-chips";
-  let any = false;
-
-  if (event.conference_url) {
-    const code = String(event.conference_url).split("/").filter(Boolean).pop() || "";
-    row.appendChild(chip("🔗", `${conferenceName(event.conference_url)}${code ? ` · ${code}` : ""}`));
-    any = true;
-  }
-  if (event.location) {
-    row.appendChild(chip("📍", event.location));
-    any = true;
-  }
-  const repeat = recurrenceLabel(event);
-  if (repeat) {
-    row.appendChild(chip("↻", repeat));
-    any = true;
-  }
-  return any ? row : null;
-}
-
-function chip(icon, text) {
-  const span = document.createElement("span");
-  span.className = "event-chip";
-  const ico = document.createElement("i");
-  ico.textContent = icon;
-  span.append(ico, document.createTextNode(text));
-  return span;
-}
 
 const RRULE_DAYS = {
   MO: "segunda",
@@ -2019,32 +2253,6 @@ function recurrenceLabel(event) {
   return "recorrente";
 }
 
-/** Uma pessoa do evento: avatar, nome, e o "talvez" de quem não confirmou. */
-function personChip(person) {
-  const label = person.name || person.email || "?";
-  const pending = person.response === "tentative" || person.response === "needsAction";
-  const declined = person.response === "declined";
-
-  const span = document.createElement("span");
-  span.className = "person-chip";
-  if (pending || declined) span.classList.add("unsure");
-
-  const avatar = document.createElement("span");
-  avatar.className = "avatar";
-  if (pending || declined) {
-    avatar.textContent = declined ? "✕" : "?";
-  } else {
-    avatar.textContent = initialsOf(label);
-    avatar.style.background = avatarColor(label);
-  }
-
-  const name = document.createElement("span");
-  name.textContent = declined ? `${label} · recusou` : pending ? `${label} · talvez` : label;
-  span.append(avatar, name);
-  if (person.email && person.email !== label) span.title = person.email;
-  return span;
-}
-
 /** Linha compacta do resto do dia. `dim` deixa o dia seguinte mais apagado:
     ele é informação, não o que se vai gravar agora. */
 function agendaRow(event, dim) {
@@ -2054,14 +2262,12 @@ function agendaRow(event, dim) {
   if (dim) row.classList.add("dim");
 
   const when = document.createElement("div");
-  when.className = "agenda-when";
-  const hour = document.createElement("div");
-  hour.className = "agenda-hour";
-  hour.textContent = timeLabel(event.start) || "—";
-  const planned = document.createElement("div");
-  planned.className = "agenda-planned";
-  planned.textContent = plannedLabel(event);
-  when.append(hour, planned);
+  when.className = "agenda-hour";
+  when.textContent = event.end
+    ? `${timeLabel(event.start)}–${timeLabel(event.end)}`
+    : timeLabel(event.start) || "—";
+  const planned = plannedLabel(event);
+  if (planned) when.title = `${planned} prevista`;
 
   const mid = document.createElement("div");
   mid.className = "grow";
@@ -2073,11 +2279,8 @@ function agendaRow(event, dim) {
   const guests = (event.attendees || []).filter((person) => !person.self);
   const bits = [];
   if (event.location) bits.push(event.location);
-  else if (event.conference_url) bits.push(conferenceName(event.conference_url));
   const repeat = recurrenceLabel(event);
   if (repeat) bits.push(repeat);
-  const people = guests.length;
-  if (people) bits.push(`${people} ${people === 1 ? "participante" : "participantes"}`);
   if (bits.length) {
     const sub = document.createElement("div");
     sub.className = "agenda-loc";
@@ -2085,22 +2288,20 @@ function agendaRow(event, dim) {
     mid.appendChild(sub);
   }
 
-  const faces = document.createElement("div");
-  faces.className = "faces";
-  for (const person of guests.slice(0, 2)) {
-    faces.appendChild(faceOf(person.name || person.email || "?"));
-  }
-  const extra = guests.length - 2;
-  if (extra > 0) faces.appendChild(faceOf(`+${extra}`, true));
+  const people = document.createElement("span");
+  people.className = "agenda-people";
+  const count = guests.length + 1;
+  people.textContent = guests.length ? `${count} pessoas` : "";
+  people.title = guests.map((person) => person.name || person.email).join(", ");
 
   const go = document.createElement("button");
-  go.className = "btn outline small";
+  go.className = "btn outline small reveal";
   go.textContent = "Gravar";
   go.disabled = busy;
   go.title = busy ? "Já tem uma reunião em andamento" : `Iniciar gravação: ${event.title || "evento"}`;
   go.addEventListener("click", () => onStartFromEvent(event.id));
 
-  row.append(when, mid, faces, go);
+  row.append(when, mid, people, go);
   return row;
 }
 
@@ -2153,6 +2354,9 @@ async function loadProfile() {
     // sem perfil a home cumprimenta sem nome; não vale um banner por isso
     state.profile = null;
   }
+  const first = ((state.profile && state.profile.name) || "").trim().split(/\s+/)[0] || "";
+  el("ws-name").textContent = first || "Fireball";
+  el("ws-avatar").textContent = initialsOf(first || "Fireball").slice(0, 1);
 }
 
 async function refreshAgenda(force) {
@@ -2315,7 +2519,8 @@ function renderBrowse() {
   const b = state.browse;
   const week = b.mode === "semana";
 
-  el("bv-title").textContent = week ? weekTitle(b.weekStart) : "Todas as reuniões";
+  el("bv-title").textContent = week ? weekTitle(b.weekStart) : "Acervo";
+  el("bv-modes").dataset.mode = b.mode;
   el("bv-week-nav").classList.toggle("hidden", !week);
   el("bv-legend").classList.toggle("hidden", !week);
   el("bv-table-wrap").classList.toggle("hidden", week);
@@ -2571,14 +2776,24 @@ function renderTable() {
     const extra = (row.people || []).length - 2;
     if (extra > 0) faces.appendChild(faceOf(`+${extra}`, true));
 
+    // duas tags e a contagem do resto: a coluna empilhava todas e cada linha
+    // ficava da altura das tags dela
     const tags = document.createElement("div");
     tags.className = "mt-tags";
-    for (const tag of row.tags || []) {
+    const allTags = row.tags || [];
+    for (const tag of allTags.slice(0, 2)) {
       const chip = document.createElement("span");
       chip.className = "tag";
       if (state.browse.tags.includes(tag)) chip.classList.add("on");
       chip.textContent = tag;
       tags.appendChild(chip);
+    }
+    if (allTags.length > 2) {
+      const more = document.createElement("span");
+      more.className = "tag more";
+      more.textContent = `+${allTags.length - 2}`;
+      more.title = allTags.slice(2).join(", ");
+      tags.appendChild(more);
     }
 
     line.append(name, date, dur, faces, tags);
@@ -3242,7 +3457,11 @@ function onPlayPause() {
 }
 
 function renderPlayButton() {
-  el("play-btn").textContent = el("audio").paused ? "▶" : "❚❚";
+  const paused = el("audio").paused;
+  const button = el("play-btn");
+  button.classList.toggle("is-playing", !paused);
+  button.title = paused ? "Tocar" : "Pausar";
+  button.setAttribute("aria-label", button.title);
 }
 
 function onSeek(event) {
@@ -3489,8 +3708,9 @@ function renderSummary() {
   el("sum-count").textContent = list.length ? String(list.length) : "";
   const button = el("summary-btn");
   button.disabled = running || !state.prompts.list.length;
-  // no documento o botão é o ✨ ao lado do título; o que ele faz vai no title
-  button.textContent = running ? "…" : "✨";
+  // o ícone gira enquanto o resumo sai; o rótulo diz se é o primeiro ou mais um
+  button.replaceChildren(icon("refresh", 13), running ? "Gerando…" : list.length ? "Regerar" : "Gerar");
+  button.firstChild.classList.toggle("spin", running);
   button.title = running
     ? "Gerando o resumo…"
     : list.length
@@ -3645,7 +3865,7 @@ function renderSummaryView(list, loading, running, info) {
   const note = document.createElement("div");
   note.className = "slab-note";
   note.textContent =
-    "O ✨ ao lado do título gera com o prompt escolhido ali em cima. Cada prompt " +
+    "Gerar, na linha das abas, usa o prompt escolhido ao lado. Cada prompt " +
     "guarda o resumo dele; o nome só é trocado se ninguém tiver dado um à mão.";
   box.append(title, note);
 }
@@ -4004,9 +4224,34 @@ async function openVoiceDialog(seg) {
   const select = el("voice-candidate");
   select.innerHTML = "";
   select.appendChild(new Option("Digite um nome ou escolha uma sugestão", ""));
+  for (const person of voiceCandidates(o)) {
+    const option = new Option(
+      person.profileId
+        ? person.guest ? `${person.name} — voz já cadastrada, convidado` : `${person.name} — voz já cadastrada`
+        : `${person.name} — convidado`,
+      person.key,
+    );
+    option.dataset.name = person.name;
+    option.dataset.email = person.email;
+    select.appendChild(option);
+  }
+  el("voice-name").value = seg.voice_profile_id
+    ? (state.voices.find((voice) => voice.id === seg.voice_profile_id) || {}).name || seg.speaker
+    : "";
+  const existing = state.voices.find((voice) => voice.id === seg.voice_profile_id);
+  if (existing) select.value = `profile:${existing.id}`;
+  el("voice-email").value = (existing && existing.emails && existing.emails[0]) || "";
+  el("voice-dialog").showModal();
+  el("voice-name").focus();
+}
+
+/** Quem pode ser esta voz: as vozes já cadastradas e os convidados do evento.
+
+    O convidado que já tem voz cadastrada entra uma vez só, apontando para o
+    perfil: escolhê-lo como "convidado" criaria uma segunda voz da mesma
+    pessoa. */
+function voiceCandidates(o) {
   const attendees = (o.meeting.event && o.meeting.event.attendees) || [];
-  // o convidado que já tem voz cadastrada entra uma vez só, apontando para o
-  // perfil: escolhê-lo como "convidado" criaria uma segunda voz da mesma pessoa
   const guests = new Map();
   for (const [index, person] of attendees.entries()) {
     const name = (person.name || person.email || "").trim();
@@ -4020,31 +4265,236 @@ async function openVoiceDialog(seg) {
     if (voice) guests.set(voice.id, person);
     else guests.set(`attendee:${index}`, person);
   }
+  const list = [];
   for (const voice of state.voices) {
     const guest = guests.get(voice.id);
-    const option = new Option(
-      guest ? `${voice.name} — voz já cadastrada, convidado` : `${voice.name} — voz já cadastrada`,
-      `profile:${voice.id}`,
-    );
-    option.dataset.name = voice.name;
-    option.dataset.email = (voice.emails && voice.emails[0]) || (guest && guest.email) || "";
-    select.appendChild(option);
+    list.push({
+      key: `profile:${voice.id}`,
+      profileId: voice.id,
+      name: voice.name,
+      email: (voice.emails && voice.emails[0]) || (guest && guest.email) || "",
+      guest: Boolean(guest),
+    });
   }
   for (const [key, person] of guests) {
     if (!String(key).startsWith("attendee:")) continue;
-    const option = new Option(`${person.name || person.email} — convidado`, key);
-    option.dataset.name = person.name || person.email || "";
-    option.dataset.email = person.email || "";
-    select.appendChild(option);
+    list.push({ key, profileId: "", name: person.name || person.email, email: person.email || "", guest: true });
   }
-  el("voice-name").value = seg.voice_profile_id
-    ? (state.voices.find((voice) => voice.id === seg.voice_profile_id) || {}).name || seg.speaker
-    : "";
-  const existing = state.voices.find((voice) => voice.id === seg.voice_profile_id);
-  if (existing) select.value = `profile:${existing.id}`;
-  el("voice-email").value = (existing && existing.emails && existing.emails[0]) || "";
-  el("voice-dialog").showModal();
-  el("voice-name").focus();
+  return list;
+}
+
+// --------------------------------------------- trocar a voz pela transcrição
+
+/* O nome de quem fala, na transcrição, abre um menu com as pessoas possíveis.
+   Escolher uma cadastra a voz daquele locutor: o nome vale para as falas que
+   já estão na tela e para as próximas dele, ao vivo inclusive. Quem não está
+   na lista vai para o diálogo completo, onde se digita nome e e-mail. */
+const voiceMenu = { node: null, anchor: null };
+
+function closeVoiceMenu() {
+  if (voiceMenu.node) voiceMenu.node.remove();
+  if (voiceMenu.anchor) voiceMenu.anchor.setAttribute("aria-expanded", "false");
+  voiceMenu.node = null;
+  voiceMenu.anchor = null;
+  document.removeEventListener("pointerdown", onVoiceMenuOutside, true);
+  document.removeEventListener("keydown", onVoiceMenuKey, true);
+}
+
+function onVoiceMenuOutside(event) {
+  if (voiceMenu.node && !voiceMenu.node.contains(event.target) && event.target !== voiceMenu.anchor) {
+    closeVoiceMenu();
+  }
+}
+
+function onVoiceMenuKey(event) {
+  if (event.key === "Escape") {
+    const anchor = voiceMenu.anchor;
+    closeVoiceMenu();
+    if (anchor) anchor.focus();
+  }
+}
+
+async function openVoiceMenu(seg, anchor) {
+  const o = state.open;
+  if (!o || !seg.speaker_key || o.meeting.status === "finalizing") return;
+  if (voiceMenu.anchor === anchor) {
+    closeVoiceMenu();
+    return;
+  }
+  closeVoiceMenu();
+  try {
+    await loadVoices();
+  } catch (err) {
+    setAlert("meeting-error", "Não foi possível carregar as vozes", errText(err));
+    return;
+  }
+  if (state.open !== o) return;
+
+  const menu = document.createElement("div");
+  menu.className = "voice-menu";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "Quem é esta voz");
+
+  const head = document.createElement("div");
+  head.className = "vm-head";
+  const slot = seg.speaker_key.startsWith("mic:") ? "Sala" : "Remoto";
+  const slotName = `${slot} ${Number(seg.speaker_key.split(":")[1]) + 1}`;
+  const tag = document.createElement("span");
+  tag.className = "vm-slot";
+  tag.textContent = slotName;
+  head.append("Quem está falando?", tag);
+  menu.appendChild(head);
+
+  const current = seg.voice_profile_id;
+  // quem foi convidado para esta reunião vem antes do resto das vozes cadastradas
+  const people = voiceCandidates(o).sort((a, b) => Number(b.guest) - Number(a.guest));
+  const list = document.createElement("div");
+  list.className = "vm-list";
+  if (people.length > 8) {
+    const find = document.createElement("input");
+    find.className = "vm-find";
+    find.type = "text";
+    find.placeholder = "Filtrar pessoas…";
+    find.setAttribute("aria-label", "Filtrar pessoas");
+    find.addEventListener("input", () => {
+      const needle = find.value.trim().toLowerCase();
+      for (const item of list.children) {
+        item.classList.toggle("hidden", Boolean(needle) && !item.dataset.name.includes(needle));
+      }
+    });
+    find.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      const first = [...list.children].find((item) => !item.classList.contains("hidden"));
+      if (first) first.click();
+    });
+    menu.appendChild(find);
+  }
+  menu.appendChild(list);
+  for (const person of people) {
+    const item = document.createElement("button");
+    item.className = "vm-opt";
+    item.setAttribute("role", "menuitemradio");
+    const chosen = Boolean(current && person.profileId === current);
+    item.setAttribute("aria-checked", chosen ? "true" : "false");
+    const face = faceOf(person.name);
+    face.style.color = speakerColor(person.name);
+    const label = document.createElement("span");
+    label.className = "vm-name";
+    label.textContent = person.name;
+    item.append(face, label);
+    if (!person.profileId) {
+      const hint = document.createElement("span");
+      hint.className = "vm-hint";
+      hint.textContent = "convidado";
+      item.appendChild(hint);
+    }
+    if (chosen) {
+      const mark = icon("check", 14);
+      mark.classList.add("vm-check");
+      item.appendChild(mark);
+    }
+    item.dataset.name = person.name.toLowerCase();
+    item.addEventListener("click", () => assignVoice(seg, person));
+    list.appendChild(item);
+  }
+  if (!people.length) {
+    const empty = document.createElement("div");
+    empty.className = "vm-empty";
+    empty.textContent = "Nenhuma voz cadastrada nem convidado no evento.";
+    menu.appendChild(empty);
+  }
+
+  const other = document.createElement("button");
+  other.className = "vm-opt vm-other";
+  other.setAttribute("role", "menuitem");
+  const plus = document.createElement("span");
+  plus.className = "vm-plus";
+  plus.appendChild(icon("plus", 11));
+  other.append(plus, "Outra pessoa…");
+  other.addEventListener("click", () => {
+    closeVoiceMenu();
+    openVoiceDialog(seg);
+  });
+  menu.appendChild(other);
+
+  const note = document.createElement("div");
+  note.className = "vm-note";
+  note.textContent = o.live
+    ? "Vale para as falas que já vieram e para as próximas desta voz."
+    : "Vale para todas as falas desta voz nesta reunião.";
+  const privacy = document.createElement("div");
+  privacy.className = "vm-note dim";
+  privacy.textContent = "O Fireball guarda só a assinatura da voz, nunca o áudio.";
+  menu.append(note, privacy);
+
+  document.body.appendChild(menu);
+  // o menu vive no body, em posição fixa: dentro do painel ele seria cortado
+  // pela rolagem da transcrição nas últimas falas
+  const box = anchor.getBoundingClientRect();
+  const top = Math.min(box.bottom + 6, window.innerHeight - menu.offsetHeight - 12);
+  const left = Math.min(box.left - 6, window.innerWidth - menu.offsetWidth - 12);
+  menu.style.top = `${Math.max(12, top)}px`;
+  menu.style.left = `${Math.max(12, left)}px`;
+
+  voiceMenu.node = menu;
+  voiceMenu.anchor = anchor;
+  anchor.setAttribute("aria-expanded", "true");
+  document.addEventListener("pointerdown", onVoiceMenuOutside, true);
+  document.addEventListener("keydown", onVoiceMenuKey, true);
+  const first = menu.querySelector(".vm-find, .vm-opt");
+  if (first) first.focus();
+}
+
+async function assignVoice(seg, person) {
+  const o = state.open;
+  if (!o) return;
+  const slot = seg.speaker;
+  closeVoiceMenu();
+  try {
+    await api("enroll_voice", o.id, seg.speaker_key, person.name, person.email, person.profileId);
+  } catch (err) {
+    setAlert("meeting-error", "Não foi possível cadastrar esta voz", errText(err));
+    return;
+  }
+  await afterVoiceSaved(o, seg.speaker_key);
+  voiceToast(
+    o.live
+      ? `${slot} agora é ${person.name} — e o que vier dessa voz também`
+      : `${slot} agora é ${person.name} em todas as falas dessa voz`
+  );
+}
+
+/** Depois de cadastrar: o nome vale para as falas já na tela, então o chat
+    recomeça do zero; fora do ar vivo o daemon também regera o resumo. */
+async function afterVoiceSaved(o, speakerKey) {
+  await loadVoices();
+  resetChat();
+  await pollChat();
+  for (const node of el("chat").querySelectorAll(".msg")) {
+    if (node.dataset.key === speakerKey) node.classList.add("flash");
+  }
+  if (!o.live) {
+    o.settling = SETTLE_TICKS;
+    await refreshOpenMeeting();
+    if (state.tab === "resumo") await loadSummary();
+  }
+}
+
+function voiceToast(text) {
+  const old = document.querySelector(".voice-toast");
+  if (old) old.remove();
+  const toast = document.createElement("div");
+  toast.className = "voice-toast";
+  toast.setAttribute("role", "status");
+  const mark = icon("check", 15);
+  mark.classList.add("draw");
+  const label = document.createElement("span");
+  label.textContent = text;
+  const bar = document.createElement("span");
+  bar.className = "toast-bar";
+  toast.append(mark, label, bar);
+  el("painel-tr").appendChild(toast);
+  setTimeout(() => toast.remove(), 3600);
 }
 
 function closeVoiceDialog() {
@@ -4080,16 +4530,8 @@ async function onSaveVoice() {
       profileId,
     );
     closeVoiceDialog();
-    await loadVoices();
-    // o nome vale para as falas já na tela, então o chat recomeça do zero
-    resetChat();
-    await pollChat();
-    if (!o.live) {
-      // fora do ar vivo o daemon regera o resumo com o nome novo
-      o.settling = SETTLE_TICKS;
-      await refreshOpenMeeting();
-      if (state.tab === "resumo") await loadSummary();
-    }
+    await afterVoiceSaved(o, seg.speaker_key);
+    voiceToast(`${seg.speaker} agora é ${el("voice-name").value.trim()}`);
   } catch (err) {
     setAlert("voice-error", "Não foi possível cadastrar esta voz", errText(err));
   } finally {
@@ -4189,6 +4631,50 @@ function renderSettings() {
   renderProviderFields();
   renderFinalFields();
   renderUpdate();
+  state.settingsBase = settingsSnapshot();
+  markSettings();
+}
+
+// Os campos que o Salvar manda: são eles que dizem se há o que salvar.
+const SETTINGS_FIELDS = [
+  "set-live-on", "set-live-backend", "set-final-on", "set-final-backend", "set-diarize-default",
+  "set-groq-key", "set-language", "set-summary-provider", "set-openai-url", "set-openai-key",
+  "set-openai-model", "set-auto-summarize", "set-aviso-silencio-minutos", "set-aviso-minutos",
+  "set-summary-prompt", "set-calendar-provider", "set-gog-account", "set-my-voice", "set-check-updates",
+];
+
+function settingsSnapshot() {
+  const snap = {};
+  for (const id of SETTINGS_FIELDS) {
+    const node = el(id);
+    snap[id] = node.type === "checkbox" ? node.checked : node.value;
+  }
+  return snap;
+}
+
+/** A barra de baixo conta o que mudou desde o último salvar, e as linhas que
+    dependem de um interruptor desligado esmaecem junto com ele. */
+function markSettings() {
+  for (const row of document.querySelectorAll("#view-settings [data-depends]")) {
+    const on = el(row.dataset.depends).checked;
+    row.classList.toggle("off", !on);
+    for (const field of row.querySelectorAll("select, input")) field.disabled = !on;
+  }
+  const base = state.settingsBase;
+  if (!base) return;
+  const now = settingsSnapshot();
+  const dirty = SETTINGS_FIELDS.filter((id) => base[id] !== now[id]).length;
+  const bar = el("save-bar");
+  bar.classList.toggle("dirty", dirty > 0);
+  if (dirty) bar.classList.remove("saved");
+  el("settings-save").disabled = !dirty;
+  el("settings-discard").disabled = !dirty;
+  if (dirty) {
+    el("settings-note").textContent =
+      dirty === 1 ? "1 alteração não salva" : `${dirty} alterações não salvas`;
+  } else if (!bar.classList.contains("saved")) {
+    el("settings-note").textContent = "Tudo salvo.";
+  }
 }
 
 /** Os campos da API só existem quando o provedor que os usa está escolhido. */
@@ -4328,7 +4814,10 @@ function renderUpdateNotice() {
   const info = updateInfo();
   const novo = Boolean(info && info.newer && !info.error && !info.applied_at);
   card.classList.toggle("idle", !novo);
+  const badge = el("set-update-badge");
+  badge.classList.toggle("hidden", !novo);
   if (!novo) return;
+  badge.textContent = info.latest;
   el("update-card-title").textContent = `Fireball ${info.latest} disponível`;
   el("update-card-note").textContent = `Você está na ${info.current} — clique para atualizar`;
 }
@@ -4432,8 +4921,19 @@ async function loadSettings() {
   renderConfigSummary();
 }
 
+const SETTINGS_TITLES = {
+  transcricao: ["Transcrição", "O que roda durante a reunião, o que roda depois, e em que idioma."],
+  resumo: ["Resumo e prompts", "Quem escreve o resumo, quando, e com que pedido."],
+  agenda: ["Agenda", "De onde vêm as próximas reuniões da tela inicial."],
+  vozes: ["Vozes", "Quem o Fireball já sabe reconhecer pela voz."],
+  sobre: ["Sobre", "Versão e atualização do Fireball."],
+};
+
 function showSettingsTab(name) {
   state.settingsTab = name;
+  const [title, sub] = SETTINGS_TITLES[name] || SETTINGS_TITLES.transcricao;
+  el("set-title").textContent = title;
+  el("set-sub").textContent = sub;
   for (const [key, id] of Object.entries(SETTINGS_TABS)) el(id).classList.toggle("hidden", key !== name);
   for (const tab of document.querySelectorAll(".set-tab")) {
     tab.classList.toggle("selected", tab.dataset.setTab === name);
@@ -4497,17 +4997,17 @@ async function onSaveSettings() {
     // cumprimento da home — os dois estão desatualizados agora
     await loadProfile();
     if (state.open) renderPeople();
-    const note = el("settings-note");
-    note.textContent = "salvo";
-    note.classList.add("on");
+    const bar = el("save-bar");
+    bar.classList.add("saved");
+    el("settings-note").textContent = "Salvo — vale a partir da próxima reunião";
     setTimeout(() => {
-      note.textContent = "";
-      note.classList.remove("on");
-    }, 2500);
+      bar.classList.remove("saved");
+      markSettings();
+    }, 2600);
   } catch (err) {
     setAlert("settings-error", "Não foi possível salvar", errText(err));
   } finally {
-    button.disabled = false;
+    markSettings();
   }
 }
 
@@ -4747,7 +5247,7 @@ function tick() {
   // (2s) descobre mudança de verdade.
   if (state.active) el("live-card-time").textContent = elapsedSince(state.active.started_at);
   if (state.open && state.open.live) {
-    el("mv-elapsed").textContent = elapsedSince(state.open.meeting.started_at);
+    el("mv-elapsed").textContent = liveLabel(state.open.meeting);
     if (state.tab === "transcricao") renderLiveBar();
   }
 }
@@ -5039,18 +5539,24 @@ function ligarTituloEditavel() {
    no cabeçalho alterna — e a escolha fica no aparelho. */
 const VISTA_KEY = "fireball.nota.vista";
 
+const VISTAS = ["doc", "cru", "det"];
+
 function vistaNota(modo, persistir = true) {
   const corpo = el("nota-corpo");
   if (!corpo) return;
-  const cru = modo === "cru";
-  corpo.classList.toggle("cru", cru);
+  const vista = VISTAS.includes(modo) ? modo : "doc";
+  corpo.classList.toggle("cru", vista === "cru");
+  corpo.classList.toggle("det", vista === "det");
+  // Detalhes é a ficha que antes ficava recolhida no pé do resumo
+  if (vista === "det") document.querySelector(".doc-det").open = true;
   for (const botao of document.querySelectorAll("#vista-nota button[data-vista]")) {
-    const ativo = botao.dataset.vista === (cru ? "cru" : "doc");
+    const ativo = botao.dataset.vista === vista;
     botao.setAttribute("aria-pressed", ativo ? "true" : "false");
+    botao.setAttribute("aria-selected", ativo ? "true" : "false");
   }
   if (persistir) {
     try {
-      localStorage.setItem(VISTA_KEY, cru ? "cru" : "doc");
+      localStorage.setItem(VISTA_KEY, vista);
     } catch (err) {
       // sem storage a vista volta ao resumo na próxima janela
     }
@@ -5066,7 +5572,7 @@ function ligarVistaNota() {
   }
   // A abertura não grava preferência: quem nunca escolheu recebe a vista que
   // combina com a reunião (resumo se já existe, notas se ainda não)
-  const guardado = salvo === "cru" ? "cru" : "doc";
+  const guardado = VISTAS.includes(salvo) ? salvo : "doc";
   vistaNota(guardado, Boolean(salvo));
   const grupo = el("vista-nota");
   if (grupo) {
@@ -5332,6 +5838,11 @@ async function boot() {
   el("config-link").addEventListener("click", openSettings);
   el("settings-back").addEventListener("click", goHome);
   el("settings-save").addEventListener("click", onSaveSettings);
+  el("settings-discard").addEventListener("click", () => renderSettings());
+  el("view-settings").addEventListener("input", markSettings);
+  el("view-settings").addEventListener("change", markSettings);
+  el("recent-all").addEventListener("click", openBrowse);
+  el("crumb-acervo").addEventListener("click", openBrowse);
   // trocar de provedor mostra/esconde os campos dele na hora, sem salvar:
   // preencher URL e chave só faz sentido para quem já escolheu usá-los
   el("set-summary-provider").addEventListener("change", renderProviderFields);
