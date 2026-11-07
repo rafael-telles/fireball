@@ -886,9 +886,9 @@ obrigatório, já que a IA escreve um depois —, e backend/idioma/agenda ficam 
 configuração (⚙), em `~/.fireball/settings.json`.
 
 A tela tem **quatro abas**, e a divisão é a das partes do Fireball: **Transcrição** (motor ao
-vivo, motor final, chave da Groq, idioma), **Resumo** (provedor, chaves, prompts), **Agenda**
-(provedor de calendário e a conta dele) e **Vozes** (os perfis cadastrados e qual deles é o
-seu). O idioma fica na primeira porque é o que o motor
+vivo, motor final, chave da Groq, idioma, pasta de dados), **Resumo** (provedor, chaves, prompts),
+**Agenda** (provedor de calendário e a conta dele) e **Vozes** (os perfis cadastrados e qual deles é
+o seu). O idioma fica na primeira porque é o que o motor
 espera *ouvir* — o resumo sai em português de qualquer jeito, e isso está na parte fixa do
 pedido, não no prompt. O **Salvar é um só**, fora das abas: esconder uma aba não apaga o que
 está nos campos dela.
@@ -914,6 +914,7 @@ está nos campos dela.
 | `gog_account` | e-mail passado ao gog como `--account` | vazio |
 | `my_voice` | qual das vozes cadastradas é a de quem usa (junta com "Você") | vazio |
 | `check_updates` | conferir sozinho se há AppImage novo nas releases (baixar é sempre um clique) | `true` |
+| `data_dir` | onde ficam reuniões, áudio, catálogo e vozes (vazio = `~/.fireball`) | vazio |
 
 Os dois modos são configurados separado de propósito: é comum querer um motor local durante a
 reunião e `groq` no final. `groq` só aparece na transcrição final — em tempo real seria uma
@@ -1060,3 +1061,37 @@ estiver definida). Ver `skills/fireball/SKILL.md` para o layout de arquivos.
 
 Ao lado deles, na raiz do `$FIREBALL_HOME`: `settings.json` (as preferências, com permissão
 600), `prompts.json` (os prompts de resumo), `daemon.sock`, `daemon.lock` e `daemon.log`.
+
+### Onde ficam as gravações
+
+Configuração e runtime moram sempre em `~/.fireball` (`settings.json`, `prompts.json`,
+`agenda.json`, `daemon.sock`, `daemon.lock`, `daemon.log`) — o daemon precisa achar isso antes de
+ler qualquer preferência.
+
+O **estado** — `meetings/` (áudio, transcrições, notas, resumos), `meetings.db` e `voices/` — pode
+morar noutro disco: é a chave `data_dir` (caminho absoluto), com campo em **Configurações →
+Transcrição → Onde ficam as gravações**. Vazio é o próprio `~/.fireball`.
+
+Para mudar de disco, com o daemon parado e nenhuma reunião ativa:
+
+```bash
+fireball active                        # espera: null
+fireball daemon stop
+
+mkdir -p /mnt/ssd2/Fireball
+mv ~/.fireball/meetings    /mnt/ssd2/Fireball/meetings
+mv ~/.fireball/voices      /mnt/ssd2/Fireball/voices
+mv ~/.fireball/meetings.db /mnt/ssd2/Fireball/meetings.db
+```
+
+e então configurar `/mnt/ssd2/Fireball` (na tela, ou editando o `settings.json`). **Trocar a chave
+não move arquivo nenhum** — mover é o passo acima, à mão.
+
+Pasta de dados **ausente não é criada**: gravar reunião falha com "o disco está montado? Nada foi
+gravado" em vez de escrever no disco principal, o catálogo não é reconstruído (reconstruir sem as
+pastas apagaria o índice inteiro) e a janela mostra o aviso no topo. `fireball daemon status` traz
+`data_dir` com `path`, `disponivel` e `erro`.
+
+O app só cria a pasta num caminho que seja outro disco (ou dentro da home): `/mnt/ssd2/Fireball` com
+o ssd2 desmontado é recusado, porque seria uma pasta no disco principal com o nome do outro disco.
+Monte o disco antes — e `nofail` no `fstab` evita que um ssd2 ausente impeça o boot.
