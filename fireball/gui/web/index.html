@@ -5,9 +5,10 @@
   <title>Fireball</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="theme-granola.css" />
+  <link rel="stylesheet" href="theme-ember.css" />
   
 </head>
-<body>
+<body data-view="home">
   <!-- O esqueleto vive aqui, estático: o app.js só troca classes e preenche as
        partes que mudam. Isso é o que permite ao chat receber mensagem nova sem
        recriar o DOM (e sem perder a rolagem).
@@ -20,22 +21,62 @@
   <div class="app">
     <!-- ================================================== sidebar ==== -->
     <aside class="sidebar">
-      <div class="search">
-        <span class="search-ico" aria-hidden="true">⌕</span>
-        <input type="text" id="search" placeholder="Buscar" autocomplete="off" />
-        <kbd>⌘K</kbd>
+      <div class="brand">
+        <svg class="flame" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22c4 0 7-2.8 7-6.8 0-3.6-2.4-5.6-3.6-8.2-.6 1.6-1.6 2.6-2.8 3C13 6.5 11.5 3.8 9 2c.4 3-1.2 5-2.6 6.8C5.2 10.4 5 12 5 15.2 5 19.2 8 22 12 22z"/><path d="M12 22c-1.7 0-3-1.3-3-3 0-2 1.5-2.8 2-4.5 1 .8 1.6 1.6 1.8 2.6.5-.4.9-1 1-1.6.8.9 1.2 2 1.2 3.5 0 1.7-1.3 3-3 3z"/></svg>
+        <span>Fireball</span>
       </div>
 
-      <nav class="nav">
-        <button class="nav-item on" id="new-meeting-btn"><span class="ic">⌂</span>Início</button>
-        <button class="nav-item" id="nav-perguntar"><span class="ic">✦</span>Perguntar</button>
-      </nav>
+      <!-- Na configuração a barra lateral vira o índice dela: o app inteiro
+           continua a um clique, no "Voltar ao app". -->
+      <div class="sb-app">
+        <label class="search">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input type="text" id="search" placeholder="Buscar reuniões" autocomplete="off" />
+          <kbd>Ctrl K</kbd>
+        </label>
 
-      <button class="folder" id="browse-btn">
-        <span class="dot">▦</span>Minhas reuniões <span class="count" id="browse-count"></span>
-      </button>
+        <nav class="nav">
+          <button class="nav-item on" id="new-meeting-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Início
+          </button>
+          <button class="nav-item" id="nav-perguntar">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z"/></svg>Perguntar
+          </button>
+          <button class="nav-item" id="browse-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>
+            <span class="grow">Acervo</span><span class="count" id="browse-count"></span>
+          </button>
+        </nav>
 
-      <div class="sb-list" id="meeting-list"></div>
+        <div class="sb-list" id="meeting-list"></div>
+      </div>
+
+      <div class="sb-set">
+        <button class="nav-item back" id="settings-back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>Voltar ao app
+        </button>
+        <div class="sb-group">Configurações</div>
+        <nav class="nav set-nav">
+          <button class="nav-item set-tab selected" data-set-tab="transcricao">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Transcrição
+          </button>
+          <button class="nav-item set-tab" data-set-tab="resumo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/></svg>Resumo e prompts
+          </button>
+          <button class="nav-item set-tab" data-set-tab="agenda">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Agenda
+          </button>
+          <button class="nav-item set-tab" data-set-tab="vozes">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>Vozes
+          </button>
+          <button class="nav-item set-tab" data-set-tab="sobre">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.01"/></svg>
+            <span class="grow">Sobre</span><span class="ver-badge hidden" id="set-update-badge"></span>
+          </button>
+        </nav>
+        <div class="grow"></div>
+        <p class="sb-set-note">Valem para toda reunião nova e para a CLI. Guardadas em <code>~/.fireball/settings.json</code>.</p>
+      </div>
 
       <div class="sb-foot">
         <!-- Só aparece quando há versão nova publicada: é aviso, não um botão
@@ -44,24 +85,50 @@
           <b id="update-card-title">Atualização disponível</b>
           <span id="update-card-note">Clique para ver</span>
         </button>
-        <div class="trial idle" id="local-card">
-          <b>Gravação local</b>
-          <span id="local-note">Nada gravando agora</span>
+        <!-- Os dois cartões dividem o mesmo lugar: um diz que dá pra gravar, o
+             outro é a gravação em andamento, com tempo e controles. -->
+        <div class="rec-idle" id="local-card">
+          <span class="rec-ic" aria-hidden="true">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </span>
+          <span class="rec-txt">
+            <b>Pronto para gravar</b>
+            <span id="local-note">Microfone + áudio do sistema</span>
+          </span>
+          <span class="ok-dot" aria-hidden="true"></span>
+        </div>
+        <div class="live-card hidden" id="live-card">
+          <div class="live-card-top">
+            <span class="pulse-dot"></span>
+            <span class="live-card-label" id="live-card-label">Gravando</span>
+            <span class="live-card-time" id="live-card-time">00:00</span>
+          </div>
+          <button class="live-card-name" id="live-card-name"></button>
+          <div class="live-card-foot">
+            <!-- indicador animado de "está gravando", não nível de áudio real:
+                 o daemon não expõe amplitude. -->
+            <span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+            <span class="live-card-src">Mic + sistema</span>
+            <button class="lc-btn" id="live-card-pause" title="Pausar" aria-label="Pausar">
+              <svg class="ic-pause" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+              <svg class="ic-play" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+            </button>
+            <button class="lc-btn stop" id="live-card-stop" title="Parar" aria-label="Parar">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+            </button>
+          </div>
         </div>
         <div class="ws">
-          <span class="avatar">R</span><span id="ws-name">Fireball</span>
-          <button class="ws-gear" id="settings-btn" title="Configurações" aria-label="Configurações">⚙</button>
+          <span class="avatar" id="ws-avatar">F</span><span id="ws-name">Fireball</span>
+          <button class="ws-gear" id="settings-btn" title="Configurações" aria-label="Configurações">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+          </button>
         </div>
       </div>
     </aside>
 
     <!-- ================================================== principal == -->
     <div class="main">
-      <div class="top">
-        <span class="grow"></span>
-        <button class="pill solid" id="nova-nota-btn">＋ Nova nota</button>
-      </div>
-
       <div class="body">
         <div class="nota-scroll" id="nota-scroll">
 
@@ -74,25 +141,19 @@
       <main class="view" id="view-home">
         <div class="scroll">
           <div class="home-col">
-            <div class="home-head">
-              <div>
-                <div class="kicker" id="home-kicker"></div>
+            <header class="home-head rise">
+              <div class="grow">
+                <div class="home-today" id="home-today"></div>
                 <h1 class="home-title" id="home-greeting">Fireball</h1>
+                <div class="kicker" id="home-kicker"></div>
               </div>
-              <span class="home-today" id="home-today"></span>
-            </div>
+              <button class="btn outline plus" id="nova-nota-btn">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Reunião avulsa
+              </button>
+            </header>
 
-            <!-- Preenchidos por renderAgenda(): o cartão grande da próxima, as
-                 linhas compactas do resto, ou um slab dizendo por que não há
-                 nada (desligado / erro / vazio). -->
-            <div id="next-card"></div>
-            <div id="agenda-rest"></div>
-
-            <div class="home-adhoc">
-              <span>Nada na agenda que sirva?</span>
-              <button class="linkish" id="adhoc-link">Gravar reunião avulsa</button>
-            </div>
-
+            <div class="home-grid">
+            <div class="home-main">
             <section class="start-card hidden" id="start-card">
               <div class="start-head">
                 <span class="kicker accent">Nova reunião</span>
@@ -117,6 +178,29 @@
               <div class="config-summary" id="config-summary-text"></div>
               <div class="alert bad hidden" id="start-error"></div>
             </section>
+            <!-- Preenchidos por renderAgenda(): o cartão grande da próxima, as
+                 linhas compactas do resto, ou um slab dizendo por que não há
+                 nada (desligado / erro / vazio). -->
+            <div id="next-card"></div>
+            <div id="agenda-rest"></div>
+
+            <div class="home-adhoc">
+              <span>Nada na agenda que sirva?</span>
+              <button class="linkish" id="adhoc-link">Gravar reunião avulsa</button>
+            </div>
+
+            </div>
+
+            <!-- As últimas reuniões com um pedaço do resumo: quem volta ao app
+                 entre uma chamada e outra quase sempre quer reabrir a anterior. -->
+            <aside class="home-side rise d3">
+              <div class="side-head">
+                <h3>Recentes</h3>
+                <button class="linkish" id="recent-all">Ver acervo</button>
+              </div>
+              <div class="recent-list" id="home-recent"></div>
+            </aside>
+            </div>
           </div>
         </div>
         <div class="hint">Fechar a janela mantém o Fireball na bandeja.</div>
@@ -153,20 +237,20 @@
           </span>
           <span class="bv-sub" id="bv-sub"></span>
           <div class="seg" id="bv-modes">
-            <button class="seg-btn selected" data-mode="tabela">Tabela</button>
+            <button class="seg-btn selected" data-mode="tabela">Lista</button>
             <button class="seg-btn" data-mode="semana">Semana</button>
           </div>
         </div>
 
         <div class="filters">
           <div class="filter-search">
-            <span class="search-icon" aria-hidden="true">⌕</span>
+            <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
             <input type="text" id="bv-q" placeholder="Buscar por nome…" autocomplete="off" />
             <span class="filter-scope">nome + transcrição</span>
           </div>
 
           <label class="filter-pick">
-            <span class="filter-ico" aria-hidden="true">📅</span>
+            <svg class="filter-ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
             <select id="bv-range">
               <option value="">Qualquer data</option>
               <option value="7">Últimos 7 dias</option>
@@ -223,177 +307,203 @@
           <!-- --------------------------- configuração ----------------- -->
 <!-- -------------------------------------------------- configuração -->
       <main class="view hidden" id="view-settings">
-        <div class="mv-head">
-          <button class="btn outline icon" id="settings-back" title="Voltar">←</button>
-          <div class="headline">
-            <div class="mv-name">Configurações</div>
-            <div class="mv-meta">Valem para toda reunião nova e para a CLI.</div>
-          </div>
-        </div>
-
         <!-- O detalhe que não cabe na linha de apoio vive no `title` de um
              `.info`, e o tooltip nativo do Qt não reflui texto puro: sem as
              quebras de linha ele sai numa tira só, mais larga que a janela.
              Por isso os títulos longos continuam na **coluna 0** — indentar
              essas linhas colocaria os espaços dentro do texto do tooltip. -->
-        <div class="tabs">
-          <button class="set-tab selected" data-set-tab="transcricao">Transcrição</button>
-          <button class="set-tab" data-set-tab="resumo">Resumo</button>
-          <button class="set-tab" data-set-tab="agenda">Agenda</button>
-          <button class="set-tab" data-set-tab="vozes">Vozes</button>
-          <button class="set-tab" data-set-tab="sobre">Sobre</button>
-        </div>
+        <header class="set-head">
+          <h1 class="set-title" id="set-title">Transcrição</h1>
+          <p class="set-sub" id="set-sub"></p>
+        </header>
 
         <div class="scroll">
           <div class="settings-col">
             <div id="set-pane-transcricao">
-            <section class="card">
-              <div class="card-title">Transcrição ao vivo</div>
-              <p class="card-note">Roda durante a reunião e alimenta o chat.</p>
-              <label class="checkbox-row">
-                <input type="checkbox" id="set-live-on" />
-                <span>Transcrever durante a reunião</span>
-              </label>
-              <div class="lbl">Backend</div>
-              <select id="set-live-backend"></select>
-            </section>
-
-            <section class="card">
-              <div class="card-title">Transcrição final</div>
-              <p class="card-note">
-                Roda sobre o áudio inteiro depois da reunião (<code>fireball finalize</code>) —
-                mais precisa. <code>groq</code> é API paga por requisição.
-              </p>
-              <label class="checkbox-row">
-                <input type="checkbox" id="set-final-on" />
-                <span>Transcrever de novo depois da reunião</span>
-              </label>
-              <p class="card-note tight">
-                Reescreve a transcrição por cima.
-                <span
-                  class="info" title="Quase sempre é o que se quer, e é perda quando alguém já corrigiu
-falas à mão. Desligada, o botão Retranscrever sai da tela e
-fireball finalize recusa, inclusive quando as skills o chamam."
-                >ⓘ</span>
-              </p>
-              <div class="lbl">Backend</div>
-              <select id="set-final-backend"></select>
-              <label class="checkbox-row">
-                <input type="checkbox" id="set-diarize-default" />
-                <span>Ativar diarização por padrão em reuniões novas</span>
-              </label>
-              <p class="card-note tight">
-                Pode ser ligado ou desligado em cada reunião.
-                <span class="info" title="Usa Sortformer ao vivo e novamente na passada final.">ⓘ</span>
-              </p>
-
-              <!-- Só aparece com groq escolhido: campo de chave de API numa
-                   tela onde ele não é usado é convite a preencher errado. -->
-              <div class="subcard hidden" id="groq-fields">
-                <div class="lbl">Chave da Groq</div>
-                <input type="password" id="set-groq-key" placeholder="gsk_…" spellcheck="false" autocomplete="off" />
-                <div class="field-note">
-                  Vazia usa <code>GROQ_API_KEY</code> do ambiente. Pegue a sua em
-                  <code>console.groq.com/keys</code>.
-                  <span class="info" title="Guardada em ~/.fireball/settings.json, com permissão 600.">ⓘ</span>
+            <section class="set-sec">
+              <h2>Ao vivo</h2>
+              <p class="set-sec-note">Alimenta a transcrição em tempo real e o chat da reunião.</p>
+              <div class="rows">
+                <label class="row">
+                  <span class="row-txt"><b>Transcrever durante a reunião</b></span>
+                  <input type="checkbox" class="switch" id="set-live-on" />
+                </label>
+                <div class="row" data-depends="set-live-on">
+                  <label class="row-txt" for="set-live-backend"><b>Motor</b><span>O que escuta enquanto a reunião acontece.</span></label>
+                  <select id="set-live-backend"></select>
                 </div>
               </div>
             </section>
 
-            <section class="card">
-              <div class="card-title">Idioma</div>
-              <div class="lbl">Código da fala (pt, en, es…)</div>
-              <input type="text" id="set-language" />
-              <div class="field-note">
-                O resumo sai em português de qualquer jeito.
-                <span
-                  class="info" title="O código vale para o motor de transcrição. O idioma do resumo está
+            <section class="set-sec">
+              <h2>Depois da reunião</h2>
+              <p class="set-sec-note">
+                Passa de novo sobre o áudio inteiro (<code>fireball finalize</code>) — mais precisa, e
+                reescreve a transcrição ao vivo.
+              </p>
+              <div class="rows">
+                <label class="row">
+                  <span class="row-txt">
+                    <b>Transcrever de novo ao terminar</b>
+                    <span>
+                      Reescreve a transcrição por cima.
+                      <span
+                        class="info" title="Quase sempre é o que se quer, e é perda quando alguém já corrigiu
+falas à mão. Desligada, o botão Retranscrever sai da tela e
+fireball finalize recusa, inclusive quando as skills o chamam."
+                      >ⓘ</span>
+                    </span>
+                  </span>
+                  <input type="checkbox" class="switch" id="set-final-on" />
+                </label>
+                <div class="row" data-depends="set-final-on">
+                  <label class="row-txt" for="set-final-backend"><b>Motor</b><span><code>groq</code> é API paga por requisição.</span></label>
+                  <select id="set-final-backend"></select>
+                </div>
+
+                <!-- Só aparece com groq escolhido: campo de chave de API numa
+                     tela onde ele não é usado é convite a preencher errado. -->
+                <div class="subcard hidden" id="groq-fields">
+                  <label class="row-txt" for="set-groq-key">
+                    <b>Chave da Groq</b>
+                    <span>
+                      Vazia usa <code>GROQ_API_KEY</code>. Pegue a sua em <code>console.groq.com/keys</code>.
+                      <span class="info" title="Guardada em ~/.fireball/settings.json, com permissão 600.">ⓘ</span>
+                    </span>
+                  </label>
+                  <input type="password" id="set-groq-key" placeholder="gsk_…" spellcheck="false" autocomplete="off" />
+                </div>
+
+                <label class="row">
+                  <span class="row-txt">
+                    <b>Separar falantes por padrão</b>
+                    <span>
+                      Até 4 vozes na sala e 4 na chamada. Dá pra mudar em cada reunião.
+                      <span class="info" title="Usa Sortformer ao vivo e novamente na passada final.">ⓘ</span>
+                    </span>
+                  </span>
+                  <input type="checkbox" class="switch" id="set-diarize-default" />
+                </label>
+              </div>
+            </section>
+
+            <section class="set-sec">
+              <h2>Idioma</h2>
+              <div class="rows">
+                <div class="row">
+                  <label class="row-txt" for="set-language">
+                    <b>Idioma da fala</b>
+                    <span>
+                      Código para o motor (pt, en, es…). O resumo sai sempre em português.
+                      <span
+                        class="info" title="O código vale para o motor de transcrição. O idioma do resumo está
 na parte fixa do pedido, não no prompt."
-                >ⓘ</span>
+                      >ⓘ</span>
+                    </span>
+                  </label>
+                  <input type="text" id="set-language" />
+                </div>
               </div>
             </section>
             </div>
 
             <div class="hidden" id="set-pane-resumo">
-            <section class="card">
-              <div class="card-title">Resumo, nome e tags</div>
-              <p class="card-note">
-                O mesmo provedor escreve as três coisas a partir da transcrição.
-              </p>
-              <div class="lbl">Provedor</div>
-              <select id="set-summary-provider"></select>
-              <!-- Preenchida por renderProviderFields(): descrever os dois
-                   provedores com um só escolhido era metade de um parágrafo
-                   falando de configuração que não está em uso. -->
-              <div class="field-note" id="summary-provider-note"></div>
+            <section class="set-sec">
+              <h2>Resumo, nome e tags</h2>
+              <p class="set-sec-note">O mesmo provedor escreve as três coisas a partir da transcrição.</p>
+              <div class="rows">
+                <div class="row">
+                  <label class="row-txt" for="set-summary-provider">
+                    <b>Provedor</b>
+                    <!-- Preenchida por renderProviderFields(): descrever os dois
+                         provedores com um só escolhido era metade de um parágrafo
+                         falando de configuração que não está em uso. -->
+                    <span id="summary-provider-note"></span>
+                  </label>
+                  <select id="set-summary-provider"></select>
+                </div>
 
-              <!-- Só aparece com openai_api escolhido: campo de chave de API
-                   numa tela onde ele não é usado é convite a preencher errado. -->
-              <div class="subcard hidden" id="openai-fields">
-                <div class="lbl">URL da API</div>
-                <input type="text" id="set-openai-url" placeholder="https://api.openai.com/v1" spellcheck="false" />
-                <div class="field-note">
-                  A base, terminada em <code>/v1</code> — Ollama é
-                  <code>http://localhost:11434/v1</code>.
-                  <span
-                    class="info" title="O /chat/completions entra sozinho. LM Studio costuma ser
+                <!-- Só aparece com openai_api escolhido: campo de chave de API
+                     numa tela onde ele não é usado é convite a preencher errado. -->
+                <div class="subcard hidden" id="openai-fields">
+                  <div class="row">
+                    <label class="row-txt" for="set-openai-url">
+                      <b>URL da API</b>
+                      <span>
+                        A base, terminada em <code>/v1</code> — Ollama é <code>http://localhost:11434/v1</code>.
+                        <span
+                          class="info" title="O /chat/completions entra sozinho. LM Studio costuma ser
 http://localhost:1234/v1."
-                  >ⓘ</span>
+                        >ⓘ</span>
+                      </span>
+                    </label>
+                    <input type="text" id="set-openai-url" placeholder="https://api.openai.com/v1" spellcheck="false" />
+                  </div>
+                  <div class="row">
+                    <label class="row-txt" for="set-openai-key">
+                      <b>Chave</b>
+                      <span>
+                        Vazia usa <code>FIREBALL_OPENAI_API_KEY</code>, ou nada quando o servidor é local.
+                        <span class="info" title="Guardada em ~/.fireball/settings.json, com permissão 600.">ⓘ</span>
+                      </span>
+                    </label>
+                    <input type="password" id="set-openai-key" placeholder="sk-…" spellcheck="false" autocomplete="off" />
+                  </div>
+                  <div class="row">
+                    <label class="row-txt" for="set-openai-model"><b>Modelo</b><span>O id exato como o servidor o chama.</span></label>
+                    <input type="text" id="set-openai-model" placeholder="gpt-4o-mini" spellcheck="false" />
+                  </div>
                 </div>
 
-                <div class="lbl">Chave</div>
-                <input type="password" id="set-openai-key" placeholder="sk-…" spellcheck="false" autocomplete="off" />
-                <div class="field-note">
-                  Vazia usa <code>FIREBALL_OPENAI_API_KEY</code>, ou nada quando o servidor é
-                  local.
-                  <span class="info" title="Guardada em ~/.fireball/settings.json, com permissão 600.">ⓘ</span>
-                </div>
-
-                <div class="lbl">Modelo</div>
-                <input type="text" id="set-openai-model" placeholder="gpt-4o-mini" spellcheck="false" />
-                <div class="field-note">O id exato como o servidor o chama.</div>
-              </div>
-
-              <label class="checkbox-row">
-                <input type="checkbox" id="set-auto-summarize" />
-                <span>Gerar sozinho quando a reunião terminar</span>
-              </label>
-              <p class="card-note tight">
-                Roda ao fim da gravação e de novo quando a transcrição final fica pronta.
-                <span
-                  class="info" title="A transcrição final reescreve o texto, e o resumo antigo passaria
+                <label class="row">
+                  <span class="row-txt">
+                    <b>Gerar sozinho quando a reunião terminar</b>
+                    <span>
+                      Roda ao fim da gravação e de novo quando a transcrição final fica pronta.
+                      <span
+                        class="info" title="A transcrição final reescreve o texto, e o resumo antigo passaria
 a ser sobre algo que não existe mais. É o que faz uma reunião sem
 nome ganhar um. Desligado, o resumo só sai no botão Gerar. Reunião
 simulada (--fake) nunca gera sozinha."
-                >ⓘ</span>
-              </p>
-
-              <div class="lbl">Avisar quando a gravação passa do ponto</div>
-              <div class="subcard">
-                <div class="lbl">Minutos sem ninguém falar</div>
-                <input type="number" id="set-aviso-silencio-minutos" min="0" step="5" />
-                <div class="field-note">
-                  0 desliga este aviso.
-                  <span
-                    class="info" title="Quem decide que alguém falou é o mesmo VAD que fecha as falas da
-transcrição: sem fala fechada, sem linha nova no arquivo. Vale só com
-a transcrição ao vivo ligada — sem ela não existe a medida."
-                  >ⓘ</span>
-                </div>
-
-                <div class="lbl">Minutos gravando</div>
-                <input type="number" id="set-aviso-minutos" min="0" step="15" />
-                <div class="field-note">0 desliga este aviso.</div>
+                      >ⓘ</span>
+                    </span>
+                  </span>
+                  <input type="checkbox" class="switch" id="set-auto-summarize" />
+                </label>
               </div>
-              <p class="card-note tight">
+            </section>
+
+            <section class="set-sec">
+              <h2>Avisar quando a gravação passa do ponto</h2>
+              <p class="set-sec-note">
                 Avisos aparecem na bandeja, e por notificação do sistema quando o Fireball roda sem
                 janela. Eles só avisam: quem para a reunião é você.
               </p>
+              <div class="rows">
+                <div class="row">
+                  <label class="row-txt" for="set-aviso-silencio-minutos">
+                    <b>Minutos sem ninguém falar</b>
+                    <span>
+                      0 desliga este aviso.
+                      <span
+                        class="info" title="Quem decide que alguém falou é o mesmo VAD que fecha as falas da
+transcrição: sem fala fechada, sem linha nova no arquivo. Vale só com
+a transcrição ao vivo ligada — sem ela não existe a medida."
+                      >ⓘ</span>
+                    </span>
+                  </label>
+                  <input type="number" id="set-aviso-silencio-minutos" min="0" step="5" />
+                </div>
+                <div class="row">
+                  <label class="row-txt" for="set-aviso-minutos"><b>Minutos gravando</b><span>0 desliga este aviso.</span></label>
+                  <input type="number" id="set-aviso-minutos" min="0" step="15" />
+                </div>
+              </div>
             </section>
 
-            <section class="card">
-              <div class="card-title">Prompts do resumo</div>
-              <p class="card-note">
+            <section class="set-sec">
+              <h2>Prompts do resumo</h2>
+              <p class="set-sec-note">
                 O prompt diz o que o resumo deve conter e em que forma.
                 <span
                   class="info" title="O resto do pedido é sempre o mesmo e não se edita: de onde vem a
@@ -402,24 +512,24 @@ title, tags e summary — é isso que faz qualquer prompt continuar
 rendendo nome e tags para a reunião."
                 >ⓘ</span>
               </p>
-
-              <div class="lbl">Padrão</div>
-              <select id="set-summary-prompt"></select>
-              <div class="field-note">
-                Vale para reunião ainda não resumida; depois ela lembra o prompt que usou.
+              <div class="rows">
+                <div class="row">
+                  <label class="row-txt" for="set-summary-prompt">
+                    <b>Padrão</b>
+                    <span>Vale para reunião ainda não resumida; depois ela lembra o prompt que usou.</span>
+                  </label>
+                  <select id="set-summary-prompt"></select>
+                </div>
               </div>
-
               <div class="prompt-list" id="prompt-list"></div>
               <button class="btn outline small" id="prompt-new">Novo prompt</button>
-
             </section>
-
             </div>
 
             <div class="hidden" id="set-pane-agenda">
-            <section class="card">
-              <div class="card-title">Provedor de agenda</div>
-              <p class="card-note">
+            <section class="set-sec">
+              <h2>Provedor de agenda</h2>
+              <p class="set-sec-note">
                 Lê os próximos eventos e deixa iniciar a reunião a partir de um.
                 <span
                   class="info" title="A reunião já começa com nome, local, descrição e convidados, que
@@ -427,28 +537,33 @@ também viram contexto do resumo. gog usa o gogcli da máquina (já
 autenticado); o Fireball não guarda token nenhum."
                 >ⓘ</span>
               </p>
-              <div class="lbl">Provedor</div>
-              <select id="set-calendar-provider"></select>
+              <div class="rows">
+                <div class="row">
+                  <label class="row-txt" for="set-calendar-provider"><b>Provedor</b></label>
+                  <select id="set-calendar-provider"></select>
+                </div>
 
-              <!-- Mesma regra dos campos da Groq e da OpenAI: só aparece com o
-                   provedor que os usa escolhido. -->
-              <div class="subcard hidden" id="gog-fields">
-                <div class="lbl">Conta do gog</div>
-                <input type="text" id="set-gog-account" placeholder="voce@empresa.com" spellcheck="false" autocomplete="username" />
-                <div class="field-note">
-                  E-mail passado como <code>--account</code>. Vazio usa a única conta autenticada.
-                  <span class="info" title="Token morto: rode gog auth add &lt;email&gt;.">ⓘ</span>
+                <!-- Mesma regra dos campos da Groq e da OpenAI: só aparece com o
+                     provedor que os usa escolhido. -->
+                <div class="subcard hidden" id="gog-fields">
+                  <label class="row-txt" for="set-gog-account">
+                    <b>Conta do gog</b>
+                    <span>
+                      E-mail passado como <code>--account</code>. Vazio usa a única conta autenticada.
+                      <span class="info" title="Token morto: rode gog auth add &lt;email&gt;.">ⓘ</span>
+                    </span>
+                  </label>
+                  <input type="text" id="set-gog-account" placeholder="voce@empresa.com" spellcheck="false" autocomplete="username" />
                 </div>
               </div>
             </section>
             </div>
 
             <div class="hidden" id="set-pane-vozes">
-            <section class="card">
-              <div class="card-title">Vozes cadastradas</div>
-              <p class="card-note">
-                Cadastre clicando em <code>Sala N</code> ou <code>Remoto N</code> numa reunião
-                diarizada já finalizada.
+            <section class="set-sec">
+              <h2>Vozes cadastradas</h2>
+              <p class="set-sec-note">
+                Cadastre clicando no nome de quem fala na transcrição de uma reunião diarizada.
                 <span
                   class="info" title="O Fireball guarda somente embeddings biométricos locais, nunca
 cópias de áudio."
@@ -458,39 +573,49 @@ cópias de áudio."
               <div class="field-note" id="voice-empty">Nenhuma voz cadastrada.</div>
             </section>
 
-            <section class="card">
-              <div class="card-title">Minha voz</div>
-              <p class="card-note">
-                Junta num participante só o <code>Você</code> do microfone, o nome que a
-                diarização reconheceu e o seu convidado na agenda.
-                <span
-                  class="info" title="Sem isso a mesma pessoa aparece três vezes na ficha da reunião. Os
+            <section class="set-sec">
+              <h2>Minha voz</h2>
+              <div class="rows">
+                <div class="row">
+                  <label class="row-txt" for="set-my-voice">
+                    <b>Perfil</b>
+                    <span>
+                      Junta num participante só o <code>Você</code> do microfone, o nome que a
+                      diarização reconheceu e o seu convidado na agenda.
+                      <span
+                        class="info" title="Sem isso a mesma pessoa aparece três vezes na ficha da reunião. Os
 e-mails do perfil são o que faz a ligação, então vale cadastrar
 nele o e-mail com que a agenda te convida."
-                >ⓘ</span>
-              </p>
-              <div class="lbl">Perfil</div>
-              <select id="set-my-voice"></select>
+                      >ⓘ</span>
+                    </span>
+                  </label>
+                  <select id="set-my-voice"></select>
+                </div>
+              </div>
             </section>
             </div>
 
             <div class="hidden" id="set-pane-sobre">
-              <section class="card">
-                <div class="card-title">Versão</div>
-                <p class="card-note">Rodando <b id="app-version">—</b><span id="app-channel"></span>.</p>
-                <label class="checkbox-row">
-                  <input type="checkbox" id="set-check-updates" />
-                  <span>Conferir atualizações sozinho</span>
-                </label>
-                <p class="card-note tight">
-                  Uma vez a cada seis horas, no daemon. O aviso aparece aqui e na barra
-                  lateral; baixar continua sendo decisão de quem clica.
-                </p>
+              <section class="set-sec">
+                <h2>Versão</h2>
+                <p class="set-sec-note">Rodando <b id="app-version">—</b><span id="app-channel"></span>.</p>
+                <div class="rows">
+                  <label class="row">
+                    <span class="row-txt">
+                      <b>Conferir atualizações sozinho</b>
+                      <span>
+                        Uma vez a cada seis horas, no daemon. O aviso aparece aqui e na barra lateral;
+                        baixar continua sendo decisão de quem clica.
+                      </span>
+                    </span>
+                    <input type="checkbox" class="switch" id="set-check-updates" />
+                  </label>
+                </div>
               </section>
 
-              <section class="card">
-                <div class="card-title">Atualizar o AppImage</div>
-                <p class="card-note" id="update-state">Ainda não conferi a release mais nova.</p>
+              <section class="set-sec">
+                <h2>Atualizar o AppImage</h2>
+                <p class="set-sec-note" id="update-state">Ainda não conferi a release mais nova.</p>
                 <div class="settings-actions">
                   <button class="btn outline" id="update-check">Conferir agora</button>
                   <button class="btn primary" id="update-apply" disabled>Baixar e atualizar</button>
@@ -503,7 +628,7 @@ nele o e-mail com que a agenda te convida."
                   <summary id="update-notes-title">Novidades desta versão</summary>
                   <div class="upd-notes-body" id="update-notes"></div>
                 </details>
-                <p class="card-note tight">
+                <p class="set-sec-note">
                   Troca o próprio AppImage e reinicia o Fireball — a janela volta sozinha, na
                   versão nova. O download é conferido pelo SHA-256 publicado na release: se não
                   bater, nada é trocado.
@@ -515,14 +640,18 @@ Rodando do código-fonte, o caminho é git pull."
               </section>
             </div>
 
-            <!-- Fora das abas: um Salvar só. Esconder uma aba não apaga o que
-                 está nos campos dela, então salvar daqui salva todas. -->
-            <div class="settings-actions">
-              <button class="btn primary" id="settings-save">Salvar</button>
-              <span class="saved" id="settings-note"></span>
-            </div>
             <div class="alert bad hidden" id="settings-error"></div>
           </div>
+        </div>
+
+        <!-- Fora das abas: um Salvar só. Esconder uma aba não apaga o que
+             está nos campos dela, então salvar daqui salva todas. -->
+        <div class="save-bar" id="save-bar">
+          <span class="save-dot" aria-hidden="true"></span>
+          <span class="save-state" id="settings-note" aria-live="polite">Tudo salvo.</span>
+          <span class="grow"></span>
+          <button class="btn outline" id="settings-discard" disabled>Descartar</button>
+          <button class="btn primary" id="settings-save" disabled>Salvar</button>
         </div>
       </main>
         </div><!-- /nota-scroll -->
@@ -532,6 +661,11 @@ Rodando do código-fonte, o caminho é git pull."
             <div class="mv-head">
               <div class="headline">
                 <div class="mv-elapsed hidden" id="mv-elapsed"></div>
+                <nav class="crumbs" id="mv-crumbs" aria-label="Onde você está">
+                  <button class="crumb" id="crumb-acervo">Acervo</button>
+                  <span class="crumb-sep" aria-hidden="true">/</span>
+                  <span class="crumb-here" id="crumb-when"></span>
+                </nav>
                 <div class="mv-meta" id="mv-meta"></div>
               </div>
               <button class="btn outline hidden" id="pause-btn">Pausar</button>
@@ -547,30 +681,39 @@ Rodando do código-fonte, o caminho é git pull."
               >
                 Excluir
               </button>
-              <button class="icon-btn" id="files-tab" title="Abrir a pasta da reunião">🗀</button>
+              <button class="icon-btn" id="files-tab" title="Abrir a pasta da reunião" aria-label="Abrir a pasta da reunião">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+              </button>
             </div>
 
             <div class="warnings hidden" id="warnings"></div>
 
             <div class="nota-col" id="nota-corpo">
               <div class="doc">
-                <div class="vista-nota" id="vista-nota" role="group" aria-label="O que a nota mostra">
-                  <button type="button" data-vista="cru" aria-pressed="false">Minhas notas</button>
-                  <button type="button" data-vista="doc" aria-pressed="true">Resumo</button>
-                </div>
-
                 <div class="doc-top">
                   <h1 class="mv-name" id="mv-name"></h1>
-                  <div class="doc-tools">
-                    <select class="mini" id="summary-prompt" title="Prompt do resumo"></select>
-                    <button class="icon-btn" id="summary-btn" title="Gerar resumo com este prompt">✨</button>
-                  </div>
                 </div>
 
                 <div class="doc-chips">
                   <span class="chip" id="chip-when"><b id="mv-when"></b></span>
                   <span class="chip"><b id="mv-people-count"></b></span>
                   <span class="chip-tags" id="mv-tags"></span>
+                </div>
+
+                <div class="doc-tabs">
+                  <div class="vista-nota" id="vista-nota" role="tablist" aria-label="O que a nota mostra">
+                    <button type="button" role="tab" data-vista="doc" aria-pressed="true">Resumo</button>
+                    <button type="button" role="tab" data-vista="cru" aria-pressed="false">Minhas notas</button>
+                    <button type="button" role="tab" data-vista="det" aria-pressed="false">Detalhes</button>
+                  </div>
+                  <div class="doc-tools">
+                    <label class="prompt-pick">Prompt
+                      <select class="mini" id="summary-prompt" title="Prompt do resumo"></select>
+                    </label>
+                    <button class="btn ghost small spin-h" id="summary-btn" title="Gerar resumo com este prompt">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>Gerar
+                    </button>
+                  </div>
                 </div>
 
                 <div class="doc-bloco anotacoes">
@@ -666,6 +809,14 @@ Rodando do código-fonte, o caminho é git pull."
             </div>
 
             <div class="painel-tr" id="painel-tr">
+              <!-- Quem falou quanto, na mesma cor que cada pessoa tem nas falas
+                   logo abaixo. Só existe com a transcrição final: a do tempo
+                   real não sabe quanto durou cada trecho. -->
+              <div class="spk-share hidden" id="spk-share">
+                <div class="spk-head"><b>Quem falou</b><span id="spk-note"></span></div>
+                <div class="spk-bar" id="spk-bar" role="img"></div>
+                <div class="spk-legend" id="spk-legend"></div>
+              </div>
               <div class="tr-bar" id="tr-bar">
                 <div class="grow" id="tr-meta"></div>
                 <div class="tr-modo" id="tr-modo" role="group" aria-label="Modo da transcrição">
@@ -688,7 +839,10 @@ Rodando do código-fonte, o caminho é git pull."
               </div>
 
               <div class="player-bar hidden" id="player-bar">
-                <button class="play-btn" id="play-btn" title="Tocar">▶</button>
+                <button class="play-btn" id="play-btn" title="Tocar" aria-label="Tocar">
+                  <svg class="ic-play" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+                  <svg class="ic-pause" width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                </button>
                 <div class="player-time" id="player-cur">00:00</div>
                 <div class="player-track" id="player-track">
                   <div class="player-track-fill" id="player-fill"></div>
@@ -709,7 +863,7 @@ Rodando do código-fonte, o caminho é git pull."
   <aside class="chat-panel hidden" id="chat-panel">
     <div class="cp-h">
       <div class="grow"><b>Perguntar</b><span class="s">sobre esta reunião</span></div>
-      <button class="icon-btn" id="cp-close" title="Voltar para a transcrição">✕</button>
+      <button class="icon-btn" id="cp-close" title="Voltar para a transcrição" aria-label="Voltar para a transcrição"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
     </div>
     <div class="cp-log" id="ask-log"></div>
   </aside>
@@ -721,10 +875,13 @@ Rodando do código-fonte, o caminho é git pull."
 
         <!-- ================= composer (barra de baixo) ============== -->
         <div class="composer" id="composer">
-          <button class="cbtn wave" id="btn-transcricao" title="Transcrição">▮▮▮</button>
+          <button class="cbtn wave" id="btn-transcricao" title="Transcrição" aria-label="Mostrar ou esconder a transcrição"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h10M4 12h16M4 17h7"/></svg></button>
           <div class="ask" id="ask-bar">
+            <svg class="ask-ic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8z"/></svg>
             <input type="text" id="ask-input" placeholder="Perguntar sobre todas as reuniões" autocomplete="off" />
-            <button class="send" id="ask-send" title="Perguntar">↑</button>
+            <button class="send" id="ask-send" title="Perguntar" aria-label="Perguntar">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            </button>
           </div>
         </div>
       </div><!-- /body -->
@@ -733,26 +890,6 @@ Rodando do código-fonte, o caminho é git pull."
 
   <!-- ============================ chat da reunião ================== -->
 
-
-  <div class="live-card-slot hidden" id="live-card-slot">
-<div class="live-card hidden" id="live-card">
-        <div class="live-card-top">
-          <span class="pulse-dot"></span>
-          <span class="live-card-label" id="live-card-label">EM ANDAMENTO</span>
-          <span class="live-card-time" id="live-card-time">00:00</span>
-        </div>
-        <button class="live-card-name" id="live-card-name"></button>
-        <div class="live-card-foot">
-          <!-- indicador animado de "está gravando", não nível de áudio real:
-               o daemon não expõe amplitude. -->
-          <div class="bars" aria-hidden="true">
-            <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
-          </div>
-          <button class="btn soft small" id="live-card-pause">Pausar</button>
-          <button class="btn soft-danger small" id="live-card-stop">Parar</button>
-        </div>
-      </div>
-  </div>
 
   <!-- Editor de prompt. `<dialog>` de verdade, e não uma div sobreposta: o Esc,
        a camada de cima e o fundo escurecido vêm do próprio elemento. (O que a
