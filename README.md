@@ -482,6 +482,19 @@ do JS, e mais de 5 GB disso parados no swap); com a troca de página, o Fireball
 O preço, explícito: **fechar e reabrir a janela recomeça a tela no Início** — o estado da tela não
 sobrevive à troca. Com a janela aberta nada muda, é a mesma tela de sempre.
 
+Com a janela **aberta** por horas o problema é outro: o renderer do QtWebEngine cresce enquanto
+desenha e o Chromium dá a ele um teto de 16 GiB (`RLIMIT_DATA`). Encostando no teto, o renderer
+aborta (`Fatal process out of memory: Worklist::Segment::Create`) e a janela fica **em branco** —
+fechar e abrir consertava, mas só à mão. Medido em 07/11/2026, página em repouso e sem reunião:
+**1,04 MB/s** de RSS, por causa de uma animação em `box-shadow` (o anel do `.ok-dot`); trocada por
+`transform`/`opacity`, o mesmo repouso fica em **0,02 MB/s**. Duas defesas, em
+`fireball/gui/memoria.py`:
+
+- **renderer morto** — `renderProcessTerminated` recarrega a página na hora;
+- **vigia de memória** — a cada minuto, se os processos do QtWebEngine passam de **1,2 GB**, a
+  página é recomeçada antes de chegar ao teto que a mata. Os dois casos custam o mesmo que fechar e
+  abrir a janela: a tela volta para o Início.
+
 Com a janela aberta mas não à vista (minimizada, atrás de outra, em outra área de trabalho) a
 página também para de trabalhar: os três relógios dela — status, chat da reunião ao vivo e
 cronômetro — desligam e voltam quando ela reaparece, já com uma atualização de cada um.

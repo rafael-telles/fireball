@@ -33,6 +33,7 @@ import threading
 from pathlib import Path
 
 from fireball.daemon.core import DaemonCore
+from fireball.gui import memoria
 from fireball.gui.pagina import APP as PAGINA_APP, PAGINA_OCIOSA, PaginaDaJanela
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -47,6 +48,9 @@ APP_URL = str(WEB_DIR / "index.html")
 # é o que dá chance de os handlers de sinal do Python rodarem: enquanto o Qt
 # está parado dentro do exec() em C++, o interpretador não processa SIGTERM.
 STOP_POLL_MS = 200
+
+# de quanto em quanto tempo o vigia olha a memória da página (ver gui/memoria.py)
+MEMORIA_POLL_MS = 60_000
 
 
 def available() -> tuple[bool, str]:
@@ -203,6 +207,62 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
     # a página só volta quando alguém abrir a janela: daemon parado na bandeja
     # não tem o que desenhar.
     QTimer.singleShot(0, pagina.ao_esconder)
+
+    # --- vigia do renderer -------------------------------------------------
+    # Duas defesas contra a janela em branco (ver gui/memoria.py): o renderer
+    # do QtWebEngine vai embora quando o VmData dele encosta no limite de 16 GiB
+    # que o Chromium impõe, e aí o estado desta página continua dizendo "app"
+    # enquanto a janela mostra nada. Recarregar é o que conserta, e é o que a
+    # pessoa faz à mão fechando e abrindo a janela.
+
+    def ao_morrer_renderer(status, codigo) -> None:
+        """Só o renderer que morreu no meio do uso interessa.
+
+        `NormalTerminationStatus` é o fim de vida comum de um renderer (troca de
+        página, por exemplo) — recarregar nesse caso seria um vaivém sem fim.
+        Com a janela escondida a página ociosa não tem o que salvar: o próximo
+        clique na bandeja carrega o app de qualquer jeito.
+        """
+        nome = getattr(status, "name", str(status))
+        if nome == "NormalTerminationStatus" or pagina.estado != PAGINA_APP:
+            return
+        print(
+            f"[janela] renderer do QtWebEngine terminou ({nome}, código {codigo})"
+            " — recarregando a página",
+            flush=True,
+        )
+        pagina.recarregar()
+
+    memoria_timer = QTimer()
+
+    def checar_memoria() -> None:
+        """Recomeça a página antes de o renderer chegar ao teto que o mata."""
+        if pagina.estado != PAGINA_APP:
+            return  # página ociosa não cresce; nada a reciclar
+        try:
+            mb = memoria.memoria_dos_renderers()
+            gravando = bool(core.active())
+        except Exception as exc:  # noqa: BLE001 — vigia não pode derrubar a bandeja
+            print(f"[janela] não consegui medir a memória da página: {exc}", flush=True)
+            return
+        if memoria.deve_reciclar(mb, gravando=gravando):
+            print(f"[janela] página com {mb:.0f} MB — recomeçando", flush=True)
+            pagina.recarregar()
+
+    memoria_timer.timeout.connect(checar_memoria)
+    memoria_timer.start(MEMORIA_POLL_MS)
+
+    def ligar_vigia_do_renderer() -> None:
+        """Precisa da janela já criada: o sinal mora no QWebEngineView dela."""
+        try:
+            from webview.platforms.qt import BrowserView
+
+            visao = next(iter(BrowserView.instances.values())).webview
+            visao.page().renderProcessTerminated.connect(ao_morrer_renderer)
+        except Exception as exc:  # noqa: BLE001 — sem vigia ainda dá para usar o app
+            print(f"[janela] não consegui vigiar o renderer: {exc}", flush=True)
+
+    QTimer.singleShot(0, ligar_vigia_do_renderer)
 
     # Cada troca de página faz o pywebview registrar de novo o objeto da API no
     # QWebChannel, e o Qt avisa "Registered new object after initialization,
