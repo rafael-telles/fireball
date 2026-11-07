@@ -405,6 +405,29 @@ na parte fixa do pedido, não no prompt."
                 </div>
               </div>
             </section>
+
+            <section class="set-sec">
+              <h2>Onde ficam as gravações</h2>
+              <p class="set-sec-note">
+                Áudio, transcrições, notas, resumos e vozes. Vazio usa
+                <code>~/.fireball</code>; outro caminho joga tudo para outro disco.
+              </p>
+              <div class="rows">
+                <div class="row">
+                  <label class="row-txt" for="set-data-dir">
+                    <b>Pasta de dados</b>
+                    <span>
+                      Trocar aqui não move arquivo nenhum: pare o Fireball, mova as pastas e
+                      configure antes de gravar de novo.
+                      <span
+                        class="info" title="Se a pasta configurada não existir, o Fireball recusa a gravar em vez de criar a pasta no disco errado — é o sinal de disco desmontado."
+                      >ⓘ</span>
+                    </span>
+                  </label>
+                  <input type="text" id="set-data-dir" placeholder="~/.fireball" spellcheck="false" />
+                </div>
+              </div>
+            </section>
             </div>
 
             <div class="hidden" id="set-pane-resumo">
