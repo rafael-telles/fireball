@@ -25,12 +25,20 @@ _FTS_TOKEN = re.compile(r"\w+", re.UNICODE)
 
 
 def db_path() -> Path:
-    return storage.fireball_home() / "meetings.db"
+    return storage.data_root() / "meetings.db"
 
 
 @contextmanager
 def _connect(rebuild_if_empty: bool = False):
     path = db_path()
+    if not storage.data_available():
+        # O `mkdir` abaixo criaria a pasta de dados no disco errado (disco
+        # desmontado) e o índice nasceria vazio — pior ainda, `_rebuild` faz
+        # DELETE antes de reler as pastas e apagaria o catálogo inteiro.
+        raise storage.DataDirUnavailable(
+            f"A pasta de dados do Fireball ({storage.data_root()}) não existe — "
+            "o disco está montado? O catálogo não foi tocado."
+        )
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), timeout=30)
     conn.row_factory = sqlite3.Row
@@ -120,6 +128,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> bool:
 
 
 def _needs_rebuild(conn: sqlite3.Connection) -> bool:
+    if not storage.data_available():
+        return False  # sem o acervo não há o que comparar; não é sinal de rebuild
     indexed = conn.execute("SELECT COUNT(*) FROM meetings").fetchone()[0]
     if indexed:
         return False
@@ -166,6 +176,10 @@ def ensure() -> int:
 
 
 def _rebuild(conn: sqlite3.Connection) -> int:
+    if not storage.data_available():
+        # as pastas não estão lá: reconstruir agora apagaria o catálogo inteiro
+        # e o devolveria vazio. Índice velho é infinitamente melhor que zero.
+        return conn.execute("SELECT COUNT(*) FROM meetings").fetchone()[0]
     conn.execute("DELETE FROM segments_fts")
     conn.execute("DELETE FROM meetings_fts")
     conn.execute("DELETE FROM meeting_people")

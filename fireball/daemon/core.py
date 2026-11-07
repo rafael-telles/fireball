@@ -158,6 +158,17 @@ class DaemonCore:
         """
         recovered = []
         with self._lock:
+            if not storage.data_available():
+                # Sem o acervo não há o que reconciliar — e o pior é o que
+                # aconteceria sem esta guarda: disco fora do ar parece
+                # "nenhuma reunião viva", então migrar/scanear daqui marcaria
+                # como 'crashed' reuniões que estão apenas noutro disco.
+                print(
+                    f"[daemon] sem pasta de dados ({storage.data_root()}): o disco está "
+                    "montado? Nada foi reconciliado.",
+                    flush=True,
+                )
+                return recovered
             # reuniões do modelo antigo (duas transcrições) viram uma só antes
             # de qualquer leitura, para ninguém ver a versão pior de uma
             # reunião já finalizada
@@ -167,7 +178,13 @@ class DaemonCore:
                     f"[daemon] transcrição unificada em {len(migrated)} reunião(ões) do formato antigo",
                     flush=True,
                 )
-            catalog.ensure()
+            try:
+                catalog.ensure()
+            except storage.DataDirUnavailable as exc:
+                # o daemon tem que subir mesmo sem o acervo: a bandeja e a CLI
+                # continuam servindo, e o erro aparece onde alguém vai olhar
+                # (`daemon status` tem `data_dir.disponivel`/`erro`).
+                print(f"[daemon] sem pasta de dados: {exc}", flush=True)
             for meeting in control.scan_live_meetings():
                 meeting_id = meeting["id"]
                 pid = meeting.get("engine_pid")
@@ -415,6 +432,17 @@ class DaemonCore:
                 "active": control.read_meeting(self._recording.meeting_id) if self._recording else None,
                 "finalizing": sorted(self._finalizing),
                 "aviso": self._watch.ultimo_aviso,
+                # onde mora o estado (reuniões, áudio, catálogo, vozes) e se
+                # ele está no lugar. `disponivel: false` é o disco desmontado:
+                # a janela avisa e gravar é recusado, em vez de gravar no disco
+                # principal sem ninguém perceber.
+                "data_dir": {
+                    "path": str(storage.data_root()),
+                    "disponivel": storage.data_available(),
+                    "erro": None
+                    if storage.data_available()
+                    else f"pasta de dados não existe: {storage.data_root()} — o disco está montado?",
+                },
                 # versão que este processo está rodando (a janela mostra na aba
                 # Sobre) e o resultado da última conferência de atualização
                 "version": updates.current_version(),

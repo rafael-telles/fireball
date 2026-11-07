@@ -15,6 +15,11 @@ Tudo baseado em arquivos, dentro de ~/.fireball (ou $FIREBALL_HOME):
     meetings.db               catálogo SQLite (FTS) derivado dessas pastas —
                               busca e lista; os arquivos continuam sendo a fonte
                               da verdade
+
+Tudo isso é **estado**, e a raiz dele é `data_root()` — `~/.fireball` por
+padrão, ou outro disco quando `data_dir` está configurado (áudio de reunião
+enche disco rápido). Configuração e runtime (`settings.json`, socket, log) ficam
+sempre na home: o daemon precisa achá-los antes de ler qualquer preferência.
 """
 
 from __future__ import annotations
@@ -34,10 +39,97 @@ def fireball_home() -> Path:
     return home
 
 
+class DataDirUnavailable(RuntimeError):
+    """A pasta de dados configurada não está disponível (disco desmontado?)."""
+
+
+def data_dir_setting() -> str:
+    """O `data_dir` cru do settings.json, lido sem passar por `fireball.settings`.
+
+    `settings` importa `storage`, então perguntar pra ele aqui fecharia o ciclo.
+    O arquivo é o mesmo JSON pequeno — e este é o único lugar que precisa dele
+    sem passar pela validação de preferências.
+    """
+    raw = read_json(fireball_home() / "settings.json", {}) or {}
+    value = raw.get("data_dir")
+    return value.strip() if isinstance(value, str) else ""
+
+
+def data_root() -> Path:
+    """Onde mora o estado: reuniões, áudio, catálogo e vozes.
+
+    Vazio na configuração = a própria `~/.fireball` (instalação antiga segue
+    igual). Configurado, é outro disco — e aí esta função **não** cria nada:
+    quem cria é `ensure_data_dir`, no momento em que alguém diz "é aqui".
+    """
+    configured = data_dir_setting()
+    if not configured:
+        return fireball_home()
+    return Path(configured).expanduser()
+
+
+def data_available() -> bool:
+    """A raiz de estado existe? Falso só faz sentido quando ela é configurada."""
+    return data_root().is_dir()
+
+
+def data_subdir(name: str) -> Path:
+    """Uma pasta dentro da raiz de estado, criada se a raiz estiver no lugar.
+
+    A raiz existir é a prova barata de que o disco está montado: pasta criada
+    em disco ausente nasceria no filesystem errado, e aí a reunião seria gravada
+    num disco que ninguém vai olhar. Gravar no lugar errado em silêncio é pior
+    que recusar a gravar.
+    """
+    root = data_root()
+    if not root.is_dir():
+        raise DataDirUnavailable(
+            f"A pasta de dados do Fireball ({root}) não existe — o disco está montado? "
+            "Nada foi gravado."
+        )
+    target = root / name
+    target.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def meetings_root() -> Path:
-    root = fireball_home() / "meetings"
-    root.mkdir(parents=True, exist_ok=True)
-    return root
+    return data_subdir("meetings")
+
+
+def voices_root() -> Path:
+    return data_subdir("voices")
+
+
+def ensure_data_dir(text: str) -> str:
+    """Valida (e cria) a pasta de dados que alguém acabou de configurar.
+
+    Só este caminho cria a raiz — é o instante em que alguém afirma "é aqui".
+    Exige caminho absoluto e uma pasta-mãe que seja ponto de montagem (ou que já
+    esteja noutro dispositivo): criar `/mnt/ssd2/Fireball` com o ssd2 desmontado
+    produziria uma pasta no disco principal com o nome do outro disco, que é
+    exatamente a armadilha que isto existe para fechar.
+    """
+    path = Path(str(text or "").strip()).expanduser()
+    if not path.is_absolute():
+        raise ValueError(f"A pasta de dados precisa ser caminho absoluto: {text!r}.")
+    if not path.exists():
+        parent = path.parent
+        if not parent.is_dir():
+            raise ValueError(f"A pasta-mãe não existe: {parent} — o disco está montado?")
+        home_dev = Path.home().stat().st_dev
+        if not os.path.ismount(str(parent)) and parent.stat().st_dev == home_dev:
+            raise ValueError(
+                f"{parent} não está num disco montado; criar {path} aqui gravaria no disco "
+                "principal. Monte o disco primeiro."
+            )
+        path.mkdir()
+    try:
+        probe = path / ".fireball-probe"
+        probe.write_text("")
+        probe.unlink()
+    except OSError as exc:
+        raise ValueError(f"Não consigo escrever em {path}: {exc}") from exc
+    return str(path)
 
 
 def slugify(text: str) -> str:

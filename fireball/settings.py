@@ -22,6 +22,7 @@ precedência sobre o campo vazio (ver `fireball/summarizers/openai_api.py`).
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Optional
 
 from fireball import prompts, realtime, storage
@@ -82,6 +83,12 @@ DEFAULTS = {
     # com o convidado da agenda: sem isso a mesma pessoa aparece três vezes na
     # lista de participantes. Vazio = não configurado, e aí "Você" fica só.
     "my_voice": "",
+    # Onde ficam as reuniões, o áudio, o catálogo e as vozes. Vazio = a própria
+    # `~/.fireball`; um caminho absoluto joga o estado para outro disco (áudio de
+    # reunião enche disco rápido). Configuração e runtime (settings, prompts,
+    # socket, log) ficam sempre na home — o daemon precisa achá-los antes de ler
+    # qualquer preferência.
+    "data_dir": "",
 }
 
 # As chaves cujo valor vazio é uma resposta legítima ("não configurado"), e
@@ -115,6 +122,17 @@ def _coerce(key: str, value) -> Optional[object]:
         return url if url.startswith(("http://", "https://")) else None
     if key in TEXT_KEYS:
         return str(value or "").strip()
+    if key == "data_dir":
+        # só normaliza: validar aqui faria `load()` descartar em silêncio um
+        # caminho que está válido mas com o disco fora agora — e o app voltaria
+        # a gravar na home sem ninguém perceber, que é o que o `data_dir` existe
+        # para impedir. A validação de verdade mora no `save()`, que é quando
+        # alguém está pedindo para mudar.
+        text = str(value or "").strip()
+        if not text:
+            return ""
+        path = Path(text).expanduser()
+        return str(path) if path.is_absolute() else None
     if key == "summary_provider":
         return value if value in SUMMARY_PROVIDERS else None
     if key == "summary_prompt":
@@ -195,6 +213,12 @@ def save(**fields) -> dict:
             if key == "language":
                 raise ValueError("Idioma não pode ficar vazio (código curto, ex.: pt, en).")
             raise ValueError(f"Valor inválido para '{key}': {raw!r}.")
+        if key == "data_dir" and coerced and coerced != values.get(key):
+            # Validar só quando o caminho **muda**: a janela manda todos os
+            # campos a cada Salvar, e com o disco fora do ar recusar a
+            # configuração inteira por causa de um caminho que ninguém tocou
+            # trancaria a tela justamente no dia em que o disco não montou.
+            coerced = storage.ensure_data_dir(str(coerced))
         values[key] = coerced
     path = settings_path()
     _restrict(path)
