@@ -140,6 +140,59 @@ class DataRootTest(unittest.TestCase):
         self._settings(data_dir=str(disco))
         self.assertEqual(storage.voices_root(), disco / "voices")
 
+    # ------------------------------------------------------------- daemon
+
+    def test_status_mostra_data_dir_disponivel(self):
+        from fireball.daemon.core import DaemonCore
+
+        disco = Path(self.temp.name) / "disco"
+        disco.mkdir()
+        self._settings(data_dir=str(disco))
+        data = DaemonCore().daemon_status()["data_dir"]
+        self.assertTrue(data["disponivel"])
+        self.assertIsNone(data["erro"])
+        self.assertEqual(data["path"], str(disco))
+
+    def test_status_mostra_data_dir_indisponivel(self):
+        from fireball.daemon.core import DaemonCore
+
+        self._settings(data_dir=str(Path(self.temp.name) / "desmontado"))
+        data = DaemonCore().daemon_status()["data_dir"]
+        self.assertFalse(data["disponivel"])
+        self.assertIn("montado", data["erro"])
+
+    def test_boot_sem_o_disco_nao_morre(self):
+        """A bandeja e a CLI têm que subir mesmo sem o acervo: o erro do
+        catálogo vira aviso no log, não falha na subida."""
+        from fireball.daemon.core import DaemonCore
+
+        self._settings(data_dir=str(Path(self.temp.name) / "desmontado"))
+        core = DaemonCore()
+        self.assertEqual(core.recover(), [])
+
+    def test_recuperar_nao_apaga_reuniao_com_o_disco_fora(self):
+        """O `recover` roda no boot: com o disco fora ele recusa em vez de
+        marcar como 'crashed' reuniões que o disco simplesmente não mostra."""
+        from fireball.daemon.core import DaemonCore
+
+        disco = Path(self.temp.name) / "disco"
+        disco.mkdir()
+        self._settings(data_dir=str(disco))
+        control.create_meeting(
+            name="reuniao",
+            fake=True,
+            mic_device=None,
+            system_device=None,
+            transcribe=False,
+            diarize=False,
+            backend="whisper",
+            language="pt",
+        )
+        self._settings(data_dir=str(Path(self.temp.name) / "desmontado"))
+        DaemonCore().recover()
+        self._settings(data_dir=str(disco))
+        self.assertEqual(control.read_meeting(control.list_meetings()[0]["id"])["status"], "starting")
+
 
 if __name__ == "__main__":
     unittest.main()
