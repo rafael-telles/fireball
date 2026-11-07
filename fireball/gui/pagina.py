@@ -26,9 +26,10 @@ from typing import Callable, Optional
 APP = "app"
 OCIOSA = "ociosa"
 
-# o que `ao_mostrar`/`ao_esconder` devolvem
+# o que `ao_mostrar`/`ao_esconder`/`recarregar` devolvem
 NADA = "nada"
 FALHOU = "falhou"
+RECARREGOU = "recarregou"
 
 # A página ociosa: fundo igual ao da janela, o nome do app e **nenhum
 # relógio**. Não é enfeite — é o ponto. Um timer aqui ressuscitaria o
@@ -120,6 +121,22 @@ class PaginaDaJanela:
         if self._estado == OCIOSA:
             return NADA
         return self._trocar(OCIOSA, self._carregar_ociosa, "página ociosa (memória devolvida)")
+
+    def recarregar(self) -> str:
+        """Carrega de novo a página do estado atual, sem passar pela outra.
+
+        Dois casos pedem isso, os dois com o renderer já morto ou grande demais:
+        o processo do QtWebEngine terminou (`renderProcessTerminated`) ou
+        passou do teto de memória (ver `gui/memoria.py`). Nos dois, o que existe
+        na janela não é mais a página — e sem recarregar ela fica em branco até
+        alguém fechar e abrir a janela, porque o estado aqui continua dizendo
+        `app` e `ao_mostrar` não recarrega o que já está "lá".
+        """
+        if self._estado == APP:
+            feito = self._trocar(APP, self._carregar_app, "página recarregada (renderer novo)")
+        else:
+            feito = self._trocar(OCIOSA, self._carregar_ociosa, "página ociosa recarregada")
+        return FALHOU if feito == FALHOU else RECARREGOU
 
     def _trocar(self, estado: str, carregar: Callable[[], None], mensagem: str) -> str:
         try:

@@ -108,3 +108,40 @@ class PaginaDaJanelaTests(unittest.TestCase):
         """O único script dela é o que evita traceback de resposta atrasada."""
         self.assertIn("_returnValuesCallbacks", pagina.PAGINA_OCIOSA)
         self.assertIn("pywebviewready", pagina.PAGINA_OCIOSA)
+
+
+class RecarregarTests(unittest.TestCase):
+    """O renderer morreu (ou cresceu demais): a página tem que voltar sozinha."""
+
+    def setUp(self):
+        self.carregados: list[str] = []
+        self.logs: list[str] = []
+        self.pagina = pagina.PaginaDaJanela(
+            carregar_app=lambda: self.carregados.append(pagina.APP),
+            carregar_ociosa=lambda: self.carregados.append(pagina.OCIOSA),
+            log=self.logs.append,
+        )
+
+    def test_recarrega_a_pagina_do_app_sem_passar_pela_ociosa(self):
+        self.pagina.ao_mostrar()
+        self.carregados.clear()
+        self.assertEqual(self.pagina.recarregar(), pagina.RECARREGOU)
+        self.assertEqual(self.carregados, [pagina.APP])
+        self.assertEqual(self.pagina.estado, pagina.APP)
+
+    def test_recarregar_nao_vira_no_op_como_o_mostrar(self):
+        """É o bug da janela em branco: com o renderer morto, `ao_mostrar`
+        dizia NADA porque o estado continuava `app`."""
+        self.pagina.ao_mostrar()
+        self.assertEqual(self.pagina.ao_mostrar(), pagina.NADA)
+        self.assertEqual(self.pagina.recarregar(), pagina.RECARREGOU)
+
+    def test_recarrega_a_ociosa_quando_a_janela_esta_escondida(self):
+        self.assertEqual(self.pagina.recarregar(), pagina.RECARREGOU)
+        self.assertEqual(self.carregados, [pagina.OCIOSA])
+
+    def test_falha_ao_recarregar_nao_mente_sobre_o_estado(self):
+        self.pagina = pagina.PaginaDaJanela(_explode, _explode, log=self.logs.append)
+        self.assertEqual(self.pagina.recarregar(), pagina.FALHOU)
+        self.assertIn("não consegui trocar a página", self.logs[-1])
+
