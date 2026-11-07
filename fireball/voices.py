@@ -39,8 +39,10 @@ class VoiceEnrollmentError(ValueError):
 
 
 def profiles_root() -> Path:
-    root = storage.fireball_home() / "voices"
-    root.mkdir(parents=True, exist_ok=True)
+    # as vozes moram com o acervo (ver `storage.data_root`): são estado, não
+    # configuração — e um perfil de voz fora do disco das reuniões não serve
+    # para reencontrar quem falou nelas.
+    root = storage.voices_root()
     try:
         os.chmod(root, 0o700)
     except OSError:

@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fireball import settings, storage
+from fireball import catalog, control, settings, storage
 
 
 class DataRootTest(unittest.TestCase):
@@ -104,6 +104,41 @@ class DataRootTest(unittest.TestCase):
         settings.save(data_dir="")
         self.assertEqual(settings.load()["data_dir"], "")
         self.assertEqual(storage.data_root(), self.home)
+
+    # ------------------------------------------------- catálogo e vozes
+
+    def test_catalogo_mora_com_o_acervo(self):
+        disco = Path(self.temp.name) / "disco"
+        disco.mkdir()
+        self._settings(data_dir=str(disco))
+        self.assertEqual(catalog.db_path(), disco / "meetings.db")
+
+    def test_disco_fora_nao_zera_o_catalogo(self):
+        disco = Path(self.temp.name) / "disco"
+        disco.mkdir()
+        self._settings(data_dir=str(disco))
+        control.create_meeting(
+            name="reuniao",
+            fake=True,
+            mic_device=None,
+            system_device=None,
+            transcribe=False,
+            diarize=False,
+            backend="whisper",
+            language="pt",
+        )  # já com o data_dir valendo
+        self.assertEqual(len(control.list_meetings()), 1)
+        self._settings(data_dir=str(Path(self.temp.name) / "desmontado"))
+        with self.assertRaises(storage.DataDirUnavailable):
+            catalog.ensure()
+        self._settings(data_dir=str(disco))
+        self.assertEqual(len(control.list_meetings()), 1)  # índice intacto
+
+    def test_vozes_moram_com_o_acervo(self):
+        disco = Path(self.temp.name) / "disco"
+        disco.mkdir()
+        self._settings(data_dir=str(disco))
+        self.assertEqual(storage.voices_root(), disco / "voices")
 
 
 if __name__ == "__main__":
