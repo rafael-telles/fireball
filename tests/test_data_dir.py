@@ -15,7 +15,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fireball import storage
+from fireball import settings, storage
 
 
 class DataRootTest(unittest.TestCase):
@@ -57,6 +57,52 @@ class DataRootTest(unittest.TestCase):
 
     def test_settings_quebrado_nao_derruba_a_leitura(self):
         self._settings(data_dir=123)
+        self.assertEqual(storage.data_root(), self.home)
+
+    # ------------------------------------------------------- preferências
+
+    def test_data_dir_nao_configurado_e_string_vazia(self):
+        self.assertEqual(settings.load()["data_dir"], "")
+
+    def test_salvar_data_dir_cria_a_pasta(self):
+        disco = Path(self.temp.name) / "disco"
+        disco.mkdir()
+        settings.save(data_dir=str(disco / "Fireball"))
+        self.assertTrue((disco / "Fireball").is_dir())
+        self.assertEqual(settings.load()["data_dir"], str(disco / "Fireball"))
+
+    def test_salvar_data_dir_relativo_e_erro(self):
+        with self.assertRaises(ValueError):
+            settings.save(data_dir="Fireball")
+
+    def test_salvar_data_dir_em_ponto_de_montagem_falso_e_erro(self):
+        """`/mnt/ssd2/Fireball` com o ssd2 desmontado criaria a pasta no disco
+        principal — o nome do outro disco, no disco errado.
+
+        A home é falsa para o teste não depender de o tempdir cair noutro
+        filesystem (o /tmp desta máquina é tmpfs, o TMPDIR do agente fica no
+        home): o que a guarda compara é o `st_dev` da home.
+        """
+        fake_mount = Path(self.temp.name) / "mnt" / "ssd2"
+        fake_mount.mkdir(parents=True)
+        with patch("pathlib.Path.home", return_value=self.home):
+            with self.assertRaises(ValueError) as ctx:
+                storage.ensure_data_dir(str(fake_mount / "Fireball"))
+        self.assertIn("monte o disco", str(ctx.exception).lower())
+        self.assertFalse((fake_mount / "Fireball").exists())
+
+    def test_data_dir_de_disco_ausente_nao_cai_para_o_padrao(self):
+        # load() tolera o disco fora (senão o app voltaria a gravar na home em
+        # silêncio, que é justamente o que o data_dir existe para impedir)
+        self._settings(data_dir=str(Path(self.temp.name) / "desmontado"))
+        self.assertEqual(settings.load()["data_dir"], str(Path(self.temp.name) / "desmontado"))
+
+    def test_padrao_vazio_volta_para_a_home(self):
+        disco = Path(self.temp.name) / "disco"
+        disco.mkdir()
+        settings.save(data_dir=str(disco))
+        settings.save(data_dir="")
+        self.assertEqual(settings.load()["data_dir"], "")
         self.assertEqual(storage.data_root(), self.home)
 
 
