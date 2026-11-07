@@ -77,7 +77,12 @@ button:not(:disabled):active { transform: scale(.96); }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 @keyframes flick { 0%, 100% { transform: scale(1) rotate(0); } 30% { transform: scale(1.05, .96) rotate(-2deg); } 60% { transform: scale(.97, 1.05) rotate(2deg); } }
-@keyframes breathe { 0%, 100% { box-shadow: 0 0 0 0 #5bc98a66; } 50% { box-shadow: 0 0 0 5px #5bc98a00; } }
+/* `breathe` mexe em transform/opacity de propósito: animar `box-shadow` obriga o
+   renderer a repintar a cada quadro, e o QtWebEngine vaza ~1 MB/s nisso (medido
+   em 07/11/2026, página em repouso). A página crescia até os 16 GiB de
+   RLIMIT_DATA do renderer, ele abortava e a janela ficava em branco. Ver
+   fireball/gui/memoria.py. */
+@keyframes breathe { 0%, 100% { transform: scale(1); opacity: .6; } 50% { transform: scale(2.1); opacity: 0; } }
 @keyframes ring { 0% { transform: scale(.6); opacity: 1; } 100% { transform: scale(2.4); opacity: 0; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
 @keyframes ripple { 0% { box-shadow: 0 0 0 0 #ff3b3088; } 100% { box-shadow: 0 0 0 8px #ff3b3000; } }
@@ -176,7 +181,13 @@ body[data-view="settings"] .sb-foot { display: none; }
 .rec-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .rec-txt b { font-size: 12.5px; font-weight: 500; }
 .rec-txt span { font-size: 11.5px; color: var(--dim); }
-.ok-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; animation: breathe 2.4s ease-in-out infinite; }
+.ok-dot { position: relative; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+/* o pulso é o anel do ::after (transform/opacity); o ponto em si fica parado */
+.ok-dot::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--ok);
+  animation: breathe 2.4s ease-in-out infinite;
+}
 
 .live-card {
   display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 12px;
@@ -546,10 +557,19 @@ body[data-view="settings"] .composer { display: none; }
 #chat.modo-doc .msg.playing { background: var(--accent-bg); }
 #chat.modo-doc .msg.playing .bubble { color: var(--text); }
 #chat.modo-doc .msg.playing .msg-time { color: var(--accent-text-2); }
-.seg-actions { opacity: 0; transition: opacity .2s ease; }
-.msg:hover .seg-actions, .seg-actions:focus-within { opacity: 1; }
-.seg-action { color: var(--faint); font-size: 11px; border-radius: 6px; padding: 1px 6px; }
-.seg-action:hover { color: var(--accent-text); background: var(--accent-bg-2); }
+/* as ações flutuam sobre o canto da fala: na linha do nome e do horário elas
+   estouravam a largura do painel com qualquer nome mais comprido */
+#chat .msg { position: relative; }
+.seg-actions {
+  position: absolute; top: 3px; right: 6px; z-index: 1; gap: 1px; padding: 2px;
+  font: 11px "Inter", system-ui, sans-serif; letter-spacing: 0;
+  border-radius: 8px; background: var(--panel); box-shadow: 0 0 0 1px var(--border-mid), 0 6px 16px -8px #000;
+  opacity: 0; pointer-events: none; transition: opacity .2s ease;
+}
+.msg:hover .seg-actions, .seg-actions:focus-within, .msg .seg-actions[data-confirming] { opacity: 1; pointer-events: auto; }
+.seg-action { border: 0; background: none; color: var(--dim); font-size: 11px; border-radius: 6px; padding: 3px 7px; }
+.seg-action:hover { border: 0; color: var(--accent-text); background: var(--accent-bg-2); }
+.seg-confirm-label { padding: 0 4px 0 6px; align-self: center; }
 
 /* player e barra ao vivo */
 .painel-tr .live-bar, .painel-tr .player-bar {
@@ -572,7 +592,16 @@ body[data-view="settings"] .composer { display: none; }
 .player-track:hover { height: 8px; }
 .player-track-fill { background: var(--accent); border-radius: 99px; }
 .player-note { font-size: 12px; color: var(--faint); }
-.player-follow { font-size: 12px; color: var(--dim); }
+.player-follow {
+  display: flex; align-items: center; gap: 6px; flex: none; white-space: nowrap;
+  font-size: 12px; color: var(--dim); cursor: pointer;
+}
+.player-follow input, .doc-det .checkbox-row input {
+  width: 14px; height: 14px; margin: 0; flex: none; accent-color: var(--accent); cursor: pointer;
+}
+.doc-det .checkbox-row input { margin-top: 3px; }
+.doc-det .checkbox-row { align-items: flex-start; gap: 8px; margin: 0; font-size: 13px; color: var(--text-2); }
+.doc-det .checkbox-row + .note { margin-top: 4px; padding-left: 22px; }
 .live-bar-title { font-size: 12px; color: var(--text-2); }
 
 /* o composer, na reunião, mora no pé da coluna da transcrição */
