@@ -127,6 +127,13 @@ def _explain_failure(proc: subprocess.CompletedProcess, account: str) -> str:
             f"O token do gog expirou ou foi revogado. Rode "
             f"`gog auth add {target}` e tente de novo."
         )
+    if "gog_keyring_password" in lower:
+        return (
+            "O gog guarda o token num keyring em arquivo e o daemon do Fireball "
+            "não recebeu a GOG_KEYRING_PASSWORD. Exporte a variável na sessão "
+            "gráfica (ex.: ~/.config/environment.d/) e reinicie o daemon com "
+            "`fireball daemon restart`."
+        )
     if "missing --account" in lower or "no account" in lower:
         return (
             "O gog precisa saber qual conta usar. Configure o e-mail na tela "
