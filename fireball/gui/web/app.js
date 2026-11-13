@@ -2381,11 +2381,20 @@ async function refreshStatus() {
   let status;
   try {
     status = await api("get_status");
-    setBanner("");
   } catch (err) {
     setBanner(errText(err));
     return;
   }
+
+  // Pasta de dados fora do ar (disco desmontado) é aviso de tela inteira, não
+  // nota de configuração: com ela ausente o Fireball *recusa* gravar, e quem
+  // está na home precisa saber disso antes de clicar em iniciar.
+  const dados = status.data_dir;
+  setBanner(
+    dados && dados.disponivel === false
+      ? `O disco das gravações não está montado (${dados.path}) — nada será gravado até ele voltar.`
+      : ""
+  );
 
   // versão e última conferência de atualização viajam no mesmo status: o daemon
   // cacheia a conferência (6h), então este poll de 2s não abre conexão nenhuma
@@ -4627,6 +4636,7 @@ function renderSettings() {
   el("set-groq-key").value = s.groq_api_key || "";
   el("set-gog-account").value = s.gog_account || "";
   el("set-language").value = s.language;
+  el("set-data-dir").value = s.data_dir || "";
   fillSelect("set-my-voice", myVoiceOptions(), s.my_voice || "");
   renderProviderFields();
   renderFinalFields();
@@ -4641,6 +4651,7 @@ const SETTINGS_FIELDS = [
   "set-groq-key", "set-language", "set-summary-provider", "set-openai-url", "set-openai-key",
   "set-openai-model", "set-auto-summarize", "set-aviso-silencio-minutos", "set-aviso-minutos",
   "set-summary-prompt", "set-calendar-provider", "set-gog-account", "set-my-voice", "set-check-updates",
+  "set-data-dir",
 ];
 
 function settingsSnapshot() {
@@ -4984,6 +4995,7 @@ async function onSaveSettings() {
       gog_account: el("set-gog-account").value,
       my_voice: el("set-my-voice").value,
       language: el("set-language").value,
+      data_dir: el("set-data-dir").value.trim(),
       check_updates: el("set-check-updates").checked,
     });
     renderSettings(); // o daemon é quem diz o que ficou valendo
