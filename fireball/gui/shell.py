@@ -52,6 +52,11 @@ STOP_POLL_MS = 200
 # de quanto em quanto tempo o vigia olha a memória da página (ver gui/memoria.py)
 MEMORIA_POLL_MS = 60_000
 
+# Recarregar a mesma URL reaproveita o processo do renderer e não devolve nada;
+# só passando pela página ociosa nasce um renderer novo. Ela precisa chegar a
+# carregar antes da volta, senão o Chromium fica no mesmo processo.
+RECICLO_MS = 500
+
 
 def available() -> tuple[bool, str]:
     """Dá pra desenhar a casca aqui? Devolve (pode, motivo_se_nao)."""
@@ -150,6 +155,7 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
         False) impede que esse trecho seja alcançado.
         """
         window.hide()
+        reciclo["pendente"] = False
         pagina.ao_esconder()
         return False  # False cancela o close de verdade (ver webview/event.py)
 
@@ -233,6 +239,18 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
         )
         pagina.recarregar()
 
+    reciclo = {"pendente": False}
+
+    def reciclar() -> None:
+        pagina.ao_esconder()
+        reciclo["pendente"] = True
+        QTimer.singleShot(RECICLO_MS, voltar_do_reciclo)
+
+    def voltar_do_reciclo() -> None:
+        if reciclo["pendente"]:
+            reciclo["pendente"] = False
+            pagina.ao_mostrar()
+
     memoria_timer = QTimer()
 
     def checar_memoria() -> None:
@@ -247,7 +265,7 @@ def run(core: DaemonCore, stop_event: threading.Event) -> None:
             return
         if memoria.deve_reciclar(mb, gravando=gravando):
             print(f"[janela] página com {mb:.0f} MB — recomeçando", flush=True)
-            pagina.recarregar()
+            reciclar()
 
     memoria_timer.timeout.connect(checar_memoria)
     memoria_timer.start(MEMORIA_POLL_MS)

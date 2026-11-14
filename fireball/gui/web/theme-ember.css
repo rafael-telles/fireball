@@ -85,7 +85,9 @@ button:not(:disabled):active { transform: scale(.96); }
 @keyframes breathe { 0%, 100% { transform: scale(1); opacity: .6; } 50% { transform: scale(2.1); opacity: 0; } }
 @keyframes ring { 0% { transform: scale(.6); opacity: 1; } 100% { transform: scale(2.4); opacity: 0; } }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
-@keyframes ripple { 0% { box-shadow: 0 0 0 0 #ff3b3088; } 100% { box-shadow: 0 0 0 8px #ff3b3000; } }
+/* anéis que se expandem: só transform/opacity num pseudo-elemento. Animar
+   box-shadow repinta a cada quadro e o renderer do QtWebEngine vaza com isso. */
+@keyframes ripple { 0% { transform: scale(1); opacity: .55; } 100% { transform: scale(3.2); opacity: 0; } }
 @keyframes lvl { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
 @keyframes wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(10deg); } }
 @keyframes draw { to { stroke-dashoffset: 0; } }
@@ -167,8 +169,11 @@ body[data-view="settings"] .sb-foot { display: none; }
   position: relative; font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 99px;
   background: var(--accent); color: var(--accent-ink);
 }
-.ver-badge::after { content: ""; position: absolute; inset: 0; border-radius: 99px; animation: ping 2s ease-out infinite; }
-@keyframes ping { 0% { box-shadow: 0 0 0 0 #ff5a3688; } 100% { box-shadow: 0 0 0 7px #ff5a3600; } }
+.ver-badge::after {
+  content: ""; position: absolute; inset: 0; border-radius: 99px; border: 1.5px solid var(--accent);
+  animation: ping 2s ease-out infinite;
+}
+@keyframes ping { 0% { transform: scale(1); opacity: .7; } 100% { transform: scale(1.35, 1.9); opacity: 0; } }
 
 .sb-foot { border-top: 0; padding-top: 8px; display: flex; flex-direction: column; gap: 8px; }
 .trial { border-radius: 10px; margin: 0; }
@@ -198,8 +203,12 @@ body[data-view="settings"] .sb-foot { display: none; }
 .live-card.hidden { display: none; }
 .live-card-top { display: flex; align-items: center; gap: 9px; margin: 0; }
 .live-card .pulse-dot {
-  width: 8px; height: 8px; border-radius: 50%; background: var(--rec);
-  animation: pulse 1.6s ease-in-out infinite, ripple 1.6s ease-out infinite;
+  position: relative; width: 8px; height: 8px; border-radius: 50%; background: var(--rec);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.live-card .pulse-dot::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--rec);
+  animation: ripple 1.6s ease-out infinite;
 }
 .live-card-label { font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--accent-text-2); }
 .live-card-time { margin-left: auto; font: 500 13px var(--mono); color: var(--text); font-variant-numeric: tabular-nums; }
@@ -232,6 +241,7 @@ body[data-view="settings"] .sb-foot { display: none; }
 .lc-btn.is-paused .ic-play { display: block; animation: pop .3s var(--spring) both; }
 .live-card.paused { background: #141213; border-color: var(--border); }
 .live-card.paused .pulse-dot { animation: none; background: var(--dim); }
+.live-card.paused .pulse-dot::after { display: none; }
 .live-card.paused .bars i { animation-play-state: paused; }
 .live-card.paused .live-card-label { color: var(--text-2); }
 
@@ -395,12 +405,18 @@ body[data-view="settings"] .composer { display: none; }
   border-radius: 99px; background: var(--accent-bg-2); color: var(--accent-text-2);
   font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums;
 }
+.mv-elapsed { position: relative; }
 .mv-elapsed::before {
   width: 7px; height: 7px; background: var(--rec);
-  animation: pulse 1.6s ease-in-out infinite, ripple 1.6s ease-out infinite;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.mv-elapsed::after {
+  content: ""; position: absolute; left: 11px; top: calc(50% - 3.5px); width: 7px; height: 7px;
+  border-radius: 50%; background: var(--rec); animation: ripple 1.6s ease-out infinite;
 }
 .mv-elapsed.dim { background: var(--surface-2); color: var(--text-2); opacity: 1; }
 .mv-elapsed.dim::before { background: var(--dim); animation: none; }
+.mv-elapsed.dim::after { display: none; }
 #pause-btn::before, #stop-btn::before {
   content: ""; width: 12px; height: 12px; background: currentColor; flex: none;
   -webkit-mask: var(--glyph) center / contain no-repeat; mask: var(--glyph) center / contain no-repeat;
@@ -583,9 +599,13 @@ body[data-view="settings"] .composer { display: none; }
 }
 .play-btn .ic-pause, .play-btn.is-playing .ic-play { display: none; }
 .play-btn.is-playing .ic-pause { display: block; }
-.play-btn.is-playing { animation: ripple-e 1.4s ease-out infinite; }
+.play-btn { position: relative; }
+.play-btn.is-playing::after {
+  content: ""; position: absolute; inset: 0; border-radius: 50%; border: 2px solid var(--accent);
+  animation: ripple-e 1.4s ease-out infinite;
+}
 .play-btn.off { opacity: .35; }
-@keyframes ripple-e { 0% { box-shadow: 0 0 0 0 #ff5a3688; } 100% { box-shadow: 0 0 0 10px #ff5a3600; } }
+@keyframes ripple-e { 0% { transform: scale(1); opacity: .6; } 100% { transform: scale(1.6); opacity: 0; } }
 .player-time { font: 11.5px var(--mono); color: var(--text-2); font-variant-numeric: tabular-nums; }
 .player-time.dim { color: var(--faint); }
 .player-track { height: 6px; border-radius: 99px; background: var(--border-2); cursor: pointer; transition: height .2s ease; }

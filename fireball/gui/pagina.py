@@ -125,10 +125,8 @@ class PaginaDaJanela:
     def recarregar(self) -> str:
         """Carrega de novo a página do estado atual, sem passar pela outra.
 
-        Dois casos pedem isso, os dois com o renderer já morto ou grande demais:
-        o processo do QtWebEngine terminou (`renderProcessTerminated`) ou
-        passou do teto de memória (ver `gui/memoria.py`). Nos dois, o que existe
-        na janela não é mais a página — e sem recarregar ela fica em branco até
+        Serve ao renderer que já morreu (`renderProcessTerminated`): o que
+        existe na janela não é mais a página — e sem recarregar ela fica em branco até
         alguém fechar e abrir a janela, porque o estado aqui continua dizendo
         `app` e `ao_mostrar` não recarrega o que já está "lá".
         """
