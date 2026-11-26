@@ -86,6 +86,9 @@ class Endpointer:
         # dentro do buffer, dá a posição absoluta da fala na gravação — que é
         # o que a torna localizável no .wav.
         self._consumed = 0
+        # fim da voz mais recente detectada, em segundos da track (None até a
+        # primeira). A diarização ao vivo usa para pausar em silêncio.
+        self.last_speech_end: Optional[float] = None
 
     def _drop(self, samples: int) -> None:
         """Descarta o começo do buffer mantendo a conta da posição absoluta."""
@@ -118,6 +121,7 @@ class Endpointer:
             return []
 
         last = speech_ranges[-1]
+        self.last_speech_end = (self._consumed + last["end"]) / self.samplerate
         trailing_silence = len(self._buffer) - last["end"]
         closed_ranges = speech_ranges if trailing_silence >= self._min_silence_samples else speech_ranges[:-1]
 
